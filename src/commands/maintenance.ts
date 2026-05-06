@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { clearMaintenanceTarget, MaintenanceTarget } from '../systems/maintenanceManager';
 import { config } from '../config';
+import { backfillVotesAndScores } from '../systems/voteBackfillManager';
 
 export default {
     data: new SlashCommandBuilder()
@@ -22,6 +23,11 @@ export default {
                             { name: 'All', value: 'all' }
                         )
                 )
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('backfill-votes')
+                .setDescription('Quét showcase/share để gán reaction thiếu và tính lại điểm vote')
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -30,6 +36,12 @@ export default {
         }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        if (interaction.options.getSubcommand() === 'backfill-votes') {
+            const result = await backfillVotesAndScores(interaction.client);
+            return interaction.editReply(`${config.ui.emojis.success} Backfill xong: scanned ${result.scanned}, reacted ${result.reacted}, votes ${result.votes}.`);
+        }
+
         const target = interaction.options.getString('target', true);
         const targets: MaintenanceTarget[] = target === 'all'
             ? ['requestPaid', 'requestFree', 'serverAds']
