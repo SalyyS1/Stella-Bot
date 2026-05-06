@@ -8,6 +8,13 @@ import { sendAdminLog } from '../utils/adminLog';
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return await Promise.race([
+        promise,
+        new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms))
+    ]);
+}
+
 function emojiIdentifier(raw: string): string | null {
     const match = raw.match(/<(?:a)?:([^:>]+):(\d+)>/);
     return match ? `${match[1]}:${match[2]}` : null;
@@ -17,10 +24,10 @@ async function reactIfMissing(message: Message): Promise<void> {
     const up = emojiIdentifier(config.ui.emojis.upvote);
     const down = emojiIdentifier(config.ui.emojis.downvote);
     if (up && !message.reactions.cache.some(reaction => reaction.emoji.id === upvoteId)) {
-        await message.react(up).catch(() => {});
+        await withTimeout(message.react(up).then(() => true).catch(() => false), 2500, false);
     }
     if (down && !message.reactions.cache.some(reaction => reaction.emoji.id === downvoteId)) {
-        await message.react(down).catch(() => {});
+        await withTimeout(message.react(down).then(() => true).catch(() => false), 2500, false);
     }
 }
 
@@ -43,7 +50,8 @@ async function collectReactionUserIds(message: Message, emojiId: string | undefi
     if (!emojiId) return [];
     const reaction = message.reactions.cache.find(item => item.emoji.id === emojiId);
     if (!reaction) return [];
-    const users = await reaction.users.fetch().catch(() => null);
+    if ((reaction.count || 0) <= 1) return [];
+    const users = await withTimeout(reaction.users.fetch().catch(() => null), 5000, null);
     if (!users) return [];
     return users.filter(user => !user.bot && user.id !== message.author?.id).map(user => user.id);
 }
