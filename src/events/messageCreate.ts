@@ -22,6 +22,15 @@ export default {
         // Bỏ qua tin nhắn của bot
         if (message.author.bot) return;
 
+        if (message.channelId === config.channels.welcome) {
+            await message.delete().catch(() => {});
+            const warning = await (message.channel as any).send({
+                content: `<@${message.author.id}> ${config.ui.emojis.error} Kênh welcome chỉ dùng để bot thông báo, vui lòng chat tại <#${config.channels.chat}>.`
+            }).catch(() => null);
+            if (warning) setTimeout(() => warning.delete().catch(() => {}), 8000);
+            return;
+        }
+
         // === XP TRACKING (chạy ngầm, không block) ===
         if (message.guild && message.member) {
             processMessageXp(message.author.id, message.content, message.guild, message.member).then(result => {
@@ -166,6 +175,19 @@ export default {
                 );
                 await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
             }
+        }
+        else if ([
+            config.channels.portfolio,
+            config.channels.feedback,
+            config.channels.suggestions,
+            config.channels.levelUp,
+            config.channels.botLog
+        ].includes(message.channelId)) {
+            await message.delete().catch(() => {});
+            const warning = await (message.channel as any).send({
+                content: `<@${message.author.id}> ${config.ui.emojis.error} Tin nhắn không đúng khu vực đã bị xoá.`
+            }).catch(() => null);
+            if (warning) setTimeout(() => warning.delete().catch(() => {}), 8000);
         }
         else if (message.channelId === config.channels.portfolio) {
             const requiredKeywords = ['[Tên]', '[Kinh nghiệm]', '[Dịch vụ]', '[Liên hệ]'];

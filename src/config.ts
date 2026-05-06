@@ -45,7 +45,7 @@ export const config = {
             portfolio: "<:Support:1490702785443008584>",
             upvote: "<:tanh_plusone:1497592408316055612>",
             downvote: "<:MinusOne:1497592465430151239>",
-            starJump: "<a:StarJump:1419154690423132210>",
+            starJump: "<a:Galaxy:1401214011143360713>",
             redArrow: "<a:73288animatedarrowred:1400581832302657746>",
             purpleArrow: "<a:73288animatedarrowpurple:1400581825935446179>",
             greenArrow: "<a:68523animatedarrowgreen:1490702734901641388>"
@@ -85,7 +85,7 @@ export const config = {
         timezone: "Asia/Saigon",
         categories: {
             serverAds: "1214591309042688070",
-            requests: "1490685483892867163"
+            requests: "1490686130335780946"
         }
     }
 };
