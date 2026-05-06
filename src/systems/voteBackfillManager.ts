@@ -24,7 +24,7 @@ async function reactIfMissing(message: Message): Promise<void> {
     }
 }
 
-async function fetchAllRecentMessages(channel: TextChannel, limit = 1000): Promise<Message[]> {
+async function fetchAllRecentMessages(channel: TextChannel, limit = 300): Promise<Message[]> {
     const messages: Message[] = [];
     let before: string | undefined;
 
@@ -51,7 +51,6 @@ async function collectReactionUserIds(message: Message, emojiId: string | undefi
 export async function backfillVotesAndScores(client: Client): Promise<{ scanned: number; reacted: number; votes: number }> {
     const shareId = config.channels.share;
     const showcaseId = config.channels.showcase;
-    const serverAdsId = await getManagedChannelId('serverAds');
     const channels = [shareId, showcaseId];
     let scanned = 0;
     let reacted = 0;
@@ -64,6 +63,7 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
         if (!channel || !channel.isTextBased()) continue;
 
         const messages = await fetchAllRecentMessages(channel as TextChannel);
+        console.log(`[backfill] ${channelId}: ${messages.length} messages`);
         for (const message of messages) {
             if (message.author?.bot) continue;
             if (channelId === showcaseId && !isAllowedShowcaseMessage(message)) continue;
@@ -144,8 +144,7 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
         fields: [
             { name: 'Scanned', value: `${scanned}`, inline: true },
             { name: 'Reacted', value: `${reacted}`, inline: true },
-            { name: 'Votes', value: `${votes}`, inline: true },
-            { name: 'Server Ads Channel', value: `<#${serverAdsId}>`, inline: true }
+            { name: 'Votes', value: `${votes}`, inline: true }
         ]
     });
 
