@@ -128,6 +128,15 @@ export async function updateShowcaseTitle(client: Client, messageId: string, use
         data: { title: title.trim().slice(0, 100) || `Showcase by ${user.username}` }
     });
 
+    if (updated.dmMessageId) {
+        const dm = await user.createDM().catch(() => null);
+        const dmMessage = await dm?.messages.fetch(updated.dmMessageId).catch(() => null);
+        await dmMessage?.edit({
+            embeds: [buildShowcaseControlEmbed(user, updated)],
+            components: buildShowcaseControls(messageId)
+        }).catch(() => {});
+    }
+
     await sendAdminLog(client, {
         title: 'Showcase settings updated',
         fields: [
