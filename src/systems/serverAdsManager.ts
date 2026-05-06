@@ -1,7 +1,5 @@
-import { AttachmentBuilder, EmbedBuilder, TextChannel, User } from 'discord.js';
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, TextChannel, User } from 'discord.js';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
-import { status } from 'minecraft-server-util';
-import type { JavaStatusResponse } from 'minecraft-server-util';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 
@@ -48,19 +46,38 @@ function parseMinecraftAddress(ip: string): { host: string; port: number } | nul
     return { host, port };
 }
 
-function cleanMinecraftText(text: string): string {
-    return text.replace(/§[0-9a-fk-or]/gi, '').replace(/\s+/g, ' ').trim();
+interface McStatusApiResponse {
+    online: boolean;
+    host?: string;
+    port?: number;
+    ip_address?: string;
+    version?: { name_clean?: string; name_raw?: string; name?: string };
+    players?: { online?: number; max?: number };
+    motd?: { clean?: string; raw?: string };
+    icon?: string | null;
 }
 
-async function renderMinecraftStatusCard(input: ServerAdInput, result: JavaStatusResponse): Promise<AttachmentBuilder> {
+function cleanMinecraftText(text?: string): string {
+    return (text || '').replace(/§[0-9a-fk-or]/gi, '').replace(/\s+/g, ' ').trim();
+}
+
+async function fetchMinecraftStatus(address: { host: string; port: number }): Promise<McStatusApiResponse> {
+    const target = address.port === 25565 ? address.host : `${address.host}:${address.port}`;
+    const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`);
+    if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
+    return await response.json() as McStatusApiResponse;
+}
+
+async function renderMinecraftStatusCard(input: ServerAdInput, result: McStatusApiResponse): Promise<AttachmentBuilder> {
     const W = 1000;
     const H = 180;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
     const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, '#777b64');
-    bg.addColorStop(1, '#3b4234');
+    bg.addColorStop(0, '#81846b');
+    bg.addColorStop(0.5, '#555b48');
+    bg.addColorStop(1, '#2f362d');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -78,9 +95,9 @@ async function renderMinecraftStatusCard(input: ServerAdInput, result: JavaStatu
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(iconX, iconY, iconSize, iconSize);
 
-    if (result.favicon) {
+    if (result.icon) {
         try {
-            const icon = await loadImage(result.favicon);
+            const icon = await loadImage(result.icon);
             ctx.drawImage(icon, iconX, iconY, iconSize, iconSize);
         } catch {
             ctx.fillStyle = '#2d2d2d';
@@ -95,7 +112,7 @@ async function renderMinecraftStatusCard(input: ServerAdInput, result: JavaStatu
     ctx.textAlign = 'right';
     ctx.fillStyle = '#e4e4e4';
     ctx.font = '30px Consolas, "Courier New", monospace';
-    ctx.fillText(`${result.players.online}/${result.players.max}`, 925, 45);
+    ctx.fillText(`${result.players?.online ?? 0}/${result.players?.max ?? 0}`, 925, 45);
     ctx.textAlign = 'left';
 
     [12, 24, 36, 48, 60].forEach((height, index) => {
@@ -105,7 +122,7 @@ async function renderMinecraftStatusCard(input: ServerAdInput, result: JavaStatu
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 38px Consolas, "Courier New", monospace';
-    ctx.fillText(cleanMinecraftText(result.motd.clean || input.name).slice(0, 34), 175, 96);
+    ctx.fillText(cleanMinecraftText(result.motd?.clean || input.name).slice(0, 34), 175, 96);
 
     ctx.fillStyle = '#f4e64f';
     ctx.font = '30px Consolas, "Courier New", monospace';
@@ -113,39 +130,48 @@ async function renderMinecraftStatusCard(input: ServerAdInput, result: JavaStatu
 
     ctx.fillStyle = '#d950bd';
     ctx.font = '26px Consolas, "Courier New", monospace';
-    ctx.fillText(`[${cleanMinecraftText(result.version.name)}]`, 650, 96);
+    ctx.fillText(`[${cleanMinecraftText(result.version?.name_clean || result.version?.name_raw || result.version?.name)}]`, 650, 96);
 
     return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'minecraft-status.png' });
 }
 
-async function buildServerAdMessage(input: ServerAdInput, user: User): Promise<{ content: string; embeds: EmbedBuilder[]; files: AttachmentBuilder[] }> {
+async function buildServerAdMessage(input: ServerAdInput, user: User): Promise<{ content: string; embeds: EmbedBuilder[]; files: AttachmentBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] }> {
     const embed = new EmbedBuilder()
         .setColor('#5865F2')
         .setAuthor({ name: user.tag, iconURL: user.displayAvatarURL() })
         .setTitle(`Server Ads - ${input.name}`)
         .setDescription(input.description || 'Không có mô tả.')
-        .addFields({ name: `${config.ui.emojis.greenArrow} Link tham gia`, value: input.link, inline: false })
         .setFooter({ text: 'Stella Studio - Server Ads' })
         .setTimestamp();
 
     const files: AttachmentBuilder[] = [];
-    const content = `${input.link}\n<@${user.id}>`;
+    const content = `<@${user.id}>`;
+    const components = [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setLabel('Go to Server')
+                .setStyle(ButtonStyle.Link)
+                .setURL(input.link)
+                .setEmoji(config.ui.emojis.greenArrow)
+        )
+    ];
 
-    if (!input.ip) return { content, embeds: [embed], files };
+    if (!input.ip) return { content, embeds: [embed], files, components };
 
     const address = parseMinecraftAddress(input.ip);
     if (!address) {
         embed.addFields({ name: `${config.ui.emojis.redArrow} Minecraft Server`, value: `IP không hợp lệ: \`${input.ip}\`` });
-        return { content, embeds: [embed], files };
+        return { content, embeds: [embed], files, components };
     }
 
     try {
-        const result = await status(address.host, address.port, { timeout: 5000 });
+        const result = await fetchMinecraftStatus(address);
+        if (!result.online) throw new Error('Server offline');
         files.push(await renderMinecraftStatusCard(input, result));
         embed
             .addFields({
                 name: `${config.ui.emojis.starJump} Minecraft Server Online`,
-                value: `**IP:** \`${input.ip}\`\n**Players:** ${result.players.online}/${result.players.max} · **Ping:** ${result.roundTripLatency}ms`,
+                value: `**IP:** \`${input.ip}\`\n**Players:** ${result.players?.online ?? 0}/${result.players?.max ?? 0}`,
                 inline: false
             })
             .setImage('attachment://minecraft-status.png');
@@ -157,7 +183,7 @@ async function buildServerAdMessage(input: ServerAdInput, user: User): Promise<{
         });
     }
 
-    return { content, embeds: [embed], files };
+    return { content, embeds: [embed], files, components };
 }
 
 export async function publishServerAd(channel: TextChannel, user: User, input: ServerAdInput): Promise<void> {
