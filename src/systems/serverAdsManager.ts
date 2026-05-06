@@ -1,5 +1,6 @@
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, TextChannel, User } from 'discord.js';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { status as directMinecraftStatus } from 'minecraft-server-util';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 
@@ -21,6 +22,13 @@ export function isValidServerAdInput(input: ServerAdInput): boolean {
     return /^https?:\/\/\S+/i.test(input.link) || /(discord\.gg|discord\.com\/invite)\//i.test(input.link);
 }
 
+function normalizeLink(link: string): string {
+    const trimmed = link.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (/^(discord\.gg|discord\.com\/invite)\//i.test(trimmed)) return `https://${trimmed}`;
+    return trimmed;
+}
+
 export function parseServerAd(text: string): ServerAdInput | null {
     const name = getPart(text, 'NAME');
     const description = getPart(text, 'Description');
@@ -32,7 +40,7 @@ export function parseServerAd(text: string): ServerAdInput | null {
     return {
         name: name.slice(0, 100),
         description: description.slice(0, 800),
-        link,
+        link: normalizeLink(link),
         ip: ip.slice(0, 120)
     };
 }
@@ -63,9 +71,22 @@ function cleanMinecraftText(text?: string): string {
 
 async function fetchMinecraftStatus(address: { host: string; port: number }): Promise<McStatusApiResponse> {
     const target = address.port === 25565 ? address.host : `${address.host}:${address.port}`;
-    const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`);
-    if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
-    return await response.json() as McStatusApiResponse;
+    try {
+        const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`);
+        if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
+        return await response.json() as McStatusApiResponse;
+    } catch {
+        const direct = await directMinecraftStatus(address.host, address.port, { timeout: 8000 });
+        return {
+            online: true,
+            host: address.host,
+            port: address.port,
+            version: { name_clean: direct.version.name },
+            players: { online: direct.players.online, max: direct.players.max },
+            motd: { clean: direct.motd.clean },
+            icon: direct.favicon
+        };
+    }
 }
 
 async function renderMinecraftStatusCard(input: ServerAdInput, result: McStatusApiResponse): Promise<AttachmentBuilder> {
@@ -151,7 +172,7 @@ async function buildServerAdMessage(input: ServerAdInput, user: User): Promise<{
             new ButtonBuilder()
                 .setLabel('Go to Server')
                 .setStyle(ButtonStyle.Link)
-                .setURL(input.link)
+                .setURL(normalizeLink(input.link))
                 .setEmoji(config.ui.emojis.greenArrow)
         )
     ];
@@ -175,11 +196,20 @@ async function buildServerAdMessage(input: ServerAdInput, user: User): Promise<{
                 inline: false
             })
             .setImage('attachment://minecraft-status.png');
-    } catch {
+    } catch (error) {
         embed.addFields({
             name: `${config.ui.emojis.redArrow} Minecraft Server`,
-            value: `Không lấy được trạng thái hiện tại cho \`${input.ip}\`.`,
+            value: `Không lấy được trạng thái hiện tại cho \`${input.ip}\`. Kiểm tra lại IP/port hoặc thử lại sau.`,
             inline: false
+        });
+        await sendAdminLog(user.client, {
+            title: 'Minecraft status failed',
+            color: '#e74c3c',
+            fields: [
+                { name: 'IP', value: input.ip, inline: true },
+                { name: 'User', value: `<@${user.id}>`, inline: true },
+                { name: 'Error', value: String(error).slice(0, 1000) }
+            ]
         });
     }
 
