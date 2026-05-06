@@ -81,3 +81,9 @@ model MaintenanceLog {
 
   @@unique([channelId, kind, period])
 }
+
+model ManagedChannel {
+  key       String   @id
+  channelId String
+  updatedAt DateTime @updatedAt
+}

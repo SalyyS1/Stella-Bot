@@ -82,6 +82,10 @@ export const config = {
         banner: "https://i.pinimg.com/originals/75/37/fc/7537fcc63babf246b2ad52936e53d356.gif"
     },
     maintenance: {
-        timezone: "Asia/Saigon"
+        timezone: "Asia/Saigon",
+        categories: {
+            serverAds: "1214591309042688070",
+            requests: "1490685483892867163"
+        }
     }
 };

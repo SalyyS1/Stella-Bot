@@ -1,16 +1,11 @@
-import { Client, EmbedBuilder, TextChannel } from 'discord.js';
+import { CategoryChannel, ChannelType, Client, EmbedBuilder, GuildTextBasedChannel, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 import { buildServerAdsGuideEmbed } from './serverAdsManager';
+import { getManagedChannelId, ManagedChannelKey, setManagedChannelId } from '../utils/managedChannels';
 
-export type MaintenanceTarget = 'requestPaid' | 'requestFree' | 'serverAds';
-
-const targetChannelIds: Record<MaintenanceTarget, string> = {
-    requestPaid: config.channels.requestPaid,
-    requestFree: config.channels.requestFree,
-    serverAds: config.channels.serverAds
-};
+export type MaintenanceTarget = ManagedChannelKey;
 
 function currentSaigonDateParts(): { day: string; period: string } {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -25,18 +20,39 @@ function currentSaigonDateParts(): { day: string; period: string } {
     return { day, period: `${year}-${month}` };
 }
 
-async function clearChannelMessages(channel: TextChannel): Promise<number> {
-    let deleted = 0;
-    for (let i = 0; i < 10; i++) {
-        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-        if (!messages || messages.size === 0) break;
-        const deletable = messages.filter(message => !message.pinned);
-        if (deletable.size === 0) break;
-        const result = await channel.bulkDelete(deletable, true).catch(() => null);
-        deleted += result?.size || 0;
-        if (messages.size < 100) break;
-    }
-    return deleted;
+function configuredParentId(target: MaintenanceTarget): string | null {
+    if (target === 'serverAds') return config.maintenance.categories.serverAds;
+    return config.maintenance.categories.requests;
+}
+
+async function recreateChannel(channel: TextChannel, target: MaintenanceTarget): Promise<TextChannel> {
+    const oldPosition = channel.rawPosition;
+    const parentId = configuredParentId(target) || channel.parentId;
+    const topic = channel.topic || undefined;
+    const rateLimitPerUser = channel.rateLimitPerUser || 0;
+    const nsfw = channel.nsfw;
+    const permissionOverwrites = channel.permissionOverwrites.cache.map(overwrite => ({
+        id: overwrite.id,
+        allow: overwrite.allow,
+        deny: overwrite.deny,
+        type: overwrite.type
+    }));
+
+    const clone = await channel.guild.channels.create({
+        name: channel.name,
+        type: ChannelType.GuildText,
+        topic,
+        nsfw,
+        rateLimitPerUser,
+        parent: parentId || channel.parentId || undefined,
+        permissionOverwrites,
+        reason: 'Stella monthly channel refresh'
+    });
+
+    await clone.setPosition(oldPosition).catch(() => {});
+    await channel.delete('Stella monthly channel refresh').catch(() => {});
+    await setManagedChannelId(target, clone.id);
+    return clone;
 }
 
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
@@ -64,18 +80,19 @@ async function postGuide(channel: TextChannel, target: MaintenanceTarget): Promi
 }
 
 export async function clearMaintenanceTarget(client: Client, target: MaintenanceTarget, actorId?: string, period?: string): Promise<number> {
-    const channelId = targetChannelIds[target];
+    const channelId = await getManagedChannelId(target);
     const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel || !channel.isTextBased()) throw new Error(`Channel ${channelId} not found`);
+    if (!channel || !channel.isTextBased() || channel.type !== ChannelType.GuildText) throw new Error(`Channel ${channelId} not found or not text`);
 
-    const deleted = await clearChannelMessages(channel as TextChannel);
-    await postGuide(channel as TextChannel, target);
+    const oldChannelId = channel.id;
+    const refreshed = await recreateChannel(channel as TextChannel, target);
+    await postGuide(refreshed, target);
 
     if (period) {
         await prisma.maintenanceLog.upsert({
-            where: { channelId_kind_period: { channelId, kind: 'monthly-clear', period } },
+            where: { channelId_kind_period: { channelId: refreshed.id, kind: 'monthly-clear', period } },
             update: { actorId },
-            create: { channelId, kind: 'monthly-clear', period, actorId }
+            create: { channelId: refreshed.id, kind: 'monthly-clear', period, actorId }
         });
     }
 
@@ -84,20 +101,20 @@ export async function clearMaintenanceTarget(client: Client, target: Maintenance
         color: '#3498db',
         fields: [
             { name: 'Target', value: target, inline: true },
-            { name: 'Deleted', value: `${deleted}`, inline: true },
+            { name: 'Old/New', value: `<#${oldChannelId}> -> <#${refreshed.id}>`, inline: true },
             { name: 'Actor', value: actorId ? `<@${actorId}>` : 'Scheduler', inline: true }
         ]
     });
 
-    return deleted;
+    return 0;
 }
 
 export async function runMonthlyMaintenance(client: Client): Promise<void> {
     const { day, period } = currentSaigonDateParts();
     if (day !== '01') return;
 
-    for (const target of Object.keys(targetChannelIds) as MaintenanceTarget[]) {
-        const channelId = targetChannelIds[target];
+    for (const target of ['requestPaid', 'requestFree', 'serverAds'] as MaintenanceTarget[]) {
+        const channelId = await getManagedChannelId(target);
         const existing = await prisma.maintenanceLog.findUnique({
             where: { channelId_kind_period: { channelId, kind: 'monthly-clear', period } }
         });

@@ -6,6 +6,7 @@ import { processMessageXp } from '../systems/xpManager';
 import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcaseManager';
 import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
+import { getManagedChannelIds } from '../utils/managedChannels';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -109,8 +110,9 @@ export default {
 
         // Xử lý Auto-Format Form
         const content = message.content;
+        const managedChannels = await getManagedChannelIds();
 
-        if (message.channelId === config.channels.serverAds) {
+        if (message.channelId === managedChannels.serverAds) {
             const parsed = parseServerAd(content);
             if (!parsed) {
                 await message.delete().catch(() => {});
@@ -124,7 +126,7 @@ export default {
                 await publishServerAd(message.channel as any, message.author, parsed);
             }
         }
-        else if (message.channelId === config.channels.requestPaid) {
+        else if (message.channelId === managedChannels.requestPaid) {
             const requiredKeywords = ['[Service]', '[Request]', '[Budget]'];
             const isValid = requiredKeywords.every(kw => content.includes(kw));
 
@@ -145,7 +147,7 @@ export default {
                 await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
             }
         } 
-        else if (message.channelId === config.channels.requestFree) {
+        else if (message.channelId === managedChannels.requestFree) {
             const requiredKeywords = ['[Service]', '[Request]'];
             const isValid = requiredKeywords.every(kw => content.includes(kw));
 

@@ -5,6 +5,7 @@ import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } fro
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
 import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
+import { getManagedChannelId, getManagedChannelIds } from '../utils/managedChannels';
 
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
@@ -41,23 +42,24 @@ export default {
             const cmdName = interaction.commandName;
             let expectedChannel = null;
 
-            if (cmdName === 'requestpaid') expectedChannel = config.channels.requestPaid;
-            else if (cmdName === 'requestfree') expectedChannel = config.channels.requestFree;
+            if (cmdName === 'requestpaid') expectedChannel = await getManagedChannelId('requestPaid');
+            else if (cmdName === 'requestfree') expectedChannel = await getManagedChannelId('requestFree');
             else if (cmdName === 'portfolio') expectedChannel = config.channels.portfolio;
             else if (cmdName === 'feedback') expectedChannel = config.channels.feedback;
+            const managedChannels = await getManagedChannelIds();
 
             if (expectedChannel && interaction.channelId !== expectedChannel) {
                 return interaction.reply({ content: `${config.ui.emojis.error} Lệnh \`/${cmdName}\` chỉ được phép sử dụng trong kênh <#${expectedChannel}>.`, flags: MessageFlags.Ephemeral });
             }
 
             const restrictedChannels = [
-                config.channels.requestPaid,
-                config.channels.requestFree,
+                managedChannels.requestPaid,
+                managedChannels.requestFree,
                 config.channels.portfolio,
                 config.channels.feedback,
                 config.channels.share,
                 config.channels.showcase,
-                config.channels.serverAds
+                managedChannels.serverAds
             ];
 
             if (!expectedChannel && restrictedChannels.includes(interaction.channelId)) {
@@ -317,10 +319,11 @@ export default {
                 const embed = buildRequestPaidEmbed(interaction.user, s, r, b, o);
                 const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`close_${interaction.user.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success));
 
-                const targetChan = interaction.client.channels.cache.get(config.channels.requestPaid) as any;
+                const requestPaidChannelId = await getManagedChannelId('requestPaid');
+                const targetChan = await interaction.client.channels.fetch(requestPaidChannelId).catch(() => null) as any;
                 if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
                 
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${config.channels.requestPaid}>!`, flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${requestPaidChannelId}>!`, flags: MessageFlags.Ephemeral });
                 await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
 
             } else if (interaction.customId === 'requestfree_modal') {
@@ -331,10 +334,11 @@ export default {
                 const embed = buildRequestFreeEmbed(interaction.user, s, r, o);
                 const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`close_${interaction.user.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success));
 
-                const targetChan = interaction.client.channels.cache.get(config.channels.requestFree) as any;
+                const requestFreeChannelId = await getManagedChannelId('requestFree');
+                const targetChan = await interaction.client.channels.fetch(requestFreeChannelId).catch(() => null) as any;
                 if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
                 
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${config.channels.requestFree}>!`, flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${requestFreeChannelId}>!`, flags: MessageFlags.Ephemeral });
                 await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
 
             } else if (interaction.customId === 'portfolio_modal') {
@@ -463,7 +467,8 @@ export default {
             }
             else if (interaction.customId === 'serverads_modal') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                const channel = await interaction.client.channels.fetch(config.channels.serverAds).catch(() => null);
+                const serverAdsChannelId = await getManagedChannelId('serverAds');
+                const channel = await interaction.client.channels.fetch(serverAdsChannelId).catch(() => null);
                 if (!channel || !channel.isTextBased()) {
                     return interaction.editReply(`${config.ui.emojis.error} Không tìm thấy kênh server-ads.`);
                 }
@@ -489,7 +494,7 @@ export default {
                 }
 
                 await publishServerAd(channel as TextChannel, interaction.user, input);
-                await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${config.channels.serverAds}>.`);
+                await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${serverAdsChannelId}>.`);
             }
         }
     }
