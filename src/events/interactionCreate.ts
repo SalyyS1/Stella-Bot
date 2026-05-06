@@ -6,6 +6,29 @@ import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcas
 import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 
+async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
+    try {
+        await interaction.showModal(modal);
+    } catch (error: any) {
+        await sendAdminLog(client, {
+            title: 'Modal open failed',
+            color: '#e74c3c',
+            fields: [
+                { name: 'Context', value: context, inline: true },
+                { name: 'User', value: `<@${interaction.user?.id}>`, inline: true },
+                { name: 'Error', value: `${error?.code || 'unknown'} ${error?.message || error}` }
+            ]
+        });
+
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+                content: `${config.ui.emojis.error} Không mở được form. Vui lòng bấm lại sau vài giây.`,
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+        }
+    }
+}
+
 export default {
     name: Events.InteractionCreate,
     once: false,
@@ -72,7 +95,7 @@ export default {
                         .setMaxLength(100)
                         .setRequired(true);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(title));
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'showcase_settings');
                 } else if (type === 'optout') {
                     const ok = await optOutShowcase(client, messageId, interaction.user);
                     if (!ok) {
@@ -98,7 +121,7 @@ export default {
                     const b = new TextInputBuilder().setCustomId('budget').setLabel('Ngân sách (Ví dụ: 1M)').setStyle(TextInputStyle.Short).setRequired(true);
                     const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ/Khác').setStyle(TextInputStyle.Paragraph).setRequired(false);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(r), new ActionRowBuilder<TextInputBuilder>().addComponents(b), new ActionRowBuilder<TextInputBuilder>().addComponents(o));
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'panel_paid');
                 } 
                 else if (type === 'free') {
                     const modal = new ModalBuilder().setCustomId('requestfree_modal').setTitle('Yêu Cầu Giúp Đỡ (Free)');
@@ -106,7 +129,7 @@ export default {
                     const r = new TextInputBuilder().setCustomId('request_desc').setLabel('Chi tiết').setStyle(TextInputStyle.Paragraph).setRequired(true);
                     const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ').setStyle(TextInputStyle.Paragraph).setRequired(false);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(r), new ActionRowBuilder<TextInputBuilder>().addComponents(o));
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'panel_free');
                 }
                 else if (type === 'port') {
                     const modal = new ModalBuilder().setCustomId('portfolio_modal').setTitle('Quảng Bá Bản Thân');
@@ -116,7 +139,7 @@ export default {
                     const p = new TextInputBuilder().setCustomId('portfolio_link').setLabel('Link Sản Phẩm').setStyle(TextInputStyle.Short).setRequired(true);
                     const c = new TextInputBuilder().setCustomId('contact').setLabel('Liên hệ').setStyle(TextInputStyle.Short).setRequired(true);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(n), new ActionRowBuilder<TextInputBuilder>().addComponents(e), new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(p), new ActionRowBuilder<TextInputBuilder>().addComponents(c));
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'panel_portfolio');
                 }
                 else if (type === 'feed') {
                     const userSelect = new UserSelectMenuBuilder()
@@ -132,7 +155,7 @@ export default {
                     const t = new TextInputBuilder().setCustomId('suggest_title').setLabel('Tiêu đề đề xuất').setPlaceholder('Ví dụ: Thêm kênh share resource pack...').setStyle(TextInputStyle.Short).setRequired(true);
                     const d = new TextInputBuilder().setCustomId('suggest_desc').setLabel('Mô tả chi tiết').setPlaceholder('Mô tả rõ hơn ý tưởng của bạn...').setStyle(TextInputStyle.Paragraph).setRequired(true);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(t), new ActionRowBuilder<TextInputBuilder>().addComponents(d));
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'panel_suggest');
                 }
                 else if (type === 'serverads') {
                     const modal = new ModalBuilder().setCustomId('serverads_modal').setTitle('Đăng Server Ads');
@@ -146,7 +169,7 @@ export default {
                         new ActionRowBuilder<TextInputBuilder>().addComponents(link),
                         new ActionRowBuilder<TextInputBuilder>().addComponents(ip)
                     );
-                    await interaction.showModal(modal);
+                    await showModalSafely(interaction, modal, client, 'panel_serverads');
                 }
                 return;
             }
@@ -269,7 +292,7 @@ export default {
                     new ActionRowBuilder<TextInputBuilder>().addComponents(proofInput)
                 );
 
-                await interaction.showModal(modal);
+                await showModalSafely(interaction, modal, client, 'feedback_user_select');
             }
         } else if (interaction.isStringSelectMenu()) {
             if (interaction.customId.startsWith('showcase_tag_')) {

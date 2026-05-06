@@ -29,6 +29,14 @@ const client = new Client({
 
 client.commands = new Collection();
 
+client.on('error', error => {
+    console.error('Discord client error:', error);
+});
+
+process.on('unhandledRejection', reason => {
+    console.error('Unhandled rejection:', reason);
+});
+
 async function init() {
     await loadCommands(client);
     await loadEvents(client);
