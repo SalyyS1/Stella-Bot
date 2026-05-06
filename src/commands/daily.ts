@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { calculateDailyXp, xpToNextLevel, updateLevelRole } from '../systems/xpManager';
 import { renderDailyCard } from '../systems/cardRenderer';
+import { sendAdminLog } from '../utils/adminLog';
 
 export default {
     data: new SlashCommandBuilder()
@@ -95,6 +96,25 @@ export default {
                 if (member && interaction.guild) {
                     await updateLevelRole(interaction.guild, member, finalLevel);
                 }
+
+                const levelChannel = await interaction.client.channels.fetch(config.channels.levelUp).catch(() => null);
+                if (levelChannel?.isTextBased()) {
+                    const levelEmbed = new EmbedBuilder()
+                        .setColor('#FFD700')
+                        .setDescription(`${emojis.success} **${interaction.user.username}** vừa lên **Level ${finalLevel}** nhờ điểm danh!`)
+                        .setFooter({ text: 'Stella Studio · Level System' })
+                        .setTimestamp();
+                    await (levelChannel as any).send({ content: `<@${interaction.user.id}>`, embeds: [levelEmbed] }).catch(() => {});
+                }
+                await sendAdminLog(interaction.client, {
+                    title: 'Level up',
+                    color: '#f1c40f',
+                    fields: [
+                        { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: 'Level', value: `${currentLevel} -> ${finalLevel}`, inline: true },
+                        { name: 'Source', value: 'Daily', inline: true }
+                    ]
+                });
             }
 
             const tomorrowXp = calculateDailyXp(newStreak + 1);

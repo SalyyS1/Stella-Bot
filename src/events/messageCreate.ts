@@ -5,6 +5,7 @@ import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } fro
 import { processMessageXp } from '../systems/xpManager';
 import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcaseManager';
 import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
+import { sendAdminLog } from '../utils/adminLog';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -25,7 +26,7 @@ export default {
             processMessageXp(message.author.id, message.content, message.guild, message.member).then(result => {
                 if (result?.leveledUp) {
                     const emojis = config.ui.emojis;
-                    const logChannel = message.client.channels.cache.get(config.channels.botLog) as any;
+                    const logChannel = message.client.channels.cache.get(config.channels.levelUp) as any;
                     if (logChannel) {
                         const embed = new EmbedBuilder()
                             .setColor('#f1c40f')
@@ -33,6 +34,15 @@ export default {
                             .setFooter({ text: 'Stella Studio · Level System' });
                         logChannel.send({ embeds: [embed] }).catch(() => {});
                     }
+                    sendAdminLog(message.client, {
+                        title: 'Level up',
+                        color: '#f1c40f',
+                        fields: [
+                            { name: 'User', value: `<@${message.author.id}>`, inline: true },
+                            { name: 'Level', value: `${result.oldLevel} -> ${result.newLevel}`, inline: true },
+                            { name: 'Source', value: 'Message XP', inline: true }
+                        ]
+                    }).catch(() => {});
                 }
             }).catch(() => {});
         }
