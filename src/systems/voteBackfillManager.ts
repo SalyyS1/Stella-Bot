@@ -31,6 +31,46 @@ async function reactIfMissing(message: Message): Promise<void> {
     }
 }
 
+export async function ensureRecentVoteReactions(client: Client, limit = 50): Promise<{ scanned: number; reacted: number }> {
+    const channels = [config.channels.share, config.channels.showcase];
+    let scanned = 0;
+    let reacted = 0;
+
+    for (const channelId of channels) {
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel || !channel.isTextBased()) continue;
+        const messages = await (channel as TextChannel).messages.fetch({ limit }).catch(() => null);
+        if (!messages) continue;
+
+        for (const message of messages.values()) {
+            if (message.author?.bot) continue;
+            if (channelId === config.channels.showcase && !isAllowedShowcaseMessage(message)) continue;
+            if (channelId === config.channels.share && message.attachments.size === 0 && !/(https?:\/\/[^\s]+)/i.test(message.content)) continue;
+
+            scanned++;
+            const hadUp = message.reactions.cache.some(reaction => reaction.emoji.id === upvoteId);
+            const hadDown = message.reactions.cache.some(reaction => reaction.emoji.id === downvoteId);
+            if (!hadUp || !hadDown) {
+                await reactIfMissing(message);
+                reacted++;
+            }
+        }
+    }
+
+    if (reacted > 0) {
+        await sendAdminLog(client, {
+            title: 'Vote reactions self-healed',
+            color: '#3498db',
+            fields: [
+                { name: 'Scanned', value: `${scanned}`, inline: true },
+                { name: 'Fixed', value: `${reacted}`, inline: true }
+            ]
+        });
+    }
+
+    return { scanned, reacted };
+}
+
 async function fetchAllRecentMessages(channel: TextChannel, limit = 300): Promise<Message[]> {
     const messages: Message[] = [];
     let before: string | undefined;
