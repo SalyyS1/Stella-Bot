@@ -1,0 +1,20 @@
+node_modules/
+dist/
+
+# Keep dependency resolution reproducible for this Node project.
+!package-lock.json
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite runtime data
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# Logs and temporary files
+*.log
+tmp_*.ts

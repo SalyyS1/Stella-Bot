@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id // Discord User ID
+  rates         Rate[]
+  // Hệ thống Level
+  xp            Int      @default(0)
+  level         Int      @default(1)
+  totalMessages Int      @default(0)
+  expertScore   Int      @default(0)
+  contributionScore Int @default(0)
+  // Hệ thống Daily
+  lastDaily     DateTime?
+  dailyStreak   Int      @default(0)
+  createdAt     DateTime @default(now())
+}
+
+model Rate {
+  id         Int      @id @default(autoincrement())
+  userId     String   // The person being rated
+  raterId    String   // The person who issued the rate
+  stars      Int      // 1 to 5
+  proof      String   // URL or message link
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model Blacklist {
+  id        String   @id // Discord User ID
+  reason    String
+  addedBy   String
+  createdAt DateTime @default(now())
+}
+
+model Vote {
+  id             Int      @id @default(autoincrement())
+  messageId      String
+  channelId      String
+  targetAuthorId String
+  voterId        String
+  value          Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([messageId, voterId])
+  @@index([channelId])
+  @@index([targetAuthorId])
+}
+
+model ShowcasePost {
+  messageId     String   @id
+  channelId     String
+  authorId      String
+  title         String
+  tagName       String   @default("Nothing")
+  status        String   @default("VOTING")
+  forumThreadId String?
+  dmMessageId   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  publishedAt   DateTime?
+
+  @@index([authorId])
+  @@index([status])
+}
+
+model MaintenanceLog {
+  id        Int      @id @default(autoincrement())
+  channelId String
+  kind      String
+  period    String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@unique([channelId, kind, period])
+}
