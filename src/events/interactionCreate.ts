@@ -3,6 +3,7 @@ import { config } from '../config';
 import prisma from '../lib/prisma';
 import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
+import { publishServerAd } from '../systems/serverAdsManager';
 
 export default {
     name: Events.InteractionCreate,
@@ -31,7 +32,8 @@ export default {
                 config.channels.portfolio,
                 config.channels.feedback,
                 config.channels.share,
-                config.channels.showcase
+                config.channels.showcase,
+                config.channels.serverAds
             ];
 
             if (!expectedChannel && restrictedChannels.includes(interaction.channelId)) {
@@ -129,6 +131,20 @@ export default {
                     const t = new TextInputBuilder().setCustomId('suggest_title').setLabel('Tiêu đề đề xuất').setPlaceholder('Ví dụ: Thêm kênh share resource pack...').setStyle(TextInputStyle.Short).setRequired(true);
                     const d = new TextInputBuilder().setCustomId('suggest_desc').setLabel('Mô tả chi tiết').setPlaceholder('Mô tả rõ hơn ý tưởng của bạn...').setStyle(TextInputStyle.Paragraph).setRequired(true);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(t), new ActionRowBuilder<TextInputBuilder>().addComponents(d));
+                    await interaction.showModal(modal);
+                }
+                else if (type === 'serverads') {
+                    const modal = new ModalBuilder().setCustomId('serverads_modal').setTitle('Đăng Server Ads');
+                    const name = new TextInputBuilder().setCustomId('name').setLabel('Tên server').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
+                    const desc = new TextInputBuilder().setCustomId('description').setLabel('Mô tả ngắn').setStyle(TextInputStyle.Paragraph).setMaxLength(800).setRequired(false);
+                    const link = new TextInputBuilder().setCustomId('link').setLabel('Link Discord').setStyle(TextInputStyle.Short).setRequired(true);
+                    const ip = new TextInputBuilder().setCustomId('ip').setLabel('IP Minecraft (optional)').setStyle(TextInputStyle.Short).setRequired(false);
+                    modal.addComponents(
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(name),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(desc),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(link),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(ip)
+                    );
                     await interaction.showModal(modal);
                 }
                 return;
@@ -420,6 +436,21 @@ export default {
                     return interaction.reply({ content: `${config.ui.emojis.error} Không thể đổi title showcase này.`, flags: MessageFlags.Ephemeral });
                 }
                 await interaction.reply({ content: `${config.ui.emojis.success} Đã cập nhật title showcase.`, flags: MessageFlags.Ephemeral });
+            }
+            else if (interaction.customId === 'serverads_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const channel = await interaction.client.channels.fetch(config.channels.serverAds).catch(() => null);
+                if (!channel || !channel.isTextBased()) {
+                    return interaction.editReply(`${config.ui.emojis.error} Không tìm thấy kênh server-ads.`);
+                }
+
+                await publishServerAd(channel as TextChannel, interaction.user, {
+                    name: interaction.fields.getTextInputValue('name'),
+                    description: interaction.fields.getTextInputValue('description'),
+                    link: interaction.fields.getTextInputValue('link'),
+                    ip: interaction.fields.getTextInputValue('ip')
+                });
+                await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${config.channels.serverAds}>.`);
             }
         }
     }
