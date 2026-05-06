@@ -2,6 +2,7 @@ import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, But
 import { config } from '../config';
 import prisma from '../lib/prisma';
 import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
+import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
 
 export default {
     name: Events.InteractionCreate,
@@ -51,6 +52,38 @@ export default {
         else if (interaction.isButton()) {
             const part = interaction.customId.split('_');
             const action = part[0];
+
+            if (action === 'showcase') {
+                const type = part[1];
+                const messageId = part[2];
+
+                if (type === 'settings') {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`showcasetitle_${messageId}`)
+                        .setTitle('Showcase Settings');
+                    const title = new TextInputBuilder()
+                        .setCustomId('title')
+                        .setLabel('Showcase title')
+                        .setPlaceholder(`Showcase by ${interaction.user.username}`)
+                        .setStyle(TextInputStyle.Short)
+                        .setMaxLength(100)
+                        .setRequired(true);
+                    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(title));
+                    await interaction.showModal(modal);
+                } else if (type === 'optout') {
+                    const ok = await optOutShowcase(client, messageId, interaction.user);
+                    if (!ok) {
+                        return interaction.reply({ content: `${config.ui.emojis.error} Không thể opt out bài showcase này.`, flags: MessageFlags.Ephemeral });
+                    }
+                    const rendered = await renderShowcaseControl(client, messageId, interaction.user);
+                    if (rendered) {
+                        await interaction.update(rendered);
+                    } else {
+                        await interaction.reply({ content: `${config.ui.emojis.success} Đã opt out showcase.`, flags: MessageFlags.Ephemeral });
+                    }
+                }
+                return;
+            }
 
             if (action === 'panel') {
                 const type = part[1];
@@ -221,6 +254,18 @@ export default {
 
                 await interaction.showModal(modal);
             }
+        } else if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('showcase_tag_')) {
+                const messageId = interaction.customId.replace('showcase_tag_', '');
+                const tagName = interaction.values[0];
+                const ok = await updateShowcaseTag(client, messageId, interaction.user, tagName);
+                if (!ok) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} Không thể đổi tag showcase này.`, flags: MessageFlags.Ephemeral });
+                }
+                const rendered = await renderShowcaseControl(client, messageId, interaction.user);
+                if (rendered) await interaction.update(rendered);
+                else await interaction.reply({ content: `${config.ui.emojis.success} Đã đổi tag thành ${tagName}.`, flags: MessageFlags.Ephemeral });
+            }
         }
         else if (interaction.isModalSubmit()) {
             if (interaction.customId === 'requestpaid_modal') {
@@ -366,6 +411,15 @@ export default {
                 } catch (e) {
                     interaction.editReply(`${config.ui.emojis.error} Lỗi DB: ${e}`);
                 }
+            }
+            else if (interaction.customId.startsWith('showcasetitle_')) {
+                const messageId = interaction.customId.replace('showcasetitle_', '');
+                const title = interaction.fields.getTextInputValue('title');
+                const ok = await updateShowcaseTitle(client, messageId, interaction.user, title);
+                if (!ok) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} Không thể đổi title showcase này.`, flags: MessageFlags.Ephemeral });
+                }
+                await interaction.reply({ content: `${config.ui.emojis.success} Đã cập nhật title showcase.`, flags: MessageFlags.Ephemeral });
             }
         }
     }
