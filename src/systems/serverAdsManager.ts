@@ -22,8 +22,7 @@ export function parseServerAd(text: string): ServerAdInput | null {
     const link = getPart(text, 'Link');
     const ip = getPart(text, 'IP');
 
-    if (!name || !link) return null;
-    if (!/^https?:\/\/\S+/i.test(link) && !/(discord\.gg|discord\.com\/invite)\//i.test(link)) return null;
+    if (!isValidServerAdInput({ name, description, link, ip })) return null;
 
     return {
         name: name.slice(0, 100),
@@ -31,6 +30,11 @@ export function parseServerAd(text: string): ServerAdInput | null {
         link,
         ip: ip.slice(0, 120)
     };
+}
+
+export function isValidServerAdInput(input: ServerAdInput): boolean {
+    if (!input.name.trim() || !input.link.trim()) return false;
+    return /^https?:\/\/\S+/i.test(input.link) || /(discord\.gg|discord\.com\/invite)\//i.test(input.link);
 }
 
 function parseMinecraftAddress(ip: string): { host: string; port: number } | null {

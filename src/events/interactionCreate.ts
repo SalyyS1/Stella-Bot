@@ -3,7 +3,8 @@ import { config } from '../config';
 import prisma from '../lib/prisma';
 import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
-import { publishServerAd } from '../systems/serverAdsManager';
+import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManager';
+import { sendAdminLog } from '../utils/adminLog';
 
 export default {
     name: Events.InteractionCreate,
@@ -444,12 +445,27 @@ export default {
                     return interaction.editReply(`${config.ui.emojis.error} Không tìm thấy kênh server-ads.`);
                 }
 
-                await publishServerAd(channel as TextChannel, interaction.user, {
+                const input = {
                     name: interaction.fields.getTextInputValue('name'),
                     description: interaction.fields.getTextInputValue('description'),
                     link: interaction.fields.getTextInputValue('link'),
                     ip: interaction.fields.getTextInputValue('ip')
-                });
+                };
+
+                if (!isValidServerAdInput(input)) {
+                    await sendAdminLog(interaction.client, {
+                        title: 'Server ads rejected',
+                        color: '#e74c3c',
+                        fields: [
+                            { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                            { name: 'Name', value: input.name || 'Trống', inline: true },
+                            { name: 'Link', value: input.link || 'Trống' }
+                        ]
+                    });
+                    return interaction.editReply(`${config.ui.emojis.error} Server Ads cần có tên và link Discord/http hợp lệ.`);
+                }
+
+                await publishServerAd(channel as TextChannel, interaction.user, input);
                 await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${config.channels.serverAds}>.`);
             }
         }
