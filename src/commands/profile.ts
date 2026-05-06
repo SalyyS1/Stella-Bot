@@ -94,6 +94,11 @@ export default {
                         inline: true
                     },
                     {
+                        name: 'Điểm Stella',
+                        value: `> ${config.ui.emojis.upvote} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.downvote} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**`,
+                        inline: true
+                    },
+                    {
                         name: '📋 Vai trò',
                         value: `> ${roleStr}`,
                         inline: true

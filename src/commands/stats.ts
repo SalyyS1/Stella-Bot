@@ -20,6 +20,9 @@ export default {
 
             const msgAgg = await prisma.user.aggregate({ _sum: { totalMessages: true } });
             const totalMessages = msgAgg._sum.totalMessages || 0;
+            const scoreAgg = await prisma.user.aggregate({ _sum: { expertScore: true, contributionScore: true } });
+            const totalExpertScore = scoreAgg._sum.expertScore || 0;
+            const totalContributionScore = scoreAgg._sum.contributionScore || 0;
 
             // Người uy tín nhất
             const topRated = await prisma.rate.groupBy({
@@ -60,6 +63,11 @@ export default {
                 } catch { }
             }
 
+            const topExpert = await prisma.user.findFirst({ where: { expertScore: { gt: 0 } }, orderBy: { expertScore: 'desc' } });
+            const topContribution = await prisma.user.findFirst({ where: { contributionScore: { gt: 0 } }, orderBy: { contributionScore: 'desc' } });
+            const topExpertStr = topExpert ? `> <@${topExpert.id}> — **${topExpert.expertScore.toLocaleString('vi-VN')}** điểm` : '> *Chưa có*';
+            const topContributionStr = topContribution ? `> <@${topContribution.id}> — **${topContribution.contributionScore.toLocaleString('vi-VN')}** điểm` : '> *Chưa có*';
+
             const embed = new EmbedBuilder()
                 .setColor('#5865F2')
                 .setAuthor({ name: 'Stella Studio', iconURL: interaction.client.user?.displayAvatarURL() })
@@ -93,8 +101,8 @@ export default {
                         inline: true
                     },
                     {
-                        name: '\u200b',
-                        value: '\u200b',
+                        name: 'Điểm vote',
+                        value: `> Expert: **${totalExpertScore.toLocaleString('vi-VN')}**\n> Góp: **${totalContributionScore.toLocaleString('vi-VN')}**`,
                         inline: true
                     },
                     {
@@ -115,6 +123,16 @@ export default {
                     {
                         name: '🔥 Streak dài nhất',
                         value: topStreakStr,
+                        inline: true
+                    },
+                    {
+                        name: 'Expert cao nhất',
+                        value: topExpertStr,
+                        inline: true
+                    },
+                    {
+                        name: 'Đóng góp cao nhất',
+                        value: topContributionStr,
                         inline: true
                     }
                 )
