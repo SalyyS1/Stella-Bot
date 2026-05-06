@@ -63,9 +63,6 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
     let scanned = 0;
     let reacted = 0;
 
-    await prisma.vote.deleteMany({});
-    await prisma.user.updateMany({ data: { expertScore: 0, contributionScore: 0 } });
-
     for (const channelId of channels) {
         const channel = await client.channels.fetch(channelId).catch(() => null);
         if (!channel || !channel.isTextBased()) continue;
@@ -119,6 +116,8 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
             }
         }
     }
+
+    await prisma.user.updateMany({ data: { expertScore: 0, contributionScore: 0 } });
 
     const grouped = await prisma.vote.groupBy({
         by: ['targetAuthorId', 'channelId'],

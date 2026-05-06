@@ -29,18 +29,18 @@ function buildShowcaseControlEmbed(user: User, post: { title: string; tagName: s
     return new EmbedBuilder()
         .setColor(post.status === 'OPTED_OUT' ? '#e74c3c' : '#9b59b6')
         .setAuthor({ name: `${user.username} - Showcase Voting`, iconURL: user.displayAvatarURL() })
-        .setTitle('Showcase Voting Active')
+        .setTitle('Bình chọn Showcase đang hoạt động')
         .setDescription(
-            `Bài showcase của bạn đang được đưa vào lượt bình chọn nổi bật.\n\n` +
-            `Votes needed: **${config.showcase.threshold}** ${config.ui.emojis.star}\n` +
-            `Title: **${post.title}**\n` +
-            `Post Type: **${post.tagName}**\n` +
-            `Status: **${post.status}**\n\n` +
-            `Bạn có thể chỉnh title/tag hoặc rút khỏi featured voting.`
+            `Bài showcase của bạn đang được đưa vào vòng bình chọn để lên kênh nổi bật.\n\n` +
+            `Cần đạt: **${config.showcase.threshold}** ${config.ui.emojis.star}\n` +
+            `Tiêu đề: **${post.title}**\n` +
+            `Phân loại: **${post.tagName}**\n` +
+            `Trạng thái: **${post.status}**\n\n` +
+            `Bạn có thể bấm **Settings** để chỉnh tiêu đề/tag, hoặc **Opt Out** để rút khỏi bình chọn.`
         )
         .setImage(config.showcase.controlGif)
         .addFields({ name: 'Bài gốc', value: `[Mở bài showcase](${messageLink(guildId, post.channelId, post.messageId)})` })
-        .setFooter({ text: 'Stella Studio - Featured Showcase' })
+        .setFooter({ text: 'Stella Studio - Showcase nổi bật' })
         .setTimestamp();
 }
 
