@@ -5,6 +5,8 @@ import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcas
 import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelId, getManagedChannelIds } from '../utils/managedChannels';
+import { createGiveaway, joinGiveaway, leaveGiveaway, GIVEAWAY_BANNER, parseDuration } from '../systems/giveawayManager';
+import prisma from '../lib/prisma';
 
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
@@ -112,6 +114,51 @@ export default {
         else if (interaction.isButton()) {
             const part = interaction.customId.split('_');
             const action = part[0];
+
+            if (action === 'giveaway') {
+                const type = part[1];
+
+                if (type === 'panel' && part[2] === 'create') {
+                    const modal = new ModalBuilder().setCustomId('giveaway_quick_modal').setTitle('Tao Giveaway Nhanh');
+                    const title = new TextInputBuilder().setCustomId('title').setLabel('Tieu de').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
+                    const prize = new TextInputBuilder().setCustomId('prize').setLabel('Phan thuong').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true);
+                    const duration = new TextInputBuilder().setCustomId('duration').setLabel('Thoi luong (VD: 30m, 2h, 3d)').setStyle(TextInputStyle.Short).setRequired(true);
+                    const winners = new TextInputBuilder().setCustomId('winners').setLabel('So winner').setStyle(TextInputStyle.Short).setRequired(true);
+                    const description = new TextInputBuilder().setCustomId('description').setLabel('Mo ta').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false);
+                    modal.addComponents(
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(title),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(prize),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(duration),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(winners),
+                        new ActionRowBuilder<TextInputBuilder>().addComponents(description)
+                    );
+                    await showModalSafely(interaction, modal, client, 'giveaway_panel_create');
+                    return;
+                }
+
+                const giveawayId = Number(part[2]);
+                if (!Number.isFinite(giveawayId)) return;
+
+                try {
+                    if (type === 'join') {
+                        if (!interaction.guild) throw new Error('Chi dung giveaway trong server.');
+                        await joinGiveaway(client, interaction.guild, giveawayId, interaction.user.id);
+                        return interaction.reply({ content: `${config.ui.emojis.success} Da tham gia giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                    }
+                    if (type === 'leave') {
+                        await leaveGiveaway(client, giveawayId, interaction.user.id);
+                        return interaction.reply({ content: `${config.ui.emojis.success} Da roi giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                    }
+                    if (type === 'participants') {
+                        const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 });
+                        const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chua co ai tham gia.';
+                        return interaction.reply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${giveawayId}`).setDescription(lines)], flags: MessageFlags.Ephemeral });
+                    }
+                } catch (error: any) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Da co loi khi xu ly giveaway.'}`, flags: MessageFlags.Ephemeral });
+                }
+                return;
+            }
 
             if (action === 'showcase') {
                 const type = part[1];
@@ -339,6 +386,29 @@ export default {
 
                 await publishServerAd(channel as TextChannel, interaction.user, input);
                 await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${serverAdsChannelId}>.`);
+            }
+            else if (interaction.customId === 'giveaway_quick_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                if (!interaction.memberPermissions?.has('Administrator')) {
+                    return interaction.editReply('Ban can quyen Administrator de tao giveaway.');
+                }
+                const channel = interaction.channel as TextChannel;
+                if (!channel?.isTextBased()) return interaction.editReply('Kenh hien tai khong hop le.');
+
+                const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
+                const winners = Math.max(1, Math.min(20, Number(interaction.fields.getTextInputValue('winners')) || 1));
+                const giveaway = await createGiveaway(client, {
+                    channel,
+                    title: interaction.fields.getTextInputValue('title'),
+                    prize: interaction.fields.getTextInputValue('prize'),
+                    description: interaction.fields.getTextInputValue('description') || 'Nhan nut ben duoi de tham gia giveaway.',
+                    durationMs,
+                    winnersCount: winners,
+                    hostId: interaction.user.id,
+                    publicMediaUrl: GIVEAWAY_BANNER,
+                    createdBy: interaction.user.id
+                });
+                await interaction.editReply(`${config.ui.emojis.success} Da tao giveaway nhanh #${giveaway.id}.`);
             }
         }
     }
