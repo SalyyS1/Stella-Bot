@@ -7,6 +7,7 @@ import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelId, getManagedChannelIds } from '../utils/managedChannels';
 import { createGiveaway, joinGiveaway, leaveGiveaway, GIVEAWAY_BANNER, parseDuration } from '../systems/giveawayManager';
 import prisma from '../lib/prisma';
+import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
@@ -114,6 +115,33 @@ export default {
         else if (interaction.isButton()) {
             const part = interaction.customId.split('_');
             const action = part[0];
+
+            if (action === 'announce') {
+                const type = part[1];
+                const id = part[2];
+                const pending = getPendingAnnouncement(id);
+                if (!pending || pending.creatorId !== interaction.user.id) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} Preview nay da het han hoac khong phai cua ban.`, flags: MessageFlags.Ephemeral });
+                }
+
+                if (type === 'cancel') {
+                    takePendingAnnouncement(id);
+                    return interaction.update({ content: 'Da huy thong bao.', embeds: [], components: [] });
+                }
+
+                try {
+                    const data = takePendingAnnouncement(id);
+                    if (!data) throw new Error('Preview expired.');
+                    const message = await sendAnnouncement(client, data);
+                    return interaction.update({
+                        content: `${config.ui.emojis.success} Da gui thong bao tai <#${message.channelId}>.`,
+                        embeds: [],
+                        components: []
+                    });
+                } catch (error: any) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Khong gui duoc thong bao.'}`, flags: MessageFlags.Ephemeral });
+                }
+            }
 
             if (action === 'giveaway') {
                 const type = part[1];
