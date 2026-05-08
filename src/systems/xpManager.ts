@@ -1,6 +1,7 @@
 import { GuildMember, Guild, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
+import { markInternalAntiRaidAction } from './antiRaidManager';
 
 // ═══════════════════════════════════════════════
 // 🌟 STELLA SPIRAL — Công thức XP độc quyền
@@ -137,6 +138,7 @@ export async function updateLevelRole(guild: Guild, member: GuildMember, level: 
     let role = guild.roles.cache.find(r => r.name === currentTier.roleName);
     if (!role) {
         try {
+            markInternalAntiRaidAction('roleCreate', '*');
             role = await guild.roles.create({
                 name: currentTier.roleName,
                 color: currentTier.color,

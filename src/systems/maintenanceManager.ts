@@ -4,6 +4,7 @@ import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 import { buildServerAdsGuideEmbed } from './serverAdsManager';
 import { getManagedChannelId, ManagedChannelKey, setManagedChannelId } from '../utils/managedChannels';
+import { markInternalAntiRaidAction } from './antiRaidManager';
 
 export type MaintenanceTarget = ManagedChannelKey;
 
@@ -79,6 +80,7 @@ async function recreateChannel(channel: TextChannel, target: MaintenanceTarget):
         type: overwrite.type
     }));
 
+    markInternalAntiRaidAction('channelCreate', '*');
     const clone = await channel.guild.channels.create({
         name: channel.name,
         type: ChannelType.GuildText,
@@ -91,6 +93,8 @@ async function recreateChannel(channel: TextChannel, target: MaintenanceTarget):
     });
 
     await clone.setPosition(oldPosition).catch(() => {});
+    markInternalAntiRaidAction('channelUpdate', clone.id);
+    markInternalAntiRaidAction('channelDelete', channel.id);
     await channel.delete('Stella monthly channel refresh').catch(() => {});
     await setManagedChannelId(target, clone.id);
     return clone;

@@ -12,7 +12,8 @@ import {
     NonThreadGuildBasedChannel,
     PermissionFlagsBits,
     Role,
-    TextChannel
+    TextChannel,
+    Webhook
 } from 'discord.js';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
@@ -31,6 +32,7 @@ type GuardAction =
 
 const strikes = new Map<string, number[]>();
 const recentRestores = new Set<string>();
+const internalAllows = new Map<string, number>();
 
 function isEnabled(): boolean {
     return Boolean(config.antiRaid.enabled);
@@ -38,6 +40,31 @@ function isEnabled(): boolean {
 
 function isSelf(client: Client, userId?: string | null): boolean {
     return Boolean(userId && client.user?.id === userId);
+}
+
+function allowKey(action: GuardAction, targetId: string): string {
+    return `${action}:${targetId}`;
+}
+
+function hasInternalAllow(action: GuardAction, targetId?: string | null): boolean {
+    const now = Date.now();
+    const keys = [allowKey(action, '*')];
+    if (targetId) keys.push(allowKey(action, targetId));
+
+    for (const key of keys) {
+        const until = internalAllows.get(key);
+        if (!until) continue;
+        if (until >= now) {
+            internalAllows.delete(key);
+            return true;
+        }
+        internalAllows.delete(key);
+    }
+    return false;
+}
+
+export function markInternalAntiRaidAction(action: GuardAction, targetId: string, ttlMs = 20_000): void {
+    internalAllows.set(allowKey(action, targetId), Date.now() + ttlMs);
 }
 
 function pruneWindow(times: number[]): number[] {
@@ -68,7 +95,7 @@ async function fetchRecentAudit(guild: Guild, type: AuditLogEvent, targetId?: st
 }
 
 async function punishActor(guild: Guild, actorId: string, reason: string): Promise<string> {
-    if (isSelf(guild.client, actorId)) return 'ignored-self';
+    if (isSelf(guild.client, actorId)) return 'self-token-suspected-rotate-token';
 
     const member = await guild.members.fetch(actorId).catch(() => null);
     if (member?.bannable) {
@@ -93,16 +120,17 @@ async function recordAndMaybePunish(
     actorId: string | null | undefined,
     detail: string
 ): Promise<void> {
-    if (!actorId || isSelf(client, actorId)) return;
+    if (!actorId) return;
     const count = addStrike(actorId, action);
-    const shouldPunish = count >= threshold(action);
+    const selfActor = isSelf(client, actorId);
+    const shouldPunish = selfActor || count >= threshold(action);
     const result = shouldPunish
         ? await punishActor(guild, actorId, `${config.antiRaid.punishmentReason}: ${action}`)
         : 'watching';
 
     await sendAdminLog(client, {
-        title: shouldPunish ? 'Anti-raid action blocked' : 'Anti-raid event detected',
-        color: shouldPunish ? '#e74c3c' : '#f1c40f',
+        title: selfActor ? 'CRITICAL: Stella self-action blocked' : shouldPunish ? 'Anti-raid action blocked' : 'Anti-raid event detected',
+        color: selfActor ? '#ff0000' : shouldPunish ? '#e74c3c' : '#f1c40f',
         fields: [
             { name: 'Actor', value: `<@${actorId}>`, inline: true },
             { name: 'Action', value: action, inline: true },
@@ -171,27 +199,42 @@ async function restoreDeletedChannel(channel: Channel, actorId: string | null | 
 }
 
 export async function guardEveryoneMention(message: Message): Promise<void> {
-    if (!isEnabled() || !message.guild || message.author.id === message.client.user?.id) return;
+    if (!isEnabled() || !message.guild) return;
     if (!message.mentions.everyone) return;
 
     await message.delete().catch(() => {});
+
+    let detail = `Deleted everyone/here mention in <#${message.channelId}>`;
+    if (message.webhookId) {
+        const webhookResult = await deleteSuspiciousWebhook(message, message.webhookId);
+        detail += `; webhook ${message.webhookId}: ${webhookResult}`;
+    }
+
     await recordAndMaybePunish(
         message.client,
         message.guild,
         'everyoneMention',
         message.author.id,
-        `Deleted everyone/here mention in <#${message.channelId}>`
+        detail
     );
+}
+
+async function deleteSuspiciousWebhook(message: Message, webhookId: string): Promise<string> {
+    if (!message.guild?.members.me?.permissions.has(PermissionFlagsBits.ManageWebhooks)) return 'no-manage-webhooks-permission';
+    const webhook = await message.client.fetchWebhook(webhookId).catch(() => null) as Webhook | null;
+    if (!webhook) return 'not-found';
+    await webhook.delete(`${config.antiRaid.punishmentReason}: webhook everyone/here mention`).catch(() => null);
+    return 'deleted';
 }
 
 export async function guardChannelCreate(channel: GuildBasedChannel): Promise<void> {
     if (!isEnabled() || recentRestores.has(channel.id)) return;
     const entry = await fetchRecentAudit(channel.guild, AuditLogEvent.ChannelCreate, channel.id);
     const actorId = entry?.executorId;
-    if (isSelf(channel.client, actorId)) return;
+    if (isSelf(channel.client, actorId) && hasInternalAllow('channelCreate', channel.id)) return;
 
     const count = actorId ? addStrike(actorId, 'channelCreate') : 0;
-    const shouldDelete = Boolean(actorId && count >= threshold('channelCreate'));
+    const shouldDelete = Boolean(actorId && (isSelf(channel.client, actorId) || count >= threshold('channelCreate')));
     let result = shouldDelete ? await punishActor(channel.guild, actorId!, `${config.antiRaid.punishmentReason}: channelCreate`) : 'watching';
     if (shouldDelete && canManageChannels(channel.guild)) {
         await channel.delete(`${config.antiRaid.punishmentReason}: mass channel create`).catch(() => null);
@@ -200,8 +243,8 @@ export async function guardChannelCreate(channel: GuildBasedChannel): Promise<vo
 
     if (actorId) {
         await sendAdminLog(channel.client, {
-            title: shouldDelete ? 'Mass channel create blocked' : 'Channel create detected',
-            color: shouldDelete ? '#e74c3c' : '#f1c40f',
+            title: isSelf(channel.client, actorId) ? 'CRITICAL: Stella created channel outside internal flow' : shouldDelete ? 'Mass channel create blocked' : 'Channel create detected',
+            color: isSelf(channel.client, actorId) ? '#ff0000' : shouldDelete ? '#e74c3c' : '#f1c40f',
             fields: [
                 { name: 'Actor', value: `<@${actorId}>`, inline: true },
                 { name: 'Channel', value: `<#${channel.id}>`, inline: true },
@@ -216,7 +259,7 @@ export async function guardChannelDelete(channel: Channel): Promise<void> {
     if (!isEnabled() || !('guild' in channel) || !channel.guild) return;
     const entry = await fetchRecentAudit(channel.guild, AuditLogEvent.ChannelDelete, channel.id);
     const actorId = entry?.executorId;
-    if (isSelf(channel.client, actorId)) return;
+    if (isSelf(channel.client, actorId) && hasInternalAllow('channelDelete', channel.id)) return;
 
     const restoreResult = await restoreDeletedChannel(channel, actorId);
     await recordAndMaybePunish(
@@ -234,7 +277,7 @@ export async function guardChannelUpdate(oldChannel: Channel, newChannel: Channe
 
     const entry = await fetchRecentAudit(newChannel.guild, AuditLogEvent.ChannelUpdate, newChannel.id);
     const actorId = entry?.executorId;
-    if (isSelf(newChannel.client, actorId)) return;
+    if (isSelf(newChannel.client, actorId) && hasInternalAllow('channelUpdate', newChannel.id)) return;
 
     if (canManageChannels(newChannel.guild)) {
         if (oldChannel.name !== newChannel.name) await (newChannel as any).setName(oldChannel.name || 'restored-channel', config.antiRaid.punishmentReason).catch(() => {});
@@ -255,6 +298,7 @@ export async function guardChannelUpdate(oldChannel: Channel, newChannel: Channe
 export async function guardGuildBanAdd(guild: Guild, userId: string): Promise<void> {
     if (!isEnabled()) return;
     const entry = await fetchRecentAudit(guild, AuditLogEvent.MemberBanAdd, userId);
+    if (isSelf(guild.client, entry?.executorId) && hasInternalAllow('memberBan', userId)) return;
     await recordAndMaybePunish(guild.client, guild, 'memberBan', entry?.executorId, `Banned user <@${userId}>`);
 }
 
@@ -262,18 +306,21 @@ export async function guardMemberRemove(member: GuildMember): Promise<void> {
     if (!isEnabled()) return;
     const entry = await fetchRecentAudit(member.guild, AuditLogEvent.MemberKick, member.id);
     if (!entry) return;
+    if (isSelf(member.client, entry.executorId) && hasInternalAllow('memberKick', member.id)) return;
     await recordAndMaybePunish(member.client, member.guild, 'memberKick', entry.executorId, `Kicked user <@${member.id}>`);
 }
 
 export async function guardRoleCreate(role: Role): Promise<void> {
     if (!isEnabled()) return;
     const entry = await fetchRecentAudit(role.guild, AuditLogEvent.RoleCreate, role.id);
+    if (isSelf(role.client, entry?.executorId) && hasInternalAllow('roleCreate', role.id)) return;
     await recordAndMaybePunish(role.client, role.guild, 'roleCreate', entry?.executorId, `Created role ${role.name}`);
 }
 
 export async function guardRoleDelete(role: Role): Promise<void> {
     if (!isEnabled()) return;
     const entry = await fetchRecentAudit(role.guild, AuditLogEvent.RoleDelete, role.id);
+    if (isSelf(role.client, entry?.executorId) && hasInternalAllow('roleDelete', role.id)) return;
     await recordAndMaybePunish(role.client, role.guild, 'roleDelete', entry?.executorId, `Deleted role ${role.name}`);
 }
 
@@ -282,7 +329,7 @@ export async function guardRoleUpdate(oldRole: Role, newRole: Role): Promise<voi
     if (oldRole.name === newRole.name && oldRole.permissions.bitfield === newRole.permissions.bitfield) return;
     const entry = await fetchRecentAudit(newRole.guild, AuditLogEvent.RoleUpdate, newRole.id);
     const actorId = entry?.executorId;
-    if (isSelf(newRole.client, actorId)) return;
+    if (isSelf(newRole.client, actorId) && hasInternalAllow('roleUpdate', newRole.id)) return;
 
     await newRole.edit({
         name: oldRole.name,
@@ -296,5 +343,6 @@ export async function guardRoleUpdate(oldRole: Role, newRole: Role): Promise<voi
 export async function guardWebhookCreate(channel: Channel): Promise<void> {
     if (!isEnabled() || !('guild' in channel) || !channel.guild) return;
     const entry = await fetchRecentAudit(channel.guild, AuditLogEvent.WebhookCreate);
+    if (isSelf(channel.client, entry?.executorId) && hasInternalAllow('webhookCreate', channel.id)) return;
     await recordAndMaybePunish(channel.client, channel.guild, 'webhookCreate', entry?.executorId, `Webhook created in ${'id' in channel ? `<#${channel.id}>` : 'unknown channel'}`);
 }

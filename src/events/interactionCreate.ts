@@ -68,12 +68,23 @@ export default {
 
             try {
                 await command.execute(interaction);
-            } catch (error) {
+            } catch (error: any) {
                 console.error(error);
+                await sendAdminLog(client, {
+                    title: 'Command failed',
+                    color: '#e74c3c',
+                    fields: [
+                        { name: 'Command', value: interaction.commandName, inline: true },
+                        { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: 'Channel', value: interaction.channelId ? `<#${interaction.channelId}>` : 'Unknown', inline: true },
+                        { name: 'Error', value: String(error?.stack || error).slice(0, 1000) }
+                    ]
+                }).catch(() => {});
+                const content = `${config.ui.emojis.error} Lệnh lỗi: ${String(error?.message || error).slice(0, 300)}`;
                 if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content: 'Đã có lỗi xảy ra!', ephemeral: true });
+                    await interaction.followUp({ content, ephemeral: true });
                 } else {
-                    await interaction.reply({ content: 'Đã có lỗi xảy ra!', ephemeral: true });
+                    await interaction.reply({ content, ephemeral: true });
                 }
             }
         } 

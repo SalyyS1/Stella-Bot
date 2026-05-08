@@ -11,6 +11,8 @@ Discord bots cannot prevent an action before Discord accepts it. Stella detects 
 ## Covered threats
 
 - Everyone/here ping spam: delete message immediately, strike actor, punish at threshold.
+- Stella self-ping or external token use: delete Stella's own everyone/here messages and log a critical token-risk alert.
+- Webhook ping spam: delete the message and delete the webhook when Stella has `Manage Webhooks`.
 - Mass channel create: strike actor, delete created channel after threshold.
 - Channel delete: recreate text/category channels with same name/basic settings, strike actor.
 - Channel rename/topic edit: rollback name/topic, strike actor.
@@ -18,6 +20,7 @@ Discord bots cannot prevent an action before Discord accepts it. Stella detects 
 - Role create/delete/update: detect, rollback role edits where possible, strike actor.
 - Webhook creation: detect and strike actor.
 - Stella bot self-pings: disabled globally with `allowedMentions` so Stella cannot ping `@everyone/@here`.
+- Stella self-actions are only trusted when source code marks a short internal operation, such as maintenance channel recreation or auto level-role creation. Any other audit-log action by Stella is treated as suspicious token use.
 
 ## Important remaining risks
 
@@ -26,3 +29,4 @@ Discord bots cannot prevent an action before Discord accepts it. Stella detects 
 - Deleted roles cannot be fully restored with member assignments unless a role snapshot system is added later.
 - Permission overwrite edits are partly covered by channel update detection, but a full overwrite rollback snapshot would be stronger.
 - Mass nickname changes, mass thread creation, invite spam, emoji/sticker deletion, guild rename/icon changes, integration/webhook abuse, and permission escalation should be added if they become real attack paths.
+- If Stella's token leaks, rotate it in Discord Developer Portal immediately. The bot can clean up some actions, but it cannot invalidate its own leaked token.
