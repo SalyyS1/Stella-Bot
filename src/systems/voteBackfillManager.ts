@@ -2,8 +2,8 @@ import { Client, Message, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { isAllowedShowcaseMessage } from './showcaseManager';
-import { getManagedChannelId } from '../utils/managedChannels';
 import { sendAdminLog } from '../utils/adminLog';
+import { publishEligibleShowcases } from './showcaseManager';
 
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
@@ -31,10 +31,100 @@ async function reactIfMissing(message: Message): Promise<void> {
     }
 }
 
-export async function ensureRecentVoteReactions(client: Client, limit = 50): Promise<{ scanned: number; reacted: number }> {
+async function recomputeScoresForAuthors(authorIds: Set<string>): Promise<void> {
+    for (const authorId of authorIds) {
+        const expertScore = await prisma.vote.count({
+            where: {
+                targetAuthorId: authorId,
+                channelId: config.channels.showcase,
+                value: 1
+            }
+        });
+
+        const contribution = await prisma.vote.aggregate({
+            where: {
+                targetAuthorId: authorId,
+                channelId: config.channels.share
+            },
+            _sum: { value: true }
+        });
+
+        await prisma.user.upsert({
+            where: { id: authorId },
+            update: {
+                expertScore,
+                contributionScore: contribution._sum.value || 0
+            },
+            create: {
+                id: authorId,
+                expertScore,
+                contributionScore: contribution._sum.value || 0
+            }
+        });
+    }
+}
+
+async function syncVotesForMessage(message: Message, channelId: string): Promise<{ synced: number; changed: boolean; skipped: boolean }> {
+    const plusUsers = await collectReactionUserIds(message, upvoteId);
+    const minusUsers = await collectReactionUserIds(message, downvoteId);
+    if (!plusUsers || !minusUsers) return { synced: 0, changed: false, skipped: true };
+
+    const voters = new Map<string, number>();
+    for (const userId of plusUsers) voters.set(userId, 1);
+    for (const userId of minusUsers) {
+        if (!voters.has(userId)) voters.set(userId, -1);
+    }
+
+    let changed = false;
+    const existing = await prisma.vote.findMany({
+        where: { messageId: message.id },
+        select: { voterId: true, value: true, channelId: true, targetAuthorId: true }
+    });
+    const existingByVoter = new Map(existing.map(vote => [vote.voterId, vote]));
+
+    for (const [voterId, value] of voters) {
+        const current = existingByVoter.get(voterId);
+        if (!current || current.value !== value || current.channelId !== channelId || current.targetAuthorId !== message.author!.id) {
+            changed = true;
+        }
+
+        await prisma.vote.upsert({
+            where: { messageId_voterId: { messageId: message.id, voterId } },
+            update: {
+                channelId,
+                targetAuthorId: message.author!.id,
+                value
+            },
+            create: {
+                messageId: message.id,
+                channelId,
+                targetAuthorId: message.author!.id,
+                voterId,
+                value
+            }
+        });
+    }
+
+    const currentVoters = [...voters.keys()];
+    const deleteResult = currentVoters.length > 0
+        ? await prisma.vote.deleteMany({
+            where: {
+                messageId: message.id,
+                voterId: { notIn: currentVoters }
+            }
+        })
+        : await prisma.vote.deleteMany({ where: { messageId: message.id } });
+    if (deleteResult.count > 0) changed = true;
+
+    return { synced: voters.size, changed, skipped: false };
+}
+
+export async function ensureRecentVoteReactions(client: Client, limit = 50): Promise<{ scanned: number; reacted: number; synced: number; published: number }> {
     const channels = [config.channels.share, config.channels.showcase];
     let scanned = 0;
     let reacted = 0;
+    let synced = 0;
+    const affectedAuthors = new Set<string>();
 
     for (const channelId of channels) {
         const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -54,21 +144,47 @@ export async function ensureRecentVoteReactions(client: Client, limit = 50): Pro
                 await reactIfMissing(message);
                 reacted++;
             }
+
+            if (channelId === config.channels.showcase) {
+                await prisma.showcasePost.upsert({
+                    where: { messageId: message.id },
+                    update: {
+                        channelId,
+                        authorId: message.author!.id
+                    },
+                    create: {
+                        messageId: message.id,
+                        channelId,
+                        authorId: message.author!.id,
+                        title: `Showcase by ${message.author!.username}`,
+                        tagName: 'Nothing'
+                    }
+                }).catch(() => {});
+            }
+
+            const result = await syncVotesForMessage(message, channelId);
+            synced += result.synced;
+            if (result.changed) affectedAuthors.add(message.author!.id);
         }
     }
 
-    if (reacted > 0) {
+    await recomputeScoresForAuthors(affectedAuthors);
+    const published = await publishEligibleShowcases(client);
+
+    if (reacted > 0 || synced > 0 || published > 0) {
         await sendAdminLog(client, {
-            title: 'Vote reactions self-healed',
+            title: 'Vote state self-healed',
             color: '#3498db',
             fields: [
                 { name: 'Scanned', value: `${scanned}`, inline: true },
-                { name: 'Fixed', value: `${reacted}`, inline: true }
+                { name: 'Reacted', value: `${reacted}`, inline: true },
+                { name: 'Synced', value: `${synced}`, inline: true },
+                { name: 'Published', value: `${published}`, inline: true }
             ]
         });
     }
 
-    return { scanned, reacted };
+    return { scanned, reacted, synced, published };
 }
 
 async function fetchAllRecentMessages(channel: TextChannel, limit = 300): Promise<Message[]> {
@@ -86,13 +202,13 @@ async function fetchAllRecentMessages(channel: TextChannel, limit = 300): Promis
     return messages;
 }
 
-async function collectReactionUserIds(message: Message, emojiId: string | undefined): Promise<string[]> {
+async function collectReactionUserIds(message: Message, emojiId: string | undefined): Promise<string[] | null> {
     if (!emojiId) return [];
     const reaction = message.reactions.cache.find(item => item.emoji.id === emojiId);
     if (!reaction) return [];
     if ((reaction.count || 0) <= 1) return [];
     const users = await withTimeout(reaction.users.fetch().catch(() => null), 5000, null);
-    if (!users) return [];
+    if (!users) return null;
     return users.filter(user => !user.bot && user.id !== message.author?.id).map(user => user.id);
 }
 
@@ -133,27 +249,7 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
                 }).catch(() => {});
             }
 
-            const plusUsers = await collectReactionUserIds(message, upvoteId);
-            const minusUsers = await collectReactionUserIds(message, downvoteId);
-            const voters = new Map<string, number>();
-            for (const userId of plusUsers) voters.set(userId, 1);
-            for (const userId of minusUsers) {
-                if (!voters.has(userId)) voters.set(userId, -1);
-            }
-
-            for (const [voterId, value] of voters) {
-                await prisma.vote.upsert({
-                    where: { messageId_voterId: { messageId: message.id, voterId } },
-                    update: { value },
-                    create: {
-                        messageId: message.id,
-                        channelId,
-                        targetAuthorId: message.author!.id,
-                        voterId,
-                        value
-                    }
-                });
-            }
+            await syncVotesForMessage(message, channelId);
         }
     }
 
