@@ -147,8 +147,12 @@ export default {
             if (action === 'music') {
                 if (!interaction.guildId) return interaction.reply({ content: 'Chi dung music trong server.', flags: MessageFlags.Ephemeral });
                 const type = part[1];
-                controlMusic(interaction.guildId, type);
-                return interaction.update(musicPanel(interaction.guildId));
+                try {
+                    await controlMusic(interaction.client, interaction.guildId, type);
+                    return interaction.update(musicPanel(interaction.client, interaction.guildId));
+                } catch (error: any) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Music error.'}`, flags: MessageFlags.Ephemeral });
+                }
             }
 
             if (action === 'giveaway') {

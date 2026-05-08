@@ -3,39 +3,17 @@ import {
     ButtonBuilder,
     ButtonStyle,
     ChatInputCommandInteraction,
+    Client,
     EmbedBuilder,
     GuildMember,
     Message
 } from 'discord.js';
+import { LavalinkManager } from 'lavalink-client';
 import prisma from '../lib/prisma';
 
 const DEFAULT_PREFIX = process.env.MUSIC_PREFIX || 's!';
 const MAX_PLAYLIST_TRACKS = 20;
 const playCooldown = new Map<string, number>();
-
-type QueueTrack = {
-    title: string;
-    uri: string;
-    requestedBy: string;
-};
-
-type GuildQueue = {
-    tracks: QueueTrack[];
-    paused: boolean;
-    loop: boolean;
-    volume: number;
-};
-
-const queues = new Map<string, GuildQueue>();
-
-function getQueue(guildId: string): GuildQueue {
-    let queue = queues.get(guildId);
-    if (!queue) {
-        queue = { tracks: [], paused: false, loop: false, volume: 75 };
-        queues.set(guildId, queue);
-    }
-    return queue;
-}
 
 function isUrl(input: string) {
     return /^https?:\/\//i.test(input);
@@ -56,61 +34,140 @@ function lavalinkConfigured() {
     return Boolean(process.env.LAVALINK_HOST && process.env.LAVALINK_PORT && process.env.LAVALINK_PASSWORD);
 }
 
-export function musicPanel(guildId: string) {
-    const queue = getQueue(guildId);
-    const current = queue.tracks[0];
+function getLavalink(client: Client): any {
+    return (client as any).lavalink;
+}
+
+function getPlayer(client: Client, guildId: string): any | null {
+    return getLavalink(client)?.getPlayer(guildId) || null;
+}
+
+export function setupLavalink(client: Client) {
+    if (!lavalinkConfigured()) {
+        console.warn('Lavalink env is missing. Music playback is disabled.');
+        return;
+    }
+    if (getLavalink(client)) return;
+
+    (client as any).lavalink = new LavalinkManager({
+        nodes: [
+            {
+                id: 'Stella Main',
+                host: process.env.LAVALINK_HOST || '127.0.0.1',
+                port: Number(process.env.LAVALINK_PORT || 2333),
+                authorization: process.env.LAVALINK_PASSWORD || 'stella_lavalink_password',
+                secure: process.env.LAVALINK_SECURE === 'true'
+            }
+        ],
+        sendToShard: (guildId: string, payload: any) => client.guilds.cache.get(guildId)?.shard?.send(payload),
+        autoSkip: true,
+        client: {
+            id: process.env.CLIENT_ID || client.user?.id || '',
+            username: client.user?.username || 'Stella'
+        },
+        playerOptions: {
+            defaultSearchPlatform: 'ytmsearch',
+            volumeDecrementer: 0.75,
+            onEmptyQueue: { destroyAfterMs: 30_000 },
+            onDisconnect: { autoReconnect: true, destroyPlayer: false }
+        }
+    });
+
+    const lavalink = getLavalink(client);
+    lavalink.nodeManager.on('connect', (node: any) => console.log(`[Lavalink] Node connected: ${node.id}`));
+    lavalink.nodeManager.on('error', (node: any, error: any) => console.error(`[Lavalink] Node error ${node?.id}:`, error?.message || error));
+    lavalink.on('queueEnd', async (player: any) => {
+        const channel = client.channels.cache.get(player.textChannelId) as any;
+        await channel?.send('Queue da het, Stella se roi voice neu khong co bai moi.').catch(() => {});
+    });
+}
+
+export function initLavalink(client: Client) {
+    const lavalink = getLavalink(client);
+    if (!lavalink || !client.user) return;
+    lavalink.init({ id: client.user.id, username: client.user.username });
+}
+
+export function sendLavalinkRaw(client: Client, payload: any) {
+    getLavalink(client)?.sendRawData(payload);
+}
+
+export function musicPanel(client: Client, guildId: string) {
+    const player = getPlayer(client, guildId);
+    const current = player?.queue?.current;
+    const tracks = player?.queue?.tracks || [];
     const embed = new EmbedBuilder()
         .setColor('#5865f2')
         .setTitle(current ? 'Now Playing' : 'Music Queue')
-        .setDescription(current ? `**${current.title}**\n${current.uri}` : 'Queue dang trong.')
+        .setDescription(current ? `**${current.info?.title || current.title}**\n${current.info?.uri || current.uri || ''}` : 'Queue dang trong.')
         .addFields(
-            { name: 'Queue', value: `${Math.max(0, queue.tracks.length - 1)} bai dang cho`, inline: true },
-            { name: 'Loop', value: queue.loop ? 'On' : 'Off', inline: true },
-            { name: 'Volume', value: `${queue.volume}%`, inline: true }
+            { name: 'Queue', value: `${tracks.length || 0} bai dang cho`, inline: true },
+            { name: 'Loop', value: player?.repeatMode && player.repeatMode !== 'off' ? player.repeatMode : 'Off', inline: true },
+            { name: 'Volume', value: `${player?.volume ?? 75}%`, inline: true }
         )
-        .setFooter({ text: lavalinkConfigured() ? 'Lavalink configured' : 'Can cau hinh Lavalink de phat nhac that' });
+        .setFooter({ text: lavalinkConfigured() ? 'Lavalink playback' : 'Can cau hinh Lavalink de phat audio' });
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('music_pause').setLabel(queue.paused ? 'Resume' : 'Pause').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('music_pause').setLabel(player?.paused ? 'Resume' : 'Pause').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('music_skip').setLabel('Skip').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('music_stop').setLabel('Stop').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('music_loop').setLabel('Loop').setStyle(queue.loop ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('music_loop').setLabel(player?.repeatMode && player.repeatMode !== 'off' ? 'Loop On' : 'Loop').setStyle(player?.repeatMode && player.repeatMode !== 'off' ? ButtonStyle.Success : ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('music_shuffle').setLabel('Shuffle').setStyle(ButtonStyle.Secondary)
     );
     return { embeds: [embed], components: [row] };
 }
 
-export async function queueTrack(guildId: string, member: GuildMember | null, userId: string, query: string) {
+export async function queueTrack(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string, query: string) {
+    if (!lavalinkConfigured() || !getLavalink(client)) {
+        throw new Error('Music chua duoc cau hinh Lavalink. Hay chay Lavalink va dien LAVALINK_* trong .env.');
+    }
     ensureVoice(member);
     checkPlayCooldown(userId);
 
-    const queue = getQueue(guildId);
-    const track: QueueTrack = {
-        title: isUrl(query) ? query : `Search: ${query}`,
-        uri: query,
-        requestedBy: userId
+    const player = getLavalink(client).createPlayer({
+        guildId,
+        voiceChannelId: member!.voice.channelId!,
+        textChannelId,
+        selfDeaf: true,
+        selfMute: false,
+        volume: 75
+    });
+
+    await player.connect();
+    const searchQuery = isUrl(query) ? query : { query, source: 'ytmsearch' };
+    const result = await player.search(searchQuery, { id: userId }, true);
+    const tracks = (result.tracks || []).filter((track: any) => getLavalink(client).utils.isNotBrokenTrack(track));
+    if (!tracks.length) throw new Error('Khong tim thay bai hop le.');
+
+    if (result.loadType === 'playlist') await player.queue.add(tracks);
+    else await player.queue.add(tracks[0]);
+
+    if (!player.playing && !player.paused) await player.play();
+    return {
+        title: result.loadType === 'playlist' ? `${tracks.length} bai tu playlist` : tracks[0].info.title,
+        uri: result.loadType === 'playlist' ? query : tracks[0].info.uri,
+        count: tracks.length,
+        playlist: result.loadType === 'playlist'
     };
-    queue.tracks.push(track);
-    return track;
 }
 
-export function controlMusic(guildId: string, action: string) {
-    const queue = getQueue(guildId);
-    if (action === 'pause') queue.paused = !queue.paused;
-    if (action === 'skip') {
-        const current = queue.tracks.shift();
-        if (queue.loop && current) queue.tracks.push(current);
+export async function controlMusic(client: Client, guildId: string, action: string) {
+    const player = getPlayer(client, guildId);
+    if (!player) throw new Error('Khong co player dang chay.');
+
+    if (action === 'pause') {
+        if (player.paused) await player.resume();
+        else await player.pause();
     }
-    if (action === 'stop') queue.tracks = [];
-    if (action === 'loop') queue.loop = !queue.loop;
-    if (action === 'shuffle') {
-        for (let i = queue.tracks.length - 1; i > 1; i--) {
-            const j = Math.floor(Math.random() * (i - 1)) + 1;
-            [queue.tracks[i], queue.tracks[j]] = [queue.tracks[j], queue.tracks[i]];
-        }
+    if (action === 'skip') await player.skip(0, false);
+    if (action === 'stop') {
+        await player.stopPlaying(true, false);
+        await player.destroy('Stopped by user').catch(() => {});
     }
-    if (action === 'volume_up') queue.volume = Math.min(100, queue.volume + 10);
-    if (action === 'volume_down') queue.volume = Math.max(10, queue.volume - 10);
+    if (action === 'loop') await player.setRepeatMode(player.repeatMode === 'off' ? 'queue' : 'off');
+    if (action === 'shuffle') await player.queue.shuffle();
+    if (action === 'volume_up') await player.setVolume(Math.min(100, (player.volume || 75) + 10));
+    if (action === 'volume_down') await player.setVolume(Math.max(10, (player.volume || 75) - 10));
 }
 
 export async function addPlaylistTrack(userId: string, title: string, uri: string, source = 'manual', durationMs?: number | null) {
@@ -149,16 +206,13 @@ export async function getPlaylist(userId: string) {
     return prisma.musicPlaylistTrack.findMany({ where: { userId }, orderBy: { position: 'asc' } });
 }
 
-export async function playPlaylist(guildId: string, member: GuildMember | null, userId: string) {
+export async function playPlaylist(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string) {
     ensureVoice(member);
     const tracks = await getPlaylist(userId);
     if (!tracks.length) throw new Error('Playlist cua ban dang trong.');
-    const queue = getQueue(guildId);
-    queue.tracks.push(...tracks.map(track => ({
-        title: track.title,
-        uri: track.uri,
-        requestedBy: userId
-    })));
+    for (const track of tracks) {
+        await queueTrack(client, guildId, textChannelId, member, userId, track.uri);
+    }
     return tracks.length;
 }
 
@@ -173,25 +227,26 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
         if (command === 'play') {
             const query = args.join(' ');
             if (!query) throw new Error(`Dung: ${DEFAULT_PREFIX}play <link/search>`);
-            const track = await queueTrack(message.guild.id, message.member, message.author.id, query);
-            await message.reply({ content: `Da them vao queue: **${track.title}**${lavalinkConfigured() ? '' : '\nLuu y: can chay Lavalink de phat audio that.'}`, ...musicPanel(message.guild.id) });
+            const track = await queueTrack(message.client, message.guild.id, message.channelId, message.member, message.author.id, query);
+            await message.reply({ content: `Da them vao queue: **${track.title}**`, ...musicPanel(message.client, message.guild.id) });
             return true;
         }
         if (['queue', 'now'].includes(command)) {
-            await message.reply(musicPanel(message.guild.id));
+            await message.reply(musicPanel(message.client, message.guild.id));
             return true;
         }
         if (['skip', 'stop', 'pause', 'resume', 'loop', 'shuffle'].includes(command)) {
-            controlMusic(message.guild.id, command === 'resume' ? 'pause' : command);
-            await message.reply(musicPanel(message.guild.id));
+            await controlMusic(message.client, message.guild.id, command === 'resume' ? 'pause' : command);
+            await message.reply(musicPanel(message.client, message.guild.id));
             return true;
         }
         if (command === 'volume') {
-            const queue = getQueue(message.guild.id);
+            const player = getPlayer(message.client, message.guild.id);
+            if (!player) throw new Error('Khong co player dang chay.');
             const value = Number(args[0]);
             if (!Number.isFinite(value) || value < 10 || value > 100) throw new Error('Volume tu 10 den 100.');
-            queue.volume = value;
-            await message.reply(musicPanel(message.guild.id));
+            await player.setVolume(value);
+            await message.reply(musicPanel(message.client, message.guild.id));
             return true;
         }
     } catch (error: any) {
@@ -209,15 +264,15 @@ export async function executeMusicSlash(interaction: ChatInputCommandInteraction
 
     if (sub === 'play') {
         const query = interaction.options.getString('query', true);
-        const track = await queueTrack(guildId, interaction.member as GuildMember, interaction.user.id, query);
-        return interaction.editReply({ content: `Da them vao queue: **${track.title}**${lavalinkConfigured() ? '' : '\nLuu y: can chay Lavalink de phat audio that.'}`, ...musicPanel(guildId) });
+        const track = await queueTrack(interaction.client, guildId, interaction.channelId, interaction.member as GuildMember, interaction.user.id, query);
+        return interaction.editReply({ content: `Da them vao queue: **${track.title}**`, ...musicPanel(interaction.client, guildId) });
     }
 
-    if (['queue', 'now'].includes(sub)) return interaction.editReply(musicPanel(guildId));
+    if (['queue', 'now'].includes(sub)) return interaction.editReply(musicPanel(interaction.client, guildId));
 
     if (['stop', 'skip', 'pause', 'resume', 'loop', 'shuffle'].includes(sub)) {
-        controlMusic(guildId, sub === 'resume' ? 'pause' : sub);
-        return interaction.editReply(musicPanel(guildId));
+        await controlMusic(interaction.client, guildId, sub === 'resume' ? 'pause' : sub);
+        return interaction.editReply(musicPanel(interaction.client, guildId));
     }
 
     return null;

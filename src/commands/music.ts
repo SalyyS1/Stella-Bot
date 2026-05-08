@@ -71,7 +71,7 @@ export default {
             }
 
             if (sub === 'play') {
-                const count = await playPlaylist(interaction.guildId!, interaction.member as any, interaction.user.id);
+                const count = await playPlaylist(interaction.client, interaction.guildId!, interaction.channelId, interaction.member as any, interaction.user.id);
                 return interaction.editReply(`Da them **${count}** bai tu playlist vao queue.`);
             }
 

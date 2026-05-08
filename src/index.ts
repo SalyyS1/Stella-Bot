@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, Collection, Partials } from 'discord.js';
 import * as dotenv from 'dotenv';
 import { loadCommands } from './handlers/commandHandler';
 import { loadEvents } from './handlers/eventHandler';
+import { sendLavalinkRaw, setupLavalink } from './systems/musicManager';
 
 dotenv.config();
 
@@ -9,6 +10,7 @@ dotenv.config();
 declare module 'discord.js' {
     interface Client {
         commands: Collection<string, any>;
+        lavalink?: any;
     }
 }
 
@@ -34,6 +36,8 @@ const client = new Client({
 });
 
 client.commands = new Collection();
+setupLavalink(client);
+client.on('raw', payload => sendLavalinkRaw(client, payload));
 
 client.on('error', error => {
     console.error('Discord client error:', error);
