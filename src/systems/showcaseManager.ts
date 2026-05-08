@@ -264,3 +264,44 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
         ]
     }).catch(() => {});
 }
+
+export async function publishEligibleShowcases(client: Client, limit = 25): Promise<number> {
+    const rows = await prisma.vote.groupBy({
+        by: ['messageId'],
+        where: {
+            channelId: config.channels.showcase,
+            value: 1
+        },
+        _count: { id: true },
+        having: { id: { _count: { gte: config.showcase.threshold } } },
+        orderBy: { _count: { id: 'desc' } },
+        take: limit
+    });
+
+    const channel = await client.channels.fetch(config.channels.showcase).catch(() => null);
+    if (!channel || !channel.isTextBased()) return 0;
+
+    let published = 0;
+    for (const row of rows) {
+        const post = await prisma.showcasePost.findUnique({ where: { messageId: row.messageId } });
+        if (!post || post.status !== 'VOTING') continue;
+
+        const message = await (channel as TextChannel).messages.fetch(row.messageId).catch(() => null);
+        if (!message) continue;
+
+        const before = post.status;
+        await maybePublishShowcase(client, message as Message);
+        const after = await prisma.showcasePost.findUnique({ where: { messageId: row.messageId } });
+        if (before === 'VOTING' && after?.status === 'PUBLISHED') published++;
+    }
+
+    if (published > 0) {
+        await sendAdminLog(client, {
+            title: 'Eligible showcases published',
+            color: '#2ecc71',
+            fields: [{ name: 'Published', value: `${published}`, inline: true }]
+        });
+    }
+
+    return published;
+}
