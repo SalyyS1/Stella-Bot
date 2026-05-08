@@ -5,9 +5,12 @@ import {
     ChatInputCommandInteraction,
     EmbedBuilder,
     MessageFlags,
+    ModalBuilder,
     PermissionFlagsBits,
     SlashCommandBuilder,
-    TextChannel
+    TextChannel,
+    TextInputBuilder,
+    TextInputStyle
 } from 'discord.js';
 import prisma from '../lib/prisma';
 import {
@@ -18,6 +21,50 @@ import {
     parseDuration
 } from '../systems/giveawayManager';
 
+function setInputValue(input: TextInputBuilder, value: string | number | null | undefined) {
+    if (value !== null && value !== undefined && String(value).trim()) {
+        input.setValue(String(value));
+    }
+    return input;
+}
+
+function buildGiveawayCreateModal(interaction: ChatInputCommandInteraction) {
+    const modal = new ModalBuilder()
+        .setCustomId('giveaway_quick_modal')
+        .setTitle('Tạo Giveaway');
+
+    const title = setInputValue(
+        new TextInputBuilder().setCustomId('title').setLabel('Tiêu đề').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true),
+        interaction.options.getString('title')
+    );
+    const prize = setInputValue(
+        new TextInputBuilder().setCustomId('prize').setLabel('Phần thưởng').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true),
+        interaction.options.getString('prize')
+    );
+    const duration = setInputValue(
+        new TextInputBuilder().setCustomId('duration').setLabel('Thời lượng (VD: 30m, 2h, 3d)').setStyle(TextInputStyle.Short).setRequired(true),
+        interaction.options.getString('duration')
+    );
+    const winners = setInputValue(
+        new TextInputBuilder().setCustomId('winners').setLabel('Số winner').setStyle(TextInputStyle.Short).setRequired(true),
+        interaction.options.getInteger('winners') || 1
+    );
+    const description = setInputValue(
+        new TextInputBuilder().setCustomId('description').setLabel('Mô tả').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false),
+        interaction.options.getString('description')
+    );
+
+    modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(title),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(prize),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(duration),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(winners),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(description)
+    );
+
+    return modal;
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName('giveaway')
@@ -25,10 +72,10 @@ export default {
         .addSubcommand(sub =>
             sub.setName('create')
                 .setDescription('Tạo giveaway mới')
-                .addStringOption(option => option.setName('title').setDescription('Tiêu đề').setRequired(true).setMaxLength(100))
-                .addStringOption(option => option.setName('prize').setDescription('Phần thưởng').setRequired(true).setMaxLength(200))
-                .addStringOption(option => option.setName('duration').setDescription('VD: 30m, 2h, 3d').setRequired(true))
-                .addIntegerOption(option => option.setName('winners').setDescription('Số winner').setRequired(true).setMinValue(1).setMaxValue(20))
+                .addStringOption(option => option.setName('title').setDescription('Tiêu đề').setRequired(false).setMaxLength(100))
+                .addStringOption(option => option.setName('prize').setDescription('Phần thưởng').setRequired(false).setMaxLength(200))
+                .addStringOption(option => option.setName('duration').setDescription('VD: 30m, 2h, 3d').setRequired(false))
+                .addIntegerOption(option => option.setName('winners').setDescription('Số winner').setRequired(false).setMinValue(1).setMaxValue(20))
                 .addStringOption(option => option.setName('description').setDescription('Mô tả').setRequired(false).setMaxLength(1000))
                 .addChannelOption(option => option.setName('channel').setDescription('Kênh đăng giveaway').setRequired(false))
                 .addUserOption(option => option.setName('host').setDescription('Host giveaway').setRequired(false))
@@ -76,6 +123,17 @@ export default {
         const adminOnly = ['create', 'panel', 'end', 'reroll', 'cancel'].includes(sub);
         if (adminOnly && !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: 'Bạn cần quyền Administrator để dùng lệnh này.', flags: MessageFlags.Ephemeral });
+        }
+
+        if (sub === 'create') {
+            const hasCommandInput = interaction.options.getString('title') &&
+                interaction.options.getString('prize') &&
+                interaction.options.getString('duration') &&
+                interaction.options.getInteger('winners');
+
+            if (!hasCommandInput) {
+                return interaction.showModal(buildGiveawayCreateModal(interaction));
+            }
         }
 
         await interaction.deferReply({ flags: sub === 'participants' ? MessageFlags.Ephemeral : undefined });
