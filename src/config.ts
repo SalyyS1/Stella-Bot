@@ -74,7 +74,7 @@ export const config = {
         ]
     },
     showcase: {
-        threshold: 3,
+        threshold: 5,
         controlGif: "https://i.pinimg.com/originals/ae/52/d9/ae52d968e7d8117170d2eeff6245ca5c.gif",
         tags: ["Art", "Config", "Plugins", "Model", "Build", "Nothing"]
     },
