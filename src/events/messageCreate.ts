@@ -7,6 +7,7 @@ import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
 import { guardEveryoneMention } from '../systems/antiRaidManager';
+import { adjustScoin, levelScoinReward } from '../systems/scoinManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -34,14 +35,16 @@ export default {
 
         // === XP TRACKING (chạy ngầm, không block) ===
         if (message.guild && message.member) {
-            processMessageXp(message.author.id, message.content, message.guild, message.member).then(result => {
+            processMessageXp(message.author.id, message.content, message.guild, message.member).then(async result => {
                 if (result?.leveledUp) {
+                    const scoinReward = levelScoinReward(result.newLevel);
+                    await adjustScoin(message.author.id, scoinReward, `Level ${result.newLevel} reward`, 'level').catch(() => null);
                     const emojis = config.ui.emojis;
                     const logChannel = message.client.channels.cache.get(config.channels.levelUp) as any;
                     if (logChannel) {
                         const embed = new EmbedBuilder()
                             .setColor('#f1c40f')
-                            .setDescription(`${emojis.success} **${message.author.username}** vừa lên **Level ${result.newLevel}**! 🎉`)
+                            .setDescription(`${emojis.success} **${message.author.username}** vừa lên **Level ${result.newLevel}**! 🎉\n${config.ui.emojis.budget} Thưởng **${scoinReward.toLocaleString('vi-VN')}** Scoin`)
                             .setFooter({ text: 'Stella Studio · Level System' });
                         logChannel.send({ embeds: [embed] }).catch(() => {});
                     }

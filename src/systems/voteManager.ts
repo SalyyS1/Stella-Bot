@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { maybePublishShowcase } from './showcaseManager';
+import { adjustScoinTx, SCOIN_REWARDS } from './scoinManager';
 
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
@@ -28,6 +29,11 @@ function scoreDelta(channelId: string, oldValue: number | null, newValue: number
     }
 
     return { expert: 0, contribution: 0 };
+}
+
+function scoinDelta(channelId: string, oldValue: number | null, newValue: number | null): number {
+    if (channelId !== config.channels.showcase && channelId !== config.channels.share) return 0;
+    return (newValue === 1 ? SCOIN_REWARDS.votePlus : 0) - (oldValue === 1 ? SCOIN_REWARDS.votePlus : 0);
 }
 
 async function fetchFullMessage(reaction: MessageReaction | PartialMessageReaction): Promise<Message | null> {
@@ -90,6 +96,7 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
     if (existing?.value === value) return;
 
     const delta = scoreDelta(message.channelId, existing?.value ?? null, value);
+    const scoin = scoinDelta(message.channelId, existing?.value ?? null, value);
 
     await prisma.$transaction(async tx => {
         await tx.user.upsert({
@@ -116,6 +123,18 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
                 value
             }
         });
+
+        if (scoin !== 0) {
+            await adjustScoinTx(
+                tx,
+                message.author!.id,
+                scoin,
+                scoin > 0 ? 'Vote plus reward' : 'Vote plus reversal',
+                message.channelId === config.channels.showcase ? 'vote:showcase' : 'vote:share',
+                `message:${message.id};voter:${user.id}`,
+                true
+            );
+        }
     });
 
     if (existing && existing.value !== value) {
@@ -151,6 +170,7 @@ export async function handleVoteRemove(reaction: MessageReaction | PartialMessag
     if (!existing || existing.value !== value) return;
 
     const delta = scoreDelta(message.channelId, existing.value, null);
+    const scoin = scoinDelta(message.channelId, existing.value, null);
     await prisma.$transaction(async tx => {
         await tx.vote.delete({ where: { id: existing.id } });
         await tx.user.upsert({
@@ -165,5 +185,16 @@ export async function handleVoteRemove(reaction: MessageReaction | PartialMessag
                 contributionScore: delta.contribution
             }
         });
+        if (scoin !== 0) {
+            await adjustScoinTx(
+                tx,
+                message.author!.id,
+                scoin,
+                'Vote plus reversal',
+                message.channelId === config.channels.showcase ? 'vote:showcase' : 'vote:share',
+                `message:${message.id};voter:${user.id}`,
+                true
+            );
+        }
     });
 }

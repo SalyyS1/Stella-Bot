@@ -4,6 +4,7 @@ import { config } from '../config';
 import { calculateDailyXp, xpToNextLevel, updateLevelRole } from '../systems/xpManager';
 import { renderDailyCard } from '../systems/cardRenderer';
 import { sendAdminLog } from '../utils/adminLog';
+import { adjustScoin, dailyScoinReward, levelScoinReward } from '../systems/scoinManager';
 
 export default {
     data: new SlashCommandBuilder()
@@ -63,6 +64,7 @@ export default {
 
             const newStreak = user.dailyStreak + 1;
             const xpReward = calculateDailyXp(newStreak);
+            const scoinReward = dailyScoinReward(newStreak);
 
             // Cập nhật DB
             const updatedUser = await prisma.user.update({
@@ -73,6 +75,7 @@ export default {
                     xp: { increment: xpReward }
                 }
             });
+            await adjustScoin(userId, scoinReward, `Daily streak ${newStreak}`, 'daily').catch(() => null);
 
             // Check level up
             const currentXp = updatedUser.xp;
@@ -83,6 +86,7 @@ export default {
 
             if (currentXp >= xpNeeded) {
                 finalLevel = currentLevel + 1;
+                const levelReward = levelScoinReward(finalLevel);
                 await prisma.user.update({
                     where: { id: userId },
                     data: {
@@ -90,6 +94,7 @@ export default {
                         xp: currentXp - xpNeeded
                     }
                 });
+                await adjustScoin(userId, levelReward, `Level ${finalLevel} reward`, 'level:daily').catch(() => null);
                 leveledUp = true;
 
                 const member = await interaction.guild?.members.fetch(userId).catch(() => null);
@@ -101,7 +106,7 @@ export default {
                 if (levelChannel?.isTextBased()) {
                     const levelEmbed = new EmbedBuilder()
                         .setColor('#FFD700')
-                        .setDescription(`${emojis.success} **${interaction.user.username}** vừa lên **Level ${finalLevel}** nhờ điểm danh!`)
+                        .setDescription(`${emojis.success} **${interaction.user.username}** vừa lên **Level ${finalLevel}** nhờ điểm danh!\n${config.ui.emojis.budget} Thưởng **${levelReward.toLocaleString('vi-VN')}** Scoin`)
                         .setFooter({ text: 'Stella Studio · Level System' })
                         .setTimestamp();
                     await (levelChannel as any).send({ content: `<@${interaction.user.id}>`, embeds: [levelEmbed] }).catch(() => {});
@@ -144,7 +149,9 @@ export default {
                 .setTimestamp();
 
             if (leveledUp) {
-                embed.setDescription(`🎉 **LEVEL UP!** Bạn vừa lên **Lv.${finalLevel}**!`);
+                embed.setDescription(`🎉 **LEVEL UP!** Bạn vừa lên **Lv.${finalLevel}**!\n${config.ui.emojis.budget} Daily +**${scoinReward.toLocaleString('vi-VN')}** Scoin`);
+            } else {
+                embed.setDescription(`${config.ui.emojis.budget} Daily +**${scoinReward.toLocaleString('vi-VN')}** Scoin`);
             }
 
             await interaction.editReply({ embeds: [embed], files: [card] });

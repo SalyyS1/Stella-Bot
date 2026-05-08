@@ -71,7 +71,7 @@ export default {
                     },
                     {
                         name: 'Diem Stella',
-                        value: `> ${config.ui.emojis.upvote} Chuyen gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.downvote} Dong gop: **${user.contributionScore.toLocaleString('vi-VN')}**`,
+                        value: `> ${config.ui.emojis.upvote} Chuyen gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.downvote} Dong gop: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**`,
                         inline: true
                     },
                     {
