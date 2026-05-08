@@ -15,13 +15,6 @@ const tables = [
         dateFields: ['createdAt']
     },
     {
-        name: 'Rate',
-        client: 'rate',
-        key: row => ({ id: row.id }),
-        dateFields: ['createdAt'],
-        sequence: '"Rate_id_seq"'
-    },
-    {
         name: 'Vote',
         client: 'vote',
         key: row => ({ messageId_voterId: { messageId: row.messageId, voterId: row.voterId } }),

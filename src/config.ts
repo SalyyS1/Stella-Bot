@@ -1,7 +1,6 @@
 export const config = {
     roles: {
         trusted: "1385258274131279956",
-        appealStaff: "894579088843485244", // Role xử lý khiếu nại Feedback
         // Level Roles (Bot sẽ tự tạo nếu chưa có, bạn sửa ID sau khi tạo xong)
         levelRoles: {
             littleStar: "", // Lv.1-9 — Bot tự tạo
@@ -22,8 +21,6 @@ export const config = {
         levelUp: "943895860595544075",
         rules: "1214607328775639072",
         chat: "943893730123980881",
-        feedback: "1490685714055041145",
-        suggestions: "1497594149010935808",
         botLog: "1214596264617050173",
     },
     ui: {
@@ -54,9 +51,6 @@ export const config = {
             requestPaid: "#2ecc71" as any,
             requestFree: "#3498db" as any,
             portfolio: "#f1c40f" as any,
-            feedbackHigh: "#2ecc71" as any,
-            feedbackMed: "#f1c40f" as any,
-            feedbackLow: "#e74c3c" as any,
             closed: "#95a5a6" as any
         }
     },

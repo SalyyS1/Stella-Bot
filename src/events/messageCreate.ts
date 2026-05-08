@@ -1,6 +1,5 @@
 import { Events, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { config } from '../config';
-import prisma from '../lib/prisma';
 import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
 import { processMessageXp } from '../systems/xpManager';
 import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcaseManager';
@@ -180,8 +179,6 @@ export default {
         }
         else if ([
             config.channels.portfolio,
-            config.channels.feedback,
-            config.channels.suggestions,
             config.channels.levelUp,
             config.channels.botLog
         ].includes(message.channelId)) {
@@ -211,101 +208,6 @@ export default {
                     new ButtonBuilder().setCustomId(`bump_${message.author.id}`).setLabel('Bump Bài').setStyle(ButtonStyle.Primary).setEmoji(config.ui.emojis.bump)
                 );
                 await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
-            }
-        }
-        else if (message.channelId === config.channels.feedback) {
-            const requiredKeywords = ['[User]', '[Sao]', '[Bằng chứng]'];
-            const isFormatValid = requiredKeywords.every(kw => content.includes(kw));
-
-            if (!isFormatValid) {
-                await message.delete().catch(() => {});
-                return;
-            } else {
-                const userText = getPart(content, 'User');
-                const starsText = getPart(content, 'Sao');
-                const proof = getPart(content, 'Bằng chứng');
-
-                const stars = parseInt(starsText.replace(/[^0-9]/g, ''));
-                if (isNaN(stars) || stars < 1 || stars > 5) {
-                    await message.delete().catch(() => {});
-                    return;
-                }
-
-                // Parse Discord user format <@123..>
-                const targetMatch = userText.match(/<@!?(\d+)>/);
-                if (!targetMatch) {
-                    await message.delete().catch(() => {});
-                    return;
-                }
-
-                const targetId = targetMatch[1];
-                const rater = message.author;
-
-                if (targetId === rater.id) {
-                    await message.delete().catch(() => {});
-                    return;
-                }
-
-                try {
-                    const targetUser = await message.client.users.fetch(targetId);
-
-                    await prisma.user.upsert({
-                        where: { id: targetUser.id },
-                        update: {},
-                        create: { id: targetUser.id }
-                    });
-
-                    const newRate = await prisma.rate.create({
-                        data: {
-                            userId: targetUser.id,
-                            raterId: rater.id,
-                            stars,
-                            proof
-                        }
-                    });
-
-                    await message.delete().catch(() => {});
-
-                    const aggregations = await prisma.rate.aggregate({
-                        where: { userId: targetUser.id },
-                        _avg: { stars: true },
-                        _count: { id: true }
-                    });
-                    const avgStars = aggregations._avg.stars ? aggregations._avg.stars.toFixed(1) : stars;
-                    const totalCount = aggregations._count.id;
-
-                    const { emojis, colors } = config.ui;
-                    const starString = emojis.star.repeat(stars) + emojis.emptyStar.repeat(5 - stars);
-                    const embedColor = stars >= 4 ? colors.feedbackHigh : stars <= 2 ? colors.feedbackLow : colors.feedbackMed;
-
-                    const embed = new EmbedBuilder()
-                        .setColor(embedColor)
-                        .setAuthor({ name: rater.tag, iconURL: rater.displayAvatarURL() })
-                        .setTitle(`Đánh giá mới cho ${targetUser.username}`)
-                        .setThumbnail(targetUser.displayAvatarURL())
-                        .addFields(
-                            { name: 'Người đánh giá', value: `<@${rater.id}>`, inline: true },
-                            { name: 'Người nhận', value: `<@${targetUser.id}>`, inline: true },
-                            { name: 'Số sao', value: `${starString} (${stars}/5)` },
-                            { name: 'Bằng chứng', value: proof },
-                            { name: 'Thống kê Tổng quát', value: `Tổng số: **${totalCount} đánh giá**\nTrung bình: **${avgStars} ${emojis.star}**` }
-                        )
-                        .setTimestamp();
-
-                    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`appeal_${targetUser.id}_${newRate.id}`)
-                            .setLabel('Khiếu Nại Đánh Giá')
-                            .setStyle(ButtonStyle.Danger)
-                            .setEmoji(emojis.appeal)
-                    );
-
-                    await (message.channel as any).send({ embeds: [embed], components: [row] });
-                } catch (e) {
-                    console.error(e);
-                    await message.delete().catch(() => {});
-                    await (message.channel as any).send({ content: '❌ Lỗi kết nối Database.' });
-                }
             }
         }
     },

@@ -234,7 +234,7 @@ export function buildServerAdsGuideEmbed(): EmbedBuilder {
         .setColor('#5865F2')
         .setTitle('Hướng dẫn đăng quảng cáo server')
         .setDescription(
-            `Dùng panel hoặc gửi đúng format bên dưới. Bài sai format sẽ bị xoá để kênh gọn hơn.\n\n` +
+            `Dùng panel hoặc gửi đúng format bên dưới. Kênh này sẽ được Stella tự reset mỗi tháng 1 lần. Bài sai format sẽ bị xoá để kênh gọn hơn.\n\n` +
             '```text\n' +
             '[NAME] Tên server\n' +
             '[Description] Mô tả ngắn optional\n' +

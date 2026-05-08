@@ -9,7 +9,6 @@ datasource db {
 
 model User {
   id            String   @id // Discord User ID
-  rates         Rate[]
   // Hệ thống Level
   xp            Int      @default(0)
   level         Int      @default(1)
@@ -20,16 +19,6 @@ model User {
   lastDaily     DateTime?
   dailyStreak   Int      @default(0)
   createdAt     DateTime @default(now())
-}
-
-model Rate {
-  id         Int      @id @default(autoincrement())
-  userId     String   // The person being rated
-  raterId    String   // The person who issued the rate
-  stars      Int      // 1 to 5
-  proof      String   // URL or message link
-  createdAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id])
 }
 
 model Blacklist {

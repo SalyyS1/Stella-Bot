@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
-    "build": "npx prisma generate && tsc",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && npx prisma generate && tsc",
     "db:migrate": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",

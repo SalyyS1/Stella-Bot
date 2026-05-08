@@ -138,11 +138,13 @@ async function bulkClearChannel(channel: MaintenanceChannel): Promise<number> {
 
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
     const isPaid = target === 'requestPaid';
+    const monthlyNotice = 'Kenh nay se duoc Stella tu reset moi thang 1 lan.';
     return new EmbedBuilder()
         .setColor(isPaid ? config.ui.colors.requestPaid : config.ui.colors.requestFree)
         .setTitle(isPaid ? 'Hướng dẫn request có phí' : 'Hướng dẫn request hỗ trợ')
         .setDescription(
             `Kênh đã được làm mới cho tháng này. Đăng đúng format để bài được bot giữ lại.\n\n` +
+            `${monthlyNotice}\n\n` +
             (isPaid
                 ? '```text\n[Service] Dịch vụ cần thuê\n[Request] Mô tả yêu cầu\n[Budget] Ngân sách\n[Other] Liên hệ/ghi chú optional\n```'
                 : '```text\n[Service] Việc cần hỗ trợ\n[Request] Mô tả yêu cầu\n[Other] Liên hệ/ghi chú optional\n```') +
@@ -213,7 +215,7 @@ export async function runMonthlyMaintenance(client: Client): Promise<void> {
     const { day, period } = currentSaigonDateParts();
     if (day !== '01') return;
 
-    for (const target of ['requestPaid', 'requestFree', 'serverAds'] as MaintenanceTarget[]) {
+    for (const target of ['serverAds', 'requestPaid', 'requestFree'] as MaintenanceTarget[]) {
         const channelId = await getManagedChannelId(target);
         const existing = await prisma.maintenanceLog.findUnique({
             where: { channelId_kind_period: { channelId, kind: 'monthly-clear', period } }
