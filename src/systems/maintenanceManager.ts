@@ -1,4 +1,4 @@
-import { CategoryChannel, ChannelType, Client, EmbedBuilder, NewsChannel, TextChannel } from 'discord.js';
+import { CategoryChannel, ChannelType, Client, EmbedBuilder, NewsChannel, PermissionFlagsBits, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
@@ -105,6 +105,37 @@ async function recreateChannel(channel: MaintenanceChannel, target: MaintenanceT
     return clone as MaintenanceChannel;
 }
 
+async function bulkClearChannel(channel: MaintenanceChannel): Promise<number> {
+    const me = channel.guild.members.me;
+    if (!me) throw new Error('Bot member is not cached in this guild.');
+    const permissions = channel.permissionsFor(me);
+    if (!permissions?.has(PermissionFlagsBits.ManageMessages)) {
+        throw new Error(`Missing Manage Messages in #${channel.name}`);
+    }
+
+    let deleted = 0;
+    for (let page = 0; page < 10; page++) {
+        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+        if (!messages || messages.size === 0) break;
+
+        const fresh = messages.filter(message => Date.now() - message.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
+        if (fresh.size > 0) {
+            const result = await channel.bulkDelete(fresh, true).catch(() => null);
+            deleted += result?.size || 0;
+        }
+
+        const old = messages.filter(message => Date.now() - message.createdTimestamp >= 14 * 24 * 60 * 60 * 1000);
+        for (const message of old.values()) {
+            const removed = await message.delete().then(() => true).catch(() => false);
+            if (removed) deleted++;
+        }
+
+        if (messages.size < 100) break;
+    }
+
+    return deleted;
+}
+
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
     const isPaid = target === 'requestPaid';
     return new EmbedBuilder()
@@ -133,7 +164,28 @@ export async function clearMaintenanceTarget(client: Client, target: Maintenance
     const channel = await resolveMaintenanceChannel(client, target);
 
     const oldChannelId = channel.id;
-    const refreshed = await recreateChannel(channel, target);
+    const me = channel.guild.members.me;
+    if (!me) throw new Error('Bot member is not cached in this guild.');
+    const canRecreate = Boolean(channel.permissionsFor(me)?.has(PermissionFlagsBits.ManageChannels));
+    let refreshed: MaintenanceChannel = channel;
+    let deleted = 0;
+
+    if (canRecreate) {
+        refreshed = await recreateChannel(channel, target);
+    } else {
+        deleted = await bulkClearChannel(channel);
+        await sendAdminLog(client, {
+            title: 'Maintenance used bulk clear fallback',
+            color: '#f1c40f',
+            fields: [
+                { name: 'Target', value: target, inline: true },
+                { name: 'Channel', value: `<#${channel.id}>`, inline: true },
+                { name: 'Deleted', value: `${deleted}`, inline: true },
+                { name: 'Reason', value: 'Bot is missing Manage Channels, so it could not recreate the channel.' }
+            ]
+        });
+    }
+
     await postGuide(refreshed, target);
 
     if (period) {
@@ -154,7 +206,7 @@ export async function clearMaintenanceTarget(client: Client, target: Maintenance
         ]
     });
 
-    return 0;
+    return deleted;
 }
 
 export async function runMonthlyMaintenance(client: Client): Promise<void> {
