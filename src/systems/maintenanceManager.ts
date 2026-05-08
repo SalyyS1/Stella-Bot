@@ -138,7 +138,7 @@ async function bulkClearChannel(channel: MaintenanceChannel): Promise<number> {
 
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
     const isPaid = target === 'requestPaid';
-    const monthlyNotice = 'Kenh nay se duoc Stella tu reset moi thang 1 lan.';
+    const monthlyNotice = 'Kênh này sẽ được Stella tự reset mỗi tháng 1 lần.';
     return new EmbedBuilder()
         .setColor(isPaid ? config.ui.colors.requestPaid : config.ui.colors.requestFree)
         .setTitle(isPaid ? 'Hướng dẫn request có phí' : 'Hướng dẫn request hỗ trợ')

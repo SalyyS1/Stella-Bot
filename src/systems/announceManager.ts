@@ -66,8 +66,8 @@ export function buildAnnouncementEmbed(data: PendingAnnouncement) {
 export function previewButtons(id: string) {
     return [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId(`announce_send_${id}`).setLabel('Gui thong bao').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`announce_cancel_${id}`).setLabel('Huy').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId(`announce_send_${id}`).setLabel('Gửi thông báo').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`announce_cancel_${id}`).setLabel('Hủy').setStyle(ButtonStyle.Secondary)
         )
     ];
 }

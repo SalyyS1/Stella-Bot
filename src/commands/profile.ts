@@ -7,8 +7,8 @@ import { renderProfileCard } from '../systems/cardRenderer';
 export default {
     data: new SlashCommandBuilder()
         .setName('profile')
-        .setDescription('Xem ho so Stella cua mot nguoi')
-        .addUserOption(option => option.setName('user').setDescription('Nguoi ban muon xem').setRequired(false)),
+        .setDescription('Xem hồ sơ Stella của một người')
+        .addUserOption(option => option.setName('user').setDescription('Người bạn muốn xem').setRequired(false)),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();

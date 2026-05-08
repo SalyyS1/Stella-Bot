@@ -18,10 +18,10 @@ export const GIVEAWAY_BANNER = 'https://i.pinimg.com/originals/26/7b/1c/267b1c57
 
 export function parseDuration(input: string): number {
     const match = input.trim().toLowerCase().match(/^(\d+)\s*(m|h|d)$/);
-    if (!match) throw new Error('Duration dung dang 10m, 2h hoac 3d.');
+    if (!match) throw new Error('Thời lượng đúng dạng 10m, 2h hoặc 3d.');
     const amount = Number(match[1]);
     const unit = match[2];
-    if (amount <= 0) throw new Error('Duration phai lon hon 0.');
+    if (amount <= 0) throw new Error('Thời lượng phải lớn hơn 0.');
     if (unit === 'm') return amount * 60_000;
     if (unit === 'h') return amount * 60 * 60_000;
     return amount * 24 * 60 * 60_000;
@@ -42,27 +42,27 @@ export async function buildGiveawayEmbed(giveawayId: number) {
         where: { id: giveawayId },
         include: { entries: true }
     });
-    if (!giveaway) throw new Error('Giveaway not found.');
+    if (!giveaway) throw new Error('Không tìm thấy giveaway.');
 
     const requirements = [
         giveaway.requiredRoleId ? `Role: <@&${giveaway.requiredRoleId}>` : null,
-        giveaway.minLevel ? `Level toi thieu: **${giveaway.minLevel}**` : null,
-        giveaway.minScoin ? `Scoin toi thieu: **${giveaway.minScoin.toLocaleString('vi-VN')}**` : null,
-        giveaway.entryCost ? `Phi tham gia: **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : 'Mien phi tham gia'
+        giveaway.minLevel ? `Level tối thiểu: **${giveaway.minLevel}**` : null,
+        giveaway.minScoin ? `Scoin tối thiểu: **${giveaway.minScoin.toLocaleString('vi-VN')}**` : null,
+        giveaway.entryCost ? `Phí tham gia: **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : 'Miễn phí tham gia'
     ].filter(Boolean).join('\n');
 
     const winners = giveaway.winnerIds ? giveaway.winnerIds.split(',').filter(Boolean).map(id => `<@${id}>`).join(', ') : null;
     const embed = new EmbedBuilder()
         .setColor(giveaway.status === 'ACTIVE' ? '#f1c40f' : giveaway.status === 'CANCELLED' ? '#95a5a6' : '#2ecc71')
         .setTitle(`🎁 ${giveaway.title}`)
-        .setDescription(giveaway.description || 'Nhan nut ben duoi de tham gia giveaway.')
+        .setDescription(giveaway.description || 'Nhấn nút bên dưới để tham gia giveaway.')
         .addFields(
-            { name: 'Phan thuong', value: giveaway.prize, inline: false },
+            { name: 'Phần thưởng', value: giveaway.prize, inline: false },
             { name: 'Host', value: `<@${giveaway.hostId}>`, inline: true },
-            { name: 'Nguoi thang', value: `${giveaway.winnersCount}`, inline: true },
-            { name: 'Ket thuc', value: `<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:R>`, inline: true },
-            { name: 'Dieu kien', value: requirements || 'Khong co', inline: false },
-            { name: 'Da tham gia', value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** nguoi`, inline: true }
+            { name: 'Người thắng', value: `${giveaway.winnersCount}`, inline: true },
+            { name: 'Kết thúc', value: `<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:R>`, inline: true },
+            { name: 'Điều kiện', value: requirements || 'Không có', inline: false },
+            { name: 'Đã tham gia', value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** người`, inline: true }
         )
         .setImage(giveaway.publicMediaUrl || giveaway.bannerUrl || GIVEAWAY_BANNER)
         .setFooter({ text: `Giveaway #${giveaway.id} - ${giveaway.status}` })
@@ -102,7 +102,7 @@ export async function createGiveaway(client: Client, options: {
         data: {
             channelId: options.channel.id,
             title: options.title,
-            description: options.description || 'Nhan nut ben duoi de tham gia giveaway.',
+            description: options.description || 'Nhấn nút bên dưới để tham gia giveaway.',
             prize: options.prize,
             hostId: options.hostId,
             winnersCount: Math.max(1, options.winnersCount),
@@ -137,20 +137,20 @@ export async function createGiveaway(client: Client, options: {
 
 async function checkRequirements(guild: Guild, giveaway: any, userId: string): Promise<string | null> {
     const user = await prisma.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
-    if (giveaway.minLevel && user.level < giveaway.minLevel) return `Ban can dat Level ${giveaway.minLevel}.`;
-    if (giveaway.minScoin && user.scoinBalance < giveaway.minScoin) return `Ban can co it nhat ${giveaway.minScoin} Scoin.`;
-    if (giveaway.entryCost && user.scoinBalance < giveaway.entryCost) return `Ban can ${giveaway.entryCost} Scoin de tham gia.`;
+    if (giveaway.minLevel && user.level < giveaway.minLevel) return `Bạn cần đạt Level ${giveaway.minLevel}.`;
+    if (giveaway.minScoin && user.scoinBalance < giveaway.minScoin) return `Bạn cần có ít nhất ${giveaway.minScoin} Scoin.`;
+    if (giveaway.entryCost && user.scoinBalance < giveaway.entryCost) return `Bạn cần ${giveaway.entryCost} Scoin để tham gia.`;
     if (giveaway.requiredRoleId) {
         const member = await guild.members.fetch(userId).catch(() => null);
-        if (!member?.roles.cache.has(giveaway.requiredRoleId)) return `Ban can role <@&${giveaway.requiredRoleId}>.`;
+        if (!member?.roles.cache.has(giveaway.requiredRoleId)) return `Bạn cần role <@&${giveaway.requiredRoleId}>.`;
     }
     return null;
 }
 
 export async function joinGiveaway(client: Client, guild: Guild, giveawayId: number, userId: string) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId } });
-    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway nay da ket thuc.');
-    if (giveaway.endsAt.getTime() <= Date.now()) throw new Error('Giveaway nay da het han.');
+    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway này đã kết thúc.');
+    if (giveaway.endsAt.getTime() <= Date.now()) throw new Error('Giveaway này đã hết hạn.');
     const reason = await checkRequirements(guild, giveaway, userId);
     if (reason) throw new Error(reason);
 
@@ -168,7 +168,7 @@ export async function joinGiveaway(client: Client, guild: Guild, giveawayId: num
 
 export async function leaveGiveaway(client: Client, giveawayId: number, userId: string) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId } });
-    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway nay da ket thuc.');
+    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway này đã kết thúc.');
 
     await prisma.$transaction(async tx => {
         const existing = await tx.giveawayEntry.findUnique({ where: { giveawayId_userId: { giveawayId, userId } } });
@@ -194,8 +194,8 @@ function pickWinners(userIds: string[], count: number): string[] {
 
 export async function endGiveaway(client: Client, giveawayId: number, reroll = false) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId }, include: { entries: true } });
-    if (!giveaway) throw new Error('Giveaway not found.');
-    if (!reroll && giveaway.status !== 'ACTIVE') throw new Error('Giveaway da ket thuc.');
+    if (!giveaway) throw new Error('Không tìm thấy giveaway.');
+    if (!reroll && giveaway.status !== 'ACTIVE') throw new Error('Giveaway đã kết thúc.');
 
     const guilds = client.guilds.cache;
     const guild = guilds.find(g => !!g.channels.cache.get(giveaway.channelId)) || guilds.first();
@@ -225,8 +225,8 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
     if (channel?.isTextBased()) {
         await (channel as any).send({
             content: winners.length
-                ? `🎁 Giveaway **${giveaway.title}** da ket thuc! Winner: ${winners.map(id => `<@${id}>`).join(', ')}`
-                : `🎁 Giveaway **${giveaway.title}** da ket thuc nhung khong co winner hop le.`
+                ? `🎁 Giveaway **${giveaway.title}** đã kết thúc! Winner: ${winners.map(id => `<@${id}>`).join(', ')}`
+                : `🎁 Giveaway **${giveaway.title}** đã kết thúc nhưng không có winner hợp lệ.`
         }).catch(() => {});
     }
 
@@ -235,9 +235,9 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
         if (!user) continue;
         try {
             const secret = giveaway.rewardType === 'link' || giveaway.rewardType === 'file'
-                ? `Phan thuong cua ban:\n${giveaway.rewardSecret || giveaway.prize}`
-                : `Hay lien he host <@${giveaway.hostId}> de nhan phan thuong: **${giveaway.prize}**.`;
-            await user.send(`Ban da thang giveaway **${giveaway.title}**!\n${secret}`);
+                ? `Phần thưởng của bạn:\n${giveaway.rewardSecret || giveaway.prize}`
+                : `Hãy liên hệ host <@${giveaway.hostId}> để nhận phần thưởng: **${giveaway.prize}**.`;
+            await user.send(`Bạn đã thắng giveaway **${giveaway.title}**!\n${secret}`);
             await prisma.giveawayRewardDelivery.create({ data: { giveawayId, userId: winnerId, status: 'SENT' } });
         } catch (error: any) {
             await prisma.giveawayRewardDelivery.create({ data: { giveawayId, userId: winnerId, status: 'FAILED', error: String(error?.message || error).slice(0, 500) } });
@@ -258,7 +258,7 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
 
 export async function cancelGiveaway(client: Client, giveawayId: number) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId }, include: { entries: true } });
-    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway khong active.');
+    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway không active.');
 
     await prisma.$transaction(async tx => {
         await tx.giveaway.update({ where: { id: giveawayId }, data: { status: 'CANCELLED' } });

@@ -20,13 +20,13 @@ function isUrl(input: string) {
 }
 
 function ensureVoice(member: GuildMember | null) {
-    if (!member?.voice?.channelId) throw new Error('Ban can vao voice channel truoc.');
+    if (!member?.voice?.channelId) throw new Error('Bạn cần vào voice channel trước.');
 }
 
 function checkPlayCooldown(userId: string) {
     const now = Date.now();
     const until = playCooldown.get(userId) || 0;
-    if (until > now) throw new Error(`Cho them ${Math.ceil((until - now) / 1000)}s roi play tiep nhe.`);
+    if (until > now) throw new Error(`Chờ thêm ${Math.ceil((until - now) / 1000)}s rồi play tiếp nhé.`);
     playCooldown.set(userId, now + 5000);
 }
 
@@ -78,7 +78,7 @@ export function setupLavalink(client: Client) {
     lavalink.nodeManager.on('error', (node: any, error: any) => console.error(`[Lavalink] Node error ${node?.id}:`, error?.message || error));
     lavalink.on('queueEnd', async (player: any) => {
         const channel = client.channels.cache.get(player.textChannelId) as any;
-        await channel?.send('Queue da het, Stella se roi voice neu khong co bai moi.').catch(() => {});
+        await channel?.send('Queue đã hết, Stella sẽ rời voice nếu không có bài mới.').catch(() => {});
     });
 }
 
@@ -99,13 +99,13 @@ export function musicPanel(client: Client, guildId: string) {
     const embed = new EmbedBuilder()
         .setColor('#5865f2')
         .setTitle(current ? 'Now Playing' : 'Music Queue')
-        .setDescription(current ? `**${current.info?.title || current.title}**\n${current.info?.uri || current.uri || ''}` : 'Queue dang trong.')
+        .setDescription(current ? `**${current.info?.title || current.title}**\n${current.info?.uri || current.uri || ''}` : 'Queue đang trống.')
         .addFields(
-            { name: 'Queue', value: `${tracks.length || 0} bai dang cho`, inline: true },
+            { name: 'Queue', value: `${tracks.length || 0} bài đang chờ`, inline: true },
             { name: 'Loop', value: player?.repeatMode && player.repeatMode !== 'off' ? player.repeatMode : 'Off', inline: true },
             { name: 'Volume', value: `${player?.volume ?? 75}%`, inline: true }
         )
-        .setFooter({ text: lavalinkConfigured() ? 'Lavalink playback' : 'Can cau hinh Lavalink de phat audio' });
+        .setFooter({ text: lavalinkConfigured() ? 'Lavalink playback' : 'Cần cấu hình Lavalink để phát audio' });
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('music_pause').setLabel(player?.paused ? 'Resume' : 'Pause').setStyle(ButtonStyle.Secondary),
@@ -119,7 +119,7 @@ export function musicPanel(client: Client, guildId: string) {
 
 export async function queueTrack(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string, query: string) {
     if (!lavalinkConfigured() || !getLavalink(client)) {
-        throw new Error('Music chua duoc cau hinh Lavalink. Hay chay Lavalink va dien LAVALINK_* trong .env.');
+        throw new Error('Music chưa được cấu hình Lavalink. Hãy chạy Lavalink và điền LAVALINK_* trong .env.');
     }
     ensureVoice(member);
     checkPlayCooldown(userId);
@@ -137,14 +137,14 @@ export async function queueTrack(client: Client, guildId: string, textChannelId:
     const searchQuery = isUrl(query) ? query : { query, source: 'ytmsearch' };
     const result = await player.search(searchQuery, { id: userId }, true);
     const tracks = (result.tracks || []).filter((track: any) => getLavalink(client).utils.isNotBrokenTrack(track));
-    if (!tracks.length) throw new Error('Khong tim thay bai hop le.');
+    if (!tracks.length) throw new Error('Không tìm thấy bài hợp lệ.');
 
     if (result.loadType === 'playlist') await player.queue.add(tracks);
     else await player.queue.add(tracks[0]);
 
     if (!player.playing && !player.paused) await player.play();
     return {
-        title: result.loadType === 'playlist' ? `${tracks.length} bai tu playlist` : tracks[0].info.title,
+        title: result.loadType === 'playlist' ? `${tracks.length} bài từ playlist` : tracks[0].info.title,
         uri: result.loadType === 'playlist' ? query : tracks[0].info.uri,
         count: tracks.length,
         playlist: result.loadType === 'playlist'
@@ -153,7 +153,7 @@ export async function queueTrack(client: Client, guildId: string, textChannelId:
 
 export async function controlMusic(client: Client, guildId: string, action: string) {
     const player = getPlayer(client, guildId);
-    if (!player) throw new Error('Khong co player dang chay.');
+    if (!player) throw new Error('Không có player đang chạy.');
 
     if (action === 'pause') {
         if (player.paused) await player.resume();
@@ -172,7 +172,7 @@ export async function controlMusic(client: Client, guildId: string, action: stri
 
 export async function addPlaylistTrack(userId: string, title: string, uri: string, source = 'manual', durationMs?: number | null) {
     const count = await prisma.musicPlaylistTrack.count({ where: { userId } });
-    if (count >= MAX_PLAYLIST_TRACKS) throw new Error(`Playlist chi luu toi da ${MAX_PLAYLIST_TRACKS} bai.`);
+    if (count >= MAX_PLAYLIST_TRACKS) throw new Error(`Playlist chỉ lưu tối đa ${MAX_PLAYLIST_TRACKS} bài.`);
     await prisma.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
     return prisma.musicPlaylistTrack.create({
         data: {
@@ -188,7 +188,7 @@ export async function addPlaylistTrack(userId: string, title: string, uri: strin
 
 export async function removePlaylistTrack(userId: string, position: number) {
     const track = await prisma.musicPlaylistTrack.findUnique({ where: { userId_position: { userId, position } } });
-    if (!track) throw new Error('Khong tim thay bai trong playlist.');
+    if (!track) throw new Error('Không tìm thấy bài trong playlist.');
     await prisma.$transaction(async tx => {
         await tx.musicPlaylistTrack.delete({ where: { id: track.id } });
         const rest = await tx.musicPlaylistTrack.findMany({ where: { userId, position: { gt: position } }, orderBy: { position: 'asc' } });
@@ -209,7 +209,7 @@ export async function getPlaylist(userId: string) {
 export async function playPlaylist(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string) {
     ensureVoice(member);
     const tracks = await getPlaylist(userId);
-    if (!tracks.length) throw new Error('Playlist cua ban dang trong.');
+    if (!tracks.length) throw new Error('Playlist của bạn đang trống.');
     for (const track of tracks) {
         await queueTrack(client, guildId, textChannelId, member, userId, track.uri);
     }
@@ -226,9 +226,9 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
     try {
         if (command === 'play') {
             const query = args.join(' ');
-            if (!query) throw new Error(`Dung: ${DEFAULT_PREFIX}play <link/search>`);
+            if (!query) throw new Error(`Dùng: ${DEFAULT_PREFIX}play <link/search>`);
             const track = await queueTrack(message.client, message.guild.id, message.channelId, message.member, message.author.id, query);
-            await message.reply({ content: `Da them vao queue: **${track.title}**`, ...musicPanel(message.client, message.guild.id) });
+            await message.reply({ content: `Đã thêm vào queue: **${track.title}**`, ...musicPanel(message.client, message.guild.id) });
             return true;
         }
         if (['queue', 'now'].includes(command)) {
@@ -242,15 +242,15 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
         }
         if (command === 'volume') {
             const player = getPlayer(message.client, message.guild.id);
-            if (!player) throw new Error('Khong co player dang chay.');
+            if (!player) throw new Error('Không có player đang chạy.');
             const value = Number(args[0]);
-            if (!Number.isFinite(value) || value < 10 || value > 100) throw new Error('Volume tu 10 den 100.');
+            if (!Number.isFinite(value) || value < 10 || value > 100) throw new Error('Volume từ 10 đến 100.');
             await player.setVolume(value);
             await message.reply(musicPanel(message.client, message.guild.id));
             return true;
         }
     } catch (error: any) {
-        await message.reply(error?.message || 'Da co loi music.').catch(() => {});
+        await message.reply(error?.message || 'Đã có lỗi music.').catch(() => {});
         return true;
     }
 
@@ -260,12 +260,12 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
 export async function executeMusicSlash(interaction: ChatInputCommandInteraction) {
     const sub = interaction.options.getSubcommand();
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.editReply('Chi dung music trong server.');
+    if (!guildId) return interaction.editReply('Chỉ dùng music trong server.');
 
     if (sub === 'play') {
         const query = interaction.options.getString('query', true);
         const track = await queueTrack(interaction.client, guildId, interaction.channelId, interaction.member as GuildMember, interaction.user.id, query);
-        return interaction.editReply({ content: `Da them vao queue: **${track.title}**`, ...musicPanel(interaction.client, guildId) });
+        return interaction.editReply({ content: `Đã thêm vào queue: **${track.title}**`, ...musicPanel(interaction.client, guildId) });
     }
 
     if (['queue', 'now'].includes(sub)) return interaction.editReply(musicPanel(interaction.client, guildId));

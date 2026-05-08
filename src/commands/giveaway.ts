@@ -21,61 +21,61 @@ import {
 export default {
     data: new SlashCommandBuilder()
         .setName('giveaway')
-        .setDescription('Quan ly giveaway Stella')
+        .setDescription('Quản lý giveaway Stella')
         .addSubcommand(sub =>
             sub.setName('create')
-                .setDescription('Tao giveaway moi')
-                .addStringOption(option => option.setName('title').setDescription('Tieu de').setRequired(true).setMaxLength(100))
-                .addStringOption(option => option.setName('prize').setDescription('Phan thuong').setRequired(true).setMaxLength(200))
+                .setDescription('Tạo giveaway mới')
+                .addStringOption(option => option.setName('title').setDescription('Tiêu đề').setRequired(true).setMaxLength(100))
+                .addStringOption(option => option.setName('prize').setDescription('Phần thưởng').setRequired(true).setMaxLength(200))
                 .addStringOption(option => option.setName('duration').setDescription('VD: 30m, 2h, 3d').setRequired(true))
-                .addIntegerOption(option => option.setName('winners').setDescription('So winner').setRequired(true).setMinValue(1).setMaxValue(20))
-                .addStringOption(option => option.setName('description').setDescription('Mo ta').setRequired(false).setMaxLength(1000))
-                .addChannelOption(option => option.setName('channel').setDescription('Kenh dang giveaway').setRequired(false))
+                .addIntegerOption(option => option.setName('winners').setDescription('Số winner').setRequired(true).setMinValue(1).setMaxValue(20))
+                .addStringOption(option => option.setName('description').setDescription('Mô tả').setRequired(false).setMaxLength(1000))
+                .addChannelOption(option => option.setName('channel').setDescription('Kênh đăng giveaway').setRequired(false))
                 .addUserOption(option => option.setName('host').setDescription('Host giveaway').setRequired(false))
-                .addRoleOption(option => option.setName('required_role').setDescription('Role bat buoc').setRequired(false))
-                .addIntegerOption(option => option.setName('min_level').setDescription('Level toi thieu').setRequired(false).setMinValue(1))
-                .addIntegerOption(option => option.setName('min_scoin').setDescription('Scoin toi thieu').setRequired(false).setMinValue(0))
-                .addIntegerOption(option => option.setName('entry_cost').setDescription('Phi tham gia bang Scoin').setRequired(false).setMinValue(0))
+                .addRoleOption(option => option.setName('required_role').setDescription('Role bắt buộc').setRequired(false))
+                .addIntegerOption(option => option.setName('min_level').setDescription('Level tối thiểu').setRequired(false).setMinValue(1))
+                .addIntegerOption(option => option.setName('min_scoin').setDescription('Scoin tối thiểu').setRequired(false).setMinValue(0))
+                .addIntegerOption(option => option.setName('entry_cost').setDescription('Phí tham gia bằng Scoin').setRequired(false).setMinValue(0))
                 .addStringOption(option =>
                     option.setName('reward_type')
-                        .setDescription('Kieu phan thuong')
+                        .setDescription('Kiểu phần thưởng')
                         .setRequired(false)
                         .addChoices(
-                            { name: 'Lien he host', value: 'contact_host' },
-                            { name: 'Link bi mat', value: 'link' },
-                            { name: 'File/link tai xuong', value: 'file' }
+                            { name: 'Liên hệ host', value: 'contact_host' },
+                            { name: 'Link bí mật', value: 'link' },
+                            { name: 'File/link tải xuống', value: 'file' }
                         ))
-                .addStringOption(option => option.setName('reward_secret').setDescription('Link/file gui rieng winner').setRequired(false).setMaxLength(1000))
-                .addStringOption(option => option.setName('media_url').setDescription('Anh/video showcase phan thuong').setRequired(false))
-                .addAttachmentOption(option => option.setName('media_file').setDescription('Anh/video upload').setRequired(false)))
+                .addStringOption(option => option.setName('reward_secret').setDescription('Link/file gửi riêng winner').setRequired(false).setMaxLength(1000))
+                .addStringOption(option => option.setName('media_url').setDescription('Ảnh/video showcase phần thưởng').setRequired(false))
+                .addAttachmentOption(option => option.setName('media_file').setDescription('Ảnh/video upload').setRequired(false)))
         .addSubcommand(sub =>
             sub.setName('panel')
-                .setDescription('Gui panel tao giveaway nhanh'))
+                .setDescription('Gửi panel tạo giveaway nhanh'))
         .addSubcommand(sub =>
             sub.setName('participants')
-                .setDescription('Xem danh sach nguoi tham gia')
+                .setDescription('Xem danh sách người tham gia')
                 .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
         .addSubcommand(sub =>
             sub.setName('end')
-                .setDescription('Ket thuc giveaway ngay')
+                .setDescription('Kết thúc giveaway ngay')
                 .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
         .addSubcommand(sub =>
             sub.setName('reroll')
-                .setDescription('Roll them winner moi')
+                .setDescription('Roll thêm winner mới')
                 .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
         .addSubcommand(sub =>
             sub.setName('cancel')
-                .setDescription('Huy giveaway va hoan phi')
+                .setDescription('Hủy giveaway và hoàn phí')
                 .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
         .addSubcommand(sub =>
             sub.setName('list')
-                .setDescription('Xem giveaway dang active')),
+                .setDescription('Xem giveaway đang active')),
 
     async execute(interaction: ChatInputCommandInteraction) {
         const sub = interaction.options.getSubcommand();
         const adminOnly = ['create', 'panel', 'end', 'reroll', 'cancel'].includes(sub);
         if (adminOnly && !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: 'Ban can quyen Administrator de dung lenh nay.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: 'Bạn cần quyền Administrator để dùng lệnh này.', flags: MessageFlags.Ephemeral });
         }
 
         await interaction.deferReply({ flags: sub === 'participants' ? MessageFlags.Ephemeral : undefined });
@@ -83,7 +83,7 @@ export default {
         try {
             if (sub === 'create') {
                 const channel = (interaction.options.getChannel('channel') || interaction.channel) as TextChannel;
-                if (!channel?.isTextBased()) return interaction.editReply('Kenh giveaway khong hop le.');
+                if (!channel?.isTextBased()) return interaction.editReply('Kênh giveaway không hợp lệ.');
 
                 const durationMs = parseDuration(interaction.options.getString('duration', true));
                 const mediaFile = interaction.options.getAttachment('media_file');
@@ -93,7 +93,7 @@ export default {
                     prize: interaction.options.getString('prize', true),
                     durationMs,
                     winnersCount: interaction.options.getInteger('winners', true),
-                    description: interaction.options.getString('description') || 'Nhan nut ben duoi de tham gia giveaway.',
+                    description: interaction.options.getString('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
                     hostId: interaction.options.getUser('host')?.id || interaction.user.id,
                     requiredRoleId: interaction.options.getRole('required_role')?.id || null,
                     minLevel: interaction.options.getInteger('min_level'),
@@ -105,17 +105,17 @@ export default {
                     createdBy: interaction.user.id
                 });
 
-                return interaction.editReply(`Da tao giveaway **#${giveaway.id}** tai <#${channel.id}>.`);
+                return interaction.editReply(`Đã tạo giveaway **#${giveaway.id}** tại <#${channel.id}>.`);
             }
 
             if (sub === 'panel') {
                 const embed = new EmbedBuilder()
                     .setColor('#f1c40f')
                     .setTitle('Giveaway Panel')
-                    .setDescription('Dung nut ben duoi de mo form tao giveaway nhanh. Form nhanh se tao giveaway co ban, cac dieu kien nang cao nen dung `/giveaway create`.')
+                    .setDescription('Dùng nút bên dưới để mở form tạo giveaway nhanh. Form nhanh sẽ tạo giveaway cơ bản, các điều kiện nâng cao nên dùng `/giveaway create`.')
                     .setImage(GIVEAWAY_BANNER);
                 const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId('giveaway_panel_create').setLabel('Tao giveaway nhanh').setStyle(ButtonStyle.Success).setEmoji('🎁')
+                    new ButtonBuilder().setCustomId('giveaway_panel_create').setLabel('Tạo giveaway nhanh').setStyle(ButtonStyle.Success).setEmoji('🎁')
                 );
                 return interaction.editReply({ embeds: [embed], components: [row] });
             }
@@ -123,30 +123,30 @@ export default {
             if (sub === 'participants') {
                 const id = interaction.options.getInteger('id', true);
                 const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId: id }, orderBy: { joinedAt: 'asc' }, take: 50 });
-                const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chua co ai tham gia.';
+                const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
                 return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${id}`).setDescription(lines)] });
             }
 
             if (sub === 'list') {
                 const giveaways = await prisma.giveaway.findMany({ where: { status: 'ACTIVE' }, orderBy: { endsAt: 'asc' }, take: 10 });
-                const lines = giveaways.map(g => `**#${g.id}** ${g.title} - <t:${Math.floor(g.endsAt.getTime() / 1000)}:R> - <#${g.channelId}>`).join('\n') || 'Khong co giveaway active.';
+                const lines = giveaways.map(g => `**#${g.id}** ${g.title} - <t:${Math.floor(g.endsAt.getTime() / 1000)}:R> - <#${g.channelId}>`).join('\n') || 'Không có giveaway active.';
                 return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle('Giveaway active').setDescription(lines)] });
             }
 
             const id = interaction.options.getInteger('id', true);
             if (sub === 'end') {
                 const winners = await endGiveaway(interaction.client, id);
-                return interaction.editReply(`Da ket thuc giveaway #${id}. Winner: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'khong co'}.`);
+                return interaction.editReply(`Đã kết thúc giveaway #${id}. Winner: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'không có'}.`);
             }
             if (sub === 'reroll') {
                 const winners = await endGiveaway(interaction.client, id, true);
-                return interaction.editReply(`Da reroll giveaway #${id}. Winner moi: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'khong co'}.`);
+                return interaction.editReply(`Đã reroll giveaway #${id}. Winner mới: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'không có'}.`);
             }
             await cancelGiveaway(interaction.client, id);
-            return interaction.editReply(`Da huy giveaway #${id} va hoan phi tham gia neu co.`);
+            return interaction.editReply(`Đã hủy giveaway #${id} và hoàn phí tham gia nếu có.`);
         } catch (error: any) {
             console.error(error);
-            return interaction.editReply(error?.message || 'Da co loi khi xu ly giveaway.');
+            return interaction.editReply(error?.message || 'Đã có lỗi khi xử lý giveaway.');
         }
     }
 };

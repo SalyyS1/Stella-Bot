@@ -8,39 +8,39 @@ const coin = config.ui.emojis.budget || '<a:monedas:1490702767495315477>';
 export default {
     data: new SlashCommandBuilder()
         .setName('scoin')
-        .setDescription('Quan ly va xem Scoin')
+        .setDescription('Quản lý và xem Scoin')
         .addSubcommand(sub =>
             sub.setName('balance')
-                .setDescription('Xem so du Scoin')
-                .addUserOption(option => option.setName('user').setDescription('Nguoi can xem').setRequired(false)))
+                .setDescription('Xem số dư Scoin')
+                .addUserOption(option => option.setName('user').setDescription('Người cần xem').setRequired(false)))
         .addSubcommand(sub =>
             sub.setName('top')
-                .setDescription('Bang xep hang Scoin'))
+                .setDescription('Bảng xếp hạng Scoin'))
         .addSubcommand(sub =>
             sub.setName('history')
-                .setDescription('Xem lich su Scoin gan day')
-                .addUserOption(option => option.setName('user').setDescription('Nguoi can xem').setRequired(false)))
+                .setDescription('Xem lịch sử Scoin gần đây')
+                .addUserOption(option => option.setName('user').setDescription('Người cần xem').setRequired(false)))
         .addSubcommandGroup(group =>
             group.setName('admin')
-                .setDescription('Lenh admin Scoin')
+                .setDescription('Lệnh admin Scoin')
                 .addSubcommand(sub =>
                     sub.setName('add')
-                        .setDescription('Cong Scoin')
-                        .addUserOption(option => option.setName('user').setDescription('Nguoi nhan').setRequired(true))
-                        .addIntegerOption(option => option.setName('amount').setDescription('So Scoin').setRequired(true).setMinValue(1))
-                        .addStringOption(option => option.setName('reason').setDescription('Ly do').setRequired(false)))
+                        .setDescription('Cộng Scoin')
+                        .addUserOption(option => option.setName('user').setDescription('Người nhận').setRequired(true))
+                        .addIntegerOption(option => option.setName('amount').setDescription('Số Scoin').setRequired(true).setMinValue(1))
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))
                 .addSubcommand(sub =>
                     sub.setName('remove')
-                        .setDescription('Tru Scoin')
-                        .addUserOption(option => option.setName('user').setDescription('Nguoi bi tru').setRequired(true))
-                        .addIntegerOption(option => option.setName('amount').setDescription('So Scoin').setRequired(true).setMinValue(1))
-                        .addStringOption(option => option.setName('reason').setDescription('Ly do').setRequired(false)))
+                        .setDescription('Trừ Scoin')
+                        .addUserOption(option => option.setName('user').setDescription('Người bị trừ').setRequired(true))
+                        .addIntegerOption(option => option.setName('amount').setDescription('Số Scoin').setRequired(true).setMinValue(1))
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))
                 .addSubcommand(sub =>
                     sub.setName('set')
-                        .setDescription('Dat lai so du Scoin')
-                        .addUserOption(option => option.setName('user').setDescription('Nguoi can set').setRequired(true))
-                        .addIntegerOption(option => option.setName('amount').setDescription('So du moi').setRequired(true).setMinValue(0))
-                        .addStringOption(option => option.setName('reason').setDescription('Ly do').setRequired(false)))),
+                        .setDescription('Đặt lại số dư Scoin')
+                        .addUserOption(option => option.setName('user').setDescription('Người cần set').setRequired(true))
+                        .addIntegerOption(option => option.setName('amount').setDescription('Số dư mới').setRequired(true).setMinValue(0))
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: interaction.options.getSubcommandGroup(false) === 'admin' });
@@ -51,7 +51,7 @@ export default {
         try {
             if (group === 'admin') {
                 if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-                    return interaction.editReply('Ban can quyen Administrator de dung lenh nay.');
+                    return interaction.editReply('Bạn cần quyền Administrator để dùng lệnh này.');
                 }
 
                 const target = interaction.options.getUser('user', true);
@@ -60,12 +60,12 @@ export default {
 
                 if (sub === 'set') {
                     const user = await setScoin(target.id, amount, reason, 'admin', `by:${interaction.user.id}`);
-                    return interaction.editReply(`${coin} Da dat so du cua <@${target.id}> thanh **${user.scoinBalance.toLocaleString('vi-VN')}** Scoin.`);
+                    return interaction.editReply(`${coin} Đã đặt số dư của <@${target.id}> thành **${user.scoinBalance.toLocaleString('vi-VN')}** Scoin.`);
                 }
 
                 const delta = sub === 'remove' ? -amount : amount;
                 const user = await adjustScoin(target.id, delta, reason, 'admin', `by:${interaction.user.id}`);
-                return interaction.editReply(`${coin} <@${target.id}> hien co **${user.scoinBalance.toLocaleString('vi-VN')}** Scoin.`);
+                return interaction.editReply(`${coin} <@${target.id}> hiện có **${user.scoinBalance.toLocaleString('vi-VN')}** Scoin.`);
             }
 
             if (sub === 'balance') {
@@ -74,8 +74,8 @@ export default {
                 const embed = new EmbedBuilder()
                     .setColor('#f1c40f')
                     .setAuthor({ name: target.username, iconURL: target.displayAvatarURL() })
-                    .setTitle(`${coin} Vi Scoin`)
-                    .setDescription(`<@${target.id}> dang co **${balance.toLocaleString('vi-VN')}** Scoin.`)
+                    .setTitle(`${coin} Ví Scoin`)
+                    .setDescription(`<@${target.id}> đang có **${balance.toLocaleString('vi-VN')}** Scoin.`)
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
@@ -94,7 +94,7 @@ export default {
                 const embed = new EmbedBuilder()
                     .setColor('#f1c40f')
                     .setTitle(`${coin} Top Scoin`)
-                    .setDescription(lines.join('\n') || 'Chua co du lieu.')
+                    .setDescription(lines.join('\n') || 'Chưa có dữ liệu.')
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
@@ -108,16 +108,16 @@ export default {
 
             const embed = new EmbedBuilder()
                 .setColor('#f1c40f')
-                .setTitle(`${coin} Lich su Scoin`)
+                .setTitle(`${coin} Lịch sử Scoin`)
                 .setDescription(history.map(tx =>
                     `${tx.amount > 0 ? '+' : ''}${tx.amount} - ${tx.reason} (${tx.source})`
-                ).join('\n') || 'Chua co giao dich.')
+                ).join('\n') || 'Chưa có giao dịch.')
                 .setFooter({ text: target.username })
                 .setTimestamp();
             return interaction.editReply({ embeds: [embed] });
         } catch (error: any) {
             console.error(error);
-            return interaction.editReply(error?.message === 'Not enough Scoin.' ? 'Khong du Scoin.' : 'Da co loi khi xu ly Scoin.');
+            return interaction.editReply(error?.message === 'Not enough Scoin.' ? 'Không đủ Scoin.' : 'Đã có lỗi khi xử lý Scoin.');
         }
     }
 };

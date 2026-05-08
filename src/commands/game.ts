@@ -12,16 +12,16 @@ function wait(ms: number) {
 }
 
 function checkBet(bet: number) {
-    if (bet < MIN_BET || bet > MAX_BET) throw new Error(`Cuoc tu ${MIN_BET} den ${MAX_BET} Scoin.`);
+    if (bet < MIN_BET || bet > MAX_BET) throw new Error(`Cược từ ${MIN_BET} đến ${MAX_BET} Scoin.`);
 }
 
 async function ensureCanPlay(userId: string, bet: number) {
     checkBet(bet);
     const now = Date.now();
     const until = cooldowns.get(userId) || 0;
-    if (until > now) throw new Error(`Cho them ${Math.ceil((until - now) / 1000)}s roi choi tiep nhe.`);
+    if (until > now) throw new Error(`Chờ thêm ${Math.ceil((until - now) / 1000)}s rồi chơi tiếp nhé.`);
     const balance = await getScoinBalance(userId);
-    if (balance < bet) throw new Error('Khong du Scoin de dat cuoc.');
+    if (balance < bet) throw new Error('Không đủ Scoin để đặt cược.');
     cooldowns.set(userId, now + COOLDOWN_MS);
 }
 
@@ -31,18 +31,18 @@ export default {
         .setDescription('Minigame Scoin nhanh')
         .addSubcommand(sub =>
             sub.setName('coinflip')
-                .setDescription('Lat xu doan mat')
-                .addIntegerOption(option => option.setName('bet').setDescription('So Scoin cuoc').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
+                .setDescription('Lật xu đoán mặt')
+                .addIntegerOption(option => option.setName('bet').setDescription('Số Scoin cược').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
                 .addStringOption(option =>
                     option.setName('choice')
-                        .setDescription('Mat ban chon')
+                        .setDescription('Mặt bạn chọn')
                         .setRequired(false)
                         .addChoices({ name: 'Heads', value: 'heads' }, { name: 'Tails', value: 'tails' })))
         .addSubcommand(sub =>
             sub.setName('dice')
-                .setDescription('Doan xuc xac 1-6')
-                .addIntegerOption(option => option.setName('bet').setDescription('So Scoin cuoc').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
-                .addIntegerOption(option => option.setName('guess').setDescription('So ban doan').setRequired(false).setMinValue(1).setMaxValue(6))),
+                .setDescription('Đoán xúc xắc 1-6')
+                .addIntegerOption(option => option.setName('bet').setDescription('Số Scoin cược').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
+                .addIntegerOption(option => option.setName('guess').setDescription('Số bạn đoán').setRequired(false).setMinValue(1).setMaxValue(6))),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
@@ -56,10 +56,10 @@ export default {
 
             if (sub === 'coinflip') {
                 const choice = interaction.options.getString('choice') || (Math.random() > 0.5 ? 'heads' : 'tails');
-                const frames = ['Dong xu dang bay...', 'Dong xu xoay vong...', 'Dong xu sap cham dat...'];
+                const frames = ['Đồng xu đang bay...', 'Đồng xu xoay vòng...', 'Đồng xu sắp chạm đất...'];
                 for (const frame of frames) {
                     await interaction.editReply({
-                        embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle('Coinflip').setDescription(`${coin} **${frame}**\nBan chon: **${choice}**`)]
+                        embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle('Coinflip').setDescription(`${coin} **${frame}**\nBạn chọn: **${choice}**`)]
                     });
                     await wait(650);
                 }
@@ -72,15 +72,15 @@ export default {
                 return interaction.editReply({
                     embeds: [new EmbedBuilder()
                         .setColor(won ? '#2ecc71' : '#e74c3c')
-                        .setTitle(won ? 'Ban thang coinflip!' : 'Ban thua coinflip')
-                        .setDescription(`Ket qua: **${result}**\n${won ? '+' : '-'}**${bet}** Scoin\nSo du: **${user.scoinBalance.toLocaleString('vi-VN')}**`)]
+                        .setTitle(won ? 'Bạn thắng coinflip!' : 'Bạn thua coinflip')
+                        .setDescription(`Kết quả: **${result}**\n${won ? '+' : '-'}**${bet}** Scoin\nSố dư: **${user.scoinBalance.toLocaleString('vi-VN')}**`)]
                 });
             }
 
             const guess = interaction.options.getInteger('guess') || Math.floor(Math.random() * 6) + 1;
-            for (const frame of ['Dang lac xuc xac...', 'Xuc xac nay len...', 'Xuc xac dung lai...']) {
+            for (const frame of ['Đang lắc xúc xắc...', 'Xúc xắc nảy lên...', 'Xúc xắc dừng lại...']) {
                 await interaction.editReply({
-                    embeds: [new EmbedBuilder().setColor('#9b59b6').setTitle('Dice').setDescription(`${coin} **${frame}**\nBan doan: **${guess}**`)]
+                    embeds: [new EmbedBuilder().setColor('#9b59b6').setTitle('Dice').setDescription(`${coin} **${frame}**\nBạn đoán: **${guess}**`)]
                 });
                 await wait(650);
             }
@@ -94,12 +94,12 @@ export default {
             return interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor(won ? '#2ecc71' : '#e74c3c')
-                    .setTitle(won ? 'Doan dung xuc xac!' : 'Doan sai xuc xac')
-                    .setDescription(`Ket qua: **${result}**\n${won ? '+' : '-'}**${won ? prize : bet}** Scoin\nSo du: **${user.scoinBalance.toLocaleString('vi-VN')}**`)]
+                    .setTitle(won ? 'Đoán đúng xúc xắc!' : 'Đoán sai xúc xắc')
+                    .setDescription(`Kết quả: **${result}**\n${won ? '+' : '-'}**${won ? prize : bet}** Scoin\nSố dư: **${user.scoinBalance.toLocaleString('vi-VN')}**`)]
             });
         } catch (error: any) {
             cooldowns.delete(interaction.user.id);
-            return interaction.editReply(error?.message || 'Da co loi khi choi game.');
+            return interaction.editReply(error?.message || 'Đã có lỗi khi chơi game.');
         }
     }
 };

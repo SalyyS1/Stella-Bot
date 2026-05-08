@@ -11,33 +11,33 @@ import {
 export default {
     data: new SlashCommandBuilder()
         .setName('music')
-        .setDescription('Music va playlist ca nhan')
+        .setDescription('Music và playlist cá nhân')
         .addSubcommand(sub =>
             sub.setName('play')
-                .setDescription('Them bai vao queue')
-                .addStringOption(option => option.setName('query').setDescription('Link hoac tu khoa tim kiem').setRequired(true)))
+                .setDescription('Thêm bài vào queue')
+                .addStringOption(option => option.setName('query').setDescription('Link hoặc từ khóa tìm kiếm').setRequired(true)))
         .addSubcommand(sub => sub.setName('queue').setDescription('Xem queue'))
-        .addSubcommand(sub => sub.setName('now').setDescription('Xem bai dang phat'))
-        .addSubcommand(sub => sub.setName('skip').setDescription('Skip bai hien tai'))
-        .addSubcommand(sub => sub.setName('stop').setDescription('Dung va xoa queue'))
+        .addSubcommand(sub => sub.setName('now').setDescription('Xem bài đang phát'))
+        .addSubcommand(sub => sub.setName('skip').setDescription('Skip bài hiện tại'))
+        .addSubcommand(sub => sub.setName('stop').setDescription('Dừng và xóa queue'))
         .addSubcommand(sub => sub.setName('pause').setDescription('Pause'))
         .addSubcommand(sub => sub.setName('resume').setDescription('Resume'))
-        .addSubcommand(sub => sub.setName('loop').setDescription('Bat/tat loop'))
-        .addSubcommand(sub => sub.setName('shuffle').setDescription('Tron queue'))
+        .addSubcommand(sub => sub.setName('loop').setDescription('Bật/tắt loop'))
+        .addSubcommand(sub => sub.setName('shuffle').setDescription('Trộn queue'))
         .addSubcommandGroup(group =>
             group.setName('playlist')
-                .setDescription('Playlist ca nhan toi da 20 bai')
+                .setDescription('Playlist cá nhân tối đa 20 bài')
                 .addSubcommand(sub =>
                     sub.setName('add')
-                        .setDescription('Luu bai vao playlist')
-                        .addStringOption(option => option.setName('title').setDescription('Ten bai').setRequired(true).setMaxLength(200))
+                        .setDescription('Lưu bài vào playlist')
+                        .addStringOption(option => option.setName('title').setDescription('Tên bài').setRequired(true).setMaxLength(200))
                         .addStringOption(option => option.setName('uri').setDescription('Link/search').setRequired(true)))
                 .addSubcommand(sub =>
                     sub.setName('remove')
-                        .setDescription('Xoa bai theo vi tri')
-                        .addIntegerOption(option => option.setName('position').setDescription('Vi tri trong playlist').setRequired(true).setMinValue(1).setMaxValue(20)))
-                .addSubcommand(sub => sub.setName('clear').setDescription('Xoa toan bo playlist'))
-                .addSubcommand(sub => sub.setName('play').setDescription('Them playlist vao queue'))
+                        .setDescription('Xóa bài theo vị trí')
+                        .addIntegerOption(option => option.setName('position').setDescription('Vị trí trong playlist').setRequired(true).setMinValue(1).setMaxValue(20)))
+                .addSubcommand(sub => sub.setName('clear').setDescription('Xóa toàn bộ playlist'))
+                .addSubcommand(sub => sub.setName('play').setDescription('Thêm playlist vào queue'))
                 .addSubcommand(sub => sub.setName('view').setDescription('Xem playlist'))),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -57,35 +57,35 @@ export default {
                     interaction.options.getString('uri', true),
                     'manual'
                 );
-                return interaction.editReply(`Da them **${track.title}** vao playlist o vi tri **${track.position}**.`);
+                return interaction.editReply(`Đã thêm **${track.title}** vào playlist ở vị trí **${track.position}**.`);
             }
 
             if (sub === 'remove') {
                 await removePlaylistTrack(interaction.user.id, interaction.options.getInteger('position', true));
-                return interaction.editReply('Da xoa bai khoi playlist.');
+                return interaction.editReply('Đã xóa bài khỏi playlist.');
             }
 
             if (sub === 'clear') {
                 await clearPlaylist(interaction.user.id);
-                return interaction.editReply('Da xoa toan bo playlist.');
+                return interaction.editReply('Đã xóa toàn bộ playlist.');
             }
 
             if (sub === 'play') {
                 const count = await playPlaylist(interaction.client, interaction.guildId!, interaction.channelId, interaction.member as any, interaction.user.id);
-                return interaction.editReply(`Da them **${count}** bai tu playlist vao queue.`);
+                return interaction.editReply(`Đã thêm **${count}** bài từ playlist vào queue.`);
             }
 
             const tracks = await getPlaylist(interaction.user.id);
-            const lines = tracks.map(track => `**${track.position}.** ${track.title}\n${track.uri}`).join('\n') || 'Playlist dang trong.';
+            const lines = tracks.map(track => `**${track.position}.** ${track.title}\n${track.uri}`).join('\n') || 'Playlist đang trống.';
             return interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#5865f2')
-                    .setTitle(`Playlist cua ${interaction.user.username}`)
+                    .setTitle(`Playlist của ${interaction.user.username}`)
                     .setDescription(lines)
-                    .setFooter({ text: `${tracks.length}/20 bai` })]
+                    .setFooter({ text: `${tracks.length}/20 bài` })]
             });
         } catch (error: any) {
-            return interaction.editReply(error?.message || 'Da co loi khi xu ly music.');
+            return interaction.editReply(error?.message || 'Đã có lỗi khi xử lý music.');
         }
     }
 };

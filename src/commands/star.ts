@@ -6,14 +6,14 @@ import { config } from '../config';
 
 const STAR_VALUES = { dust: 2, small: 8, bright: 25, comet: 75, galaxy: 220 };
 const TOOL_SHOP = [
-    { key: 'silver_net', name: 'Silver Net', price: 250, note: 'Tang co hoi sao sang.' },
-    { key: 'galaxy_harvester', name: 'Galaxy Harvester', price: 900, note: 'Tang san luong moi lan hai.' },
-    { key: 'comet_magnet', name: 'Comet Magnet', price: 650, note: 'Tang co hoi comet/galaxy.' }
+    { key: 'silver_net', name: 'Silver Net', price: 250, note: 'Tăng cơ hội sao sáng.' },
+    { key: 'galaxy_harvester', name: 'Galaxy Harvester', price: 900, note: 'Tăng sản lượng mỗi lần hái.' },
+    { key: 'comet_magnet', name: 'Comet Magnet', price: 650, note: 'Tăng cơ hội comet/galaxy.' }
 ];
 const BUFF_SHOP = [
-    { key: 'stardust_tea', name: 'Stardust Tea', price: 120, note: 'Giam cooldown trong 30 phut.' },
-    { key: 'lucky_meteor', name: 'Lucky Meteor', price: 180, note: 'Tang tier cao trong 30 phut.' },
-    { key: 'double_spark', name: 'Double Spark', price: 150, note: 'Nhan doi sao thuong trong 30 phut.' }
+    { key: 'stardust_tea', name: 'Stardust Tea', price: 120, note: 'Giảm cooldown trong 30 phút.' },
+    { key: 'lucky_meteor', name: 'Lucky Meteor', price: 180, note: 'Tăng tier cao trong 30 phút.' },
+    { key: 'double_spark', name: 'Double Spark', price: 150, note: 'Nhân đôi sao thường trong 30 phút.' }
 ];
 const STAR_ASSETS: Record<keyof typeof STAR_VALUES, string> = {
     dust: 'star_dust.png',
@@ -69,16 +69,16 @@ async function getState(userId: string) {
 export default {
     data: new SlashCommandBuilder()
         .setName('star')
-        .setDescription('Minigame hai sao Stella')
-        .addSubcommand(sub => sub.setName('hunt').setDescription('Di hai sao bang tool dang co'))
-        .addSubcommand(sub => sub.setName('bag').setDescription('Xem tui sao'))
-        .addSubcommand(sub => sub.setName('sell').setDescription('Ban toan bo sao trong tui'))
+        .setDescription('Minigame hái sao Stella')
+        .addSubcommand(sub => sub.setName('hunt').setDescription('Đi hái sao bằng tool đang có'))
+        .addSubcommand(sub => sub.setName('bag').setDescription('Xem túi sao'))
+        .addSubcommand(sub => sub.setName('sell').setDescription('Bán toàn bộ sao trong túi'))
         .addSubcommand(sub =>
             sub.setName('shop')
-                .setDescription('Xem shop hoac mua tool/buff')
+                .setDescription('Xem shop hoặc mua tool/buff')
                 .addStringOption(option =>
                     option.setName('buy')
-                        .setDescription('Key vat pham can mua')
+                        .setDescription('Key vật phẩm cần mua')
                         .setRequired(false)
                         .addChoices(
                             ...TOOL_SHOP.map(item => ({ name: item.name, value: item.key })),
@@ -98,8 +98,8 @@ export default {
                 return interaction.editReply({
                     embeds: [new EmbedBuilder()
                         .setColor('#8e44ad')
-                        .setTitle(`${starEmoji} Tui sao cua ban`)
-                        .setDescription(`Dust: **${inventory.dust}**\nSmall: **${inventory.small}**\nBright: **${inventory.bright}**\nComet: **${inventory.comet}**\nGalaxy: **${inventory.galaxy}**\n\nGia tri neu ban: **${total.toLocaleString('vi-VN')}** Scoin`)]
+                        .setTitle(`${starEmoji} Túi sao của bạn`)
+                        .setDescription(`Dust: **${inventory.dust}**\nSmall: **${inventory.small}**\nBright: **${inventory.bright}**\nComet: **${inventory.comet}**\nGalaxy: **${inventory.galaxy}**\n\nGiá trị nếu bán: **${total.toLocaleString('vi-VN')}** Scoin`)]
                 });
             }
 
@@ -107,10 +107,10 @@ export default {
                 const buyKey = interaction.options.getString('buy');
                 if (!buyKey) {
                     const lines = [
-                        '**Tool vinh vien**',
+                        '**Tool vĩnh viễn**',
                         ...TOOL_SHOP.map(item => `\`${item.key}\` - **${item.price}** Scoin - ${item.note}`),
                         '',
-                        '**Buff 30 phut**',
+                        '**Buff 30 phút**',
                         ...BUFF_SHOP.map(item => `\`${item.key}\` - **${item.price}** Scoin - ${item.note}`)
                     ];
                     return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#8e44ad').setTitle(`${starEmoji} Star Shop`).setDescription(lines.join('\n'))] });
@@ -119,14 +119,14 @@ export default {
                 const tool = TOOL_SHOP.find(item => item.key === buyKey);
                 const buff = BUFF_SHOP.find(item => item.key === buyKey);
                 const item = tool || buff;
-                if (!item) return interaction.editReply('Khong tim thay vat pham.');
+                if (!item) return interaction.editReply('Không tìm thấy vật phẩm.');
 
                 const balance = await getScoinBalance(userId);
-                if (balance < item.price) return interaction.editReply('Khong du Scoin de mua vat pham nay.');
+                if (balance < item.price) return interaction.editReply('Không đủ Scoin để mua vật phẩm này.');
 
                 if (tool) {
                     const owned = await prisma.starTool.findUnique({ where: { userId_key: { userId, key: tool.key } } });
-                    if (owned) return interaction.editReply('Ban da co tool nay roi.');
+                    if (owned) return interaction.editReply('Bạn đã có tool này rồi.');
                 }
 
                 await prisma.$transaction(async tx => {
@@ -142,13 +142,13 @@ export default {
                     }
                 });
 
-                return interaction.editReply(`${starEmoji} Da mua **${item.name}** thanh cong.`);
+                return interaction.editReply(`${starEmoji} Đã mua **${item.name}** thành công.`);
             }
 
             if (sub === 'sell') {
                 const { inventory } = await getState(userId);
                 const total = inventory.dust * STAR_VALUES.dust + inventory.small * STAR_VALUES.small + inventory.bright * STAR_VALUES.bright + inventory.comet * STAR_VALUES.comet + inventory.galaxy * STAR_VALUES.galaxy;
-                if (total <= 0) return interaction.editReply('Tui sao dang trong.');
+                if (total <= 0) return interaction.editReply('Túi sao đang trống.');
 
                 const user = await prisma.$transaction(async tx => {
                     await tx.starInventory.update({
@@ -157,7 +157,7 @@ export default {
                     });
                     return adjustScoinTx(tx, userId, total, 'Sell stars', 'star:sell');
                 });
-                return interaction.editReply(`${starEmoji} Da ban sao va nhan **${total.toLocaleString('vi-VN')}** Scoin. So du: **${user.scoinBalance.toLocaleString('vi-VN')}**`);
+                return interaction.editReply(`${starEmoji} Đã bán sao và nhận **${total.toLocaleString('vi-VN')}** Scoin. Số dư: **${user.scoinBalance.toLocaleString('vi-VN')}**`);
             }
 
             const { inventory, tools, buffs } = await getState(userId);
@@ -166,11 +166,11 @@ export default {
             const cooldown = buffKeys.has('stardust_tea') ? 2 * 60_000 : 5 * 60_000;
             if (inventory.lastHuntAt && Date.now() - inventory.lastHuntAt.getTime() < cooldown) {
                 const left = Math.ceil((cooldown - (Date.now() - inventory.lastHuntAt.getTime())) / 1000);
-                return interaction.editReply(`Cho them **${left}s** roi hai sao tiep nhe.`);
+                return interaction.editReply(`Chờ thêm **${left}s** rồi hái sao tiếp nhé.`);
             }
 
-            for (const frame of ['Dang ngam bau troi Stella...', 'Sao bang bat dau roi...', 'Dang mo luoi thu hoach...']) {
-                await interaction.editReply({ embeds: [new EmbedBuilder().setColor('#8e44ad').setTitle(`${starEmoji} Hai Sao`).setDescription(frame)] });
+            for (const frame of ['Đang ngắm bầu trời Stella...', 'Sao băng bắt đầu rơi...', 'Đang mở lưới thu hoạch...']) {
+                await interaction.editReply({ embeds: [new EmbedBuilder().setColor('#8e44ad').setTitle(`${starEmoji} Hái Sao`).setDescription(frame)] });
                 await wait(700);
             }
 
@@ -188,14 +188,14 @@ export default {
             return interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#8e44ad')
-                    .setTitle(`${starEmoji} Thu hoach thanh cong`)
-                    .setDescription(`Ban hai duoc **${amount} ${tier} star**.\nDung \`/star sell\` de ban lay Scoin.`)
+                    .setTitle(`${starEmoji} Thu hoạch thành công`)
+                    .setDescription(`Bạn hái được **${amount} ${tier} star**.\nDùng \`/star sell\` để bán lấy Scoin.`)
                     .setThumbnail(`attachment://${asset.name}`)],
                 files: [asset.attachment]
             });
         } catch (error) {
             console.error(error);
-            return interaction.editReply('Da co loi khi xu ly Star Game.');
+            return interaction.editReply('Đã có lỗi khi xử lý Star Game.');
         }
     }
 };

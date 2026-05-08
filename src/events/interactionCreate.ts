@@ -122,12 +122,12 @@ export default {
                 const id = part[2];
                 const pending = getPendingAnnouncement(id);
                 if (!pending || pending.creatorId !== interaction.user.id) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} Preview nay da het han hoac khong phai cua ban.`, flags: MessageFlags.Ephemeral });
+                    return interaction.reply({ content: `${config.ui.emojis.error} Preview này đã hết hạn hoặc không phải của bạn.`, flags: MessageFlags.Ephemeral });
                 }
 
                 if (type === 'cancel') {
                     takePendingAnnouncement(id);
-                    return interaction.update({ content: 'Da huy thong bao.', embeds: [], components: [] });
+                    return interaction.update({ content: 'Đã hủy thông báo.', embeds: [], components: [] });
                 }
 
                 try {
@@ -135,17 +135,17 @@ export default {
                     if (!data) throw new Error('Preview expired.');
                     const message = await sendAnnouncement(client, data);
                     return interaction.update({
-                        content: `${config.ui.emojis.success} Da gui thong bao tai <#${message.channelId}>.`,
+                        content: `${config.ui.emojis.success} Đã gửi thông báo tại <#${message.channelId}>.`,
                         embeds: [],
                         components: []
                     });
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Khong gui duoc thong bao.'}`, flags: MessageFlags.Ephemeral });
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Không gửi được thông báo.'}`, flags: MessageFlags.Ephemeral });
                 }
             }
 
             if (action === 'music') {
-                if (!interaction.guildId) return interaction.reply({ content: 'Chi dung music trong server.', flags: MessageFlags.Ephemeral });
+                if (!interaction.guildId) return interaction.reply({ content: 'Chỉ dùng music trong server.', flags: MessageFlags.Ephemeral });
                 const type = part[1];
                 try {
                     await controlMusic(interaction.client, interaction.guildId, type);
@@ -159,12 +159,12 @@ export default {
                 const type = part[1];
 
                 if (type === 'panel' && part[2] === 'create') {
-                    const modal = new ModalBuilder().setCustomId('giveaway_quick_modal').setTitle('Tao Giveaway Nhanh');
-                    const title = new TextInputBuilder().setCustomId('title').setLabel('Tieu de').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
-                    const prize = new TextInputBuilder().setCustomId('prize').setLabel('Phan thuong').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true);
-                    const duration = new TextInputBuilder().setCustomId('duration').setLabel('Thoi luong (VD: 30m, 2h, 3d)').setStyle(TextInputStyle.Short).setRequired(true);
-                    const winners = new TextInputBuilder().setCustomId('winners').setLabel('So winner').setStyle(TextInputStyle.Short).setRequired(true);
-                    const description = new TextInputBuilder().setCustomId('description').setLabel('Mo ta').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false);
+                    const modal = new ModalBuilder().setCustomId('giveaway_quick_modal').setTitle('Tạo Giveaway Nhanh');
+                    const title = new TextInputBuilder().setCustomId('title').setLabel('Tiêu đề').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
+                    const prize = new TextInputBuilder().setCustomId('prize').setLabel('Phần thưởng').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true);
+                    const duration = new TextInputBuilder().setCustomId('duration').setLabel('Thời lượng (VD: 30m, 2h, 3d)').setStyle(TextInputStyle.Short).setRequired(true);
+                    const winners = new TextInputBuilder().setCustomId('winners').setLabel('Số winner').setStyle(TextInputStyle.Short).setRequired(true);
+                    const description = new TextInputBuilder().setCustomId('description').setLabel('Mô tả').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false);
                     modal.addComponents(
                         new ActionRowBuilder<TextInputBuilder>().addComponents(title),
                         new ActionRowBuilder<TextInputBuilder>().addComponents(prize),
@@ -181,21 +181,21 @@ export default {
 
                 try {
                     if (type === 'join') {
-                        if (!interaction.guild) throw new Error('Chi dung giveaway trong server.');
+                        if (!interaction.guild) throw new Error('Chỉ dùng giveaway trong server.');
                         await joinGiveaway(client, interaction.guild, giveawayId, interaction.user.id);
-                        return interaction.reply({ content: `${config.ui.emojis.success} Da tham gia giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                        return interaction.reply({ content: `${config.ui.emojis.success} Đã tham gia giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
                     }
                     if (type === 'leave') {
                         await leaveGiveaway(client, giveawayId, interaction.user.id);
-                        return interaction.reply({ content: `${config.ui.emojis.success} Da roi giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                        return interaction.reply({ content: `${config.ui.emojis.success} Đã rời giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
                     }
                     if (type === 'participants') {
                         const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 });
-                        const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chua co ai tham gia.';
+                        const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
                         return interaction.reply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${giveawayId}`).setDescription(lines)], flags: MessageFlags.Ephemeral });
                     }
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Da co loi khi xu ly giveaway.'}`, flags: MessageFlags.Ephemeral });
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Đã có lỗi khi xử lý giveaway.'}`, flags: MessageFlags.Ephemeral });
                 }
                 return;
             }
@@ -430,10 +430,10 @@ export default {
             else if (interaction.customId === 'giveaway_quick_modal') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 if (!interaction.memberPermissions?.has('Administrator')) {
-                    return interaction.editReply('Ban can quyen Administrator de tao giveaway.');
+                    return interaction.editReply('Bạn cần quyền Administrator để tạo giveaway.');
                 }
                 const channel = interaction.channel as TextChannel;
-                if (!channel?.isTextBased()) return interaction.editReply('Kenh hien tai khong hop le.');
+                if (!channel?.isTextBased()) return interaction.editReply('Kênh hiện tại không hợp lệ.');
 
                 const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
                 const winners = Math.max(1, Math.min(20, Number(interaction.fields.getTextInputValue('winners')) || 1));
@@ -441,14 +441,14 @@ export default {
                     channel,
                     title: interaction.fields.getTextInputValue('title'),
                     prize: interaction.fields.getTextInputValue('prize'),
-                    description: interaction.fields.getTextInputValue('description') || 'Nhan nut ben duoi de tham gia giveaway.',
+                    description: interaction.fields.getTextInputValue('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
                     durationMs,
                     winnersCount: winners,
                     hostId: interaction.user.id,
                     publicMediaUrl: GIVEAWAY_BANNER,
                     createdBy: interaction.user.id
                 });
-                await interaction.editReply(`${config.ui.emojis.success} Da tao giveaway nhanh #${giveaway.id}.`);
+                await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway nhanh #${giveaway.id}.`);
             }
         }
     }

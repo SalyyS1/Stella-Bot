@@ -14,25 +14,25 @@ function normalizeColor(color: string | null): string | null {
 export default {
     data: new SlashCommandBuilder()
         .setName('announce')
-        .setDescription('Tao thong bao embed cho admin')
+        .setDescription('Tạo thông báo embed cho admin')
         .addSubcommand(sub =>
             sub.setName('create')
-                .setDescription('Tao preview thong bao truoc khi gui')
-                .addChannelOption(option => option.setName('channel').setDescription('Kenh can gui').setRequired(true))
-                .addStringOption(option => option.setName('title').setDescription('Tieu de').setRequired(true).setMaxLength(200))
-                .addStringOption(option => option.setName('description').setDescription('Noi dung').setRequired(true).setMaxLength(2000))
-                .addRoleOption(option => option.setName('ping_role').setDescription('Role can ping').setRequired(false))
-                .addStringOption(option => option.setName('color').setDescription('Mau hex, VD ff66cc').setRequired(false))
-                .addStringOption(option => option.setName('emoji').setDescription('Emoji/icon dau title').setRequired(false).setMaxLength(50))
-                .addStringOption(option => option.setName('image').setDescription('Anh/banner URL').setRequired(false))
+                .setDescription('Tạo preview thông báo trước khi gửi')
+                .addChannelOption(option => option.setName('channel').setDescription('Kênh cần gửi').setRequired(true))
+                .addStringOption(option => option.setName('title').setDescription('Tiêu đề').setRequired(true).setMaxLength(200))
+                .addStringOption(option => option.setName('description').setDescription('Nội dung').setRequired(true).setMaxLength(2000))
+                .addRoleOption(option => option.setName('ping_role').setDescription('Role cần ping').setRequired(false))
+                .addStringOption(option => option.setName('color').setDescription('Màu hex, VD ff66cc').setRequired(false))
+                .addStringOption(option => option.setName('emoji').setDescription('Emoji/icon đầu title').setRequired(false).setMaxLength(50))
+                .addStringOption(option => option.setName('image').setDescription('Ảnh/banner URL').setRequired(false))
                 .addStringOption(option => option.setName('thumbnail').setDescription('Thumbnail URL').setRequired(false))
                 .addStringOption(option => option.setName('footer').setDescription('Footer').setRequired(false).setMaxLength(200))
-                .addStringOption(option => option.setName('button_label').setDescription('Label nut link').setRequired(false).setMaxLength(80))
-                .addStringOption(option => option.setName('button_url').setDescription('URL nut link').setRequired(false))),
+                .addStringOption(option => option.setName('button_label').setDescription('Label nút link').setRequired(false).setMaxLength(80))
+                .addStringOption(option => option.setName('button_url').setDescription('URL nút link').setRequired(false))),
 
     async execute(interaction: ChatInputCommandInteraction) {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: 'Ban can quyen Administrator de tao thong bao.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: 'Bạn cần quyền Administrator để tạo thông báo.', flags: MessageFlags.Ephemeral });
         }
 
         const sub = interaction.options.getSubcommand();
@@ -40,18 +40,18 @@ export default {
 
         const channel = interaction.options.getChannel('channel', true);
         if (!(channel as any).isTextBased?.()) {
-            return interaction.reply({ content: 'Kenh gui thong bao khong hop le.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: 'Kênh gửi thông báo không hợp lệ.', flags: MessageFlags.Ephemeral });
         }
 
         const color = normalizeColor(interaction.options.getString('color'));
         if (interaction.options.getString('color') && !color) {
-            return interaction.reply({ content: 'Mau hex khong hop le. VD: ff66cc hoac #ff66cc.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: 'Màu hex không hợp lệ. VD: ff66cc hoặc #ff66cc.', flags: MessageFlags.Ephemeral });
         }
 
         const buttonLabel = interaction.options.getString('button_label');
         const buttonUrl = interaction.options.getString('button_url');
         if ((buttonLabel && !buttonUrl) || (!buttonLabel && buttonUrl)) {
-            return interaction.reply({ content: 'Nut link can co ca label va URL.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: 'Nút link cần có cả label và URL.', flags: MessageFlags.Ephemeral });
         }
 
         const data = createPendingAnnouncement({
@@ -71,8 +71,8 @@ export default {
 
         const embed = new EmbedBuilder()
             .setColor('#ff66cc')
-            .setTitle('Preview thong bao')
-            .setDescription(`Se gui tai <#${channel.id}>${data.roleId ? ` va ping <@&${data.roleId}>` : ''}.\nBam **Gui thong bao** de xac nhan.`);
+            .setTitle('Preview thông báo')
+            .setDescription(`Sẽ gửi tại <#${channel.id}>${data.roleId ? ` và ping <@&${data.roleId}>` : ''}.\nBấm **Gửi thông báo** để xác nhận.`);
 
         return interaction.reply({
             embeds: [embed, buildAnnouncementEmbed(data)],

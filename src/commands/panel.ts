@@ -4,35 +4,35 @@ import { config } from '../config';
 export default {
     data: new SlashCommandBuilder()
         .setName('panel')
-        .setDescription('Tao bang dieu khien giao dich trung tam (Admin)'),
+        .setDescription('Tạo bảng điều khiển giao dịch trung tâm (Admin)'),
 
     async execute(interaction: ChatInputCommandInteraction) {
         if (!interaction.memberPermissions?.has('Administrator')) {
-            return interaction.reply({ content: `${config.ui.emojis.error} Ban khong co quyen su dung lenh nay.`, flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: `${config.ui.emojis.error} Bạn không có quyền sử dụng lệnh này.`, flags: MessageFlags.Ephemeral });
         }
 
         const emojis = config.ui.emojis;
 
         const embed = new EmbedBuilder()
             .setColor('#2b2d31')
-            .setTitle('BANG DIEU KHIEN GIAO DICH')
+            .setTitle('BẢNG ĐIỀU KHIỂN GIAO DỊCH')
             .setDescription(
-                `Chao mung ban den voi trung tam giao dich Stella Studio.\n\n` +
-                `> ${emojis.budget} **Yeu Cau Co Phi (Paid)**: Tim nguoi lam viec co tra cong.\n` +
-                `> ${emojis.service} **Yeu Cau Ho Tro (Free)**: Xin giup do, tim team, giao luu.\n` +
-                `> ${emojis.portfolio} **Dang Thong Tin (Portfolio)**: Show san pham, tim khach hang.\n` +
-                `> ${emojis.purpleArrow} **Server Ads**: Quang cao Discord/Minecraft server dung format.`
+                `Chào mừng bạn đến với trung tâm giao dịch Stella Studio.\n\n` +
+                `> ${emojis.budget} **Yêu Cầu Có Phí (Paid)**: Tìm người làm việc có trả công.\n` +
+                `> ${emojis.service} **Yêu Cầu Hỗ Trợ (Free)**: Xin giúp đỡ, tìm team, giao lưu.\n` +
+                `> ${emojis.portfolio} **Đăng Thông Tin (Portfolio)**: Show sản phẩm, tìm khách hàng.\n` +
+                `> ${emojis.purpleArrow} **Server Ads**: Quảng cáo Discord/Minecraft server đúng format.`
             )
             .setFooter({ text: 'Stella Studio', iconURL: interaction.client.user?.displayAvatarURL() });
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('panel_paid').setLabel('Yeu Cau (Paid)').setStyle(ButtonStyle.Success).setEmoji(emojis.budget),
-            new ButtonBuilder().setCustomId('panel_free').setLabel('Yeu Cau (Free)').setStyle(ButtonStyle.Primary).setEmoji(emojis.service),
+            new ButtonBuilder().setCustomId('panel_paid').setLabel('Yêu Cầu (Paid)').setStyle(ButtonStyle.Success).setEmoji(emojis.budget),
+            new ButtonBuilder().setCustomId('panel_free').setLabel('Yêu Cầu (Free)').setStyle(ButtonStyle.Primary).setEmoji(emojis.service),
             new ButtonBuilder().setCustomId('panel_port').setLabel('Portfolio').setStyle(ButtonStyle.Secondary).setEmoji(emojis.portfolio),
             new ButtonBuilder().setCustomId('panel_serverads').setLabel('Server Ads').setStyle(ButtonStyle.Secondary).setEmoji(emojis.purpleArrow)
         );
 
         await (interaction.channel as any)?.send({ embeds: [embed], components: [row] });
-        await interaction.reply({ content: `${emojis.success} Da tao panel thanh cong.`, flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: `${emojis.success} Đã tạo panel thành công.`, flags: MessageFlags.Ephemeral });
     }
 };

@@ -51,7 +51,7 @@ export default {
                 const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
 
                 leaderboard += `${medal} **${username}**\n` +
-                    `> Lv.**${u.level}** \`${bar}\` ${u.xp.toLocaleString()} XP · 💬 ${u.totalMessages.toLocaleString()} · Expert **${u.expertScore.toLocaleString('vi-VN')}** · Góp **${u.contributionScore.toLocaleString('vi-VN')}**\n`;
+                    `> Lv.**${u.level}** \`${bar}\` ${u.xp.toLocaleString()} XP · 💬 ${u.totalMessages.toLocaleString()} · ${emojis.expert} Chuyên gia **${u.expertScore.toLocaleString('vi-VN')}** · ${emojis.contribution} Đóng góp **${u.contributionScore.toLocaleString('vi-VN')}**\n`;
             }
 
             if (!leaderboard) leaderboard = '*Chưa có dữ liệu...*';
@@ -64,7 +64,7 @@ export default {
                 const myBarLen = 10;
                 const myFilled = Math.round(myProgress * myBarLen);
                 const myBar = '█'.repeat(myFilled) + '░'.repeat(myBarLen - myFilled);
-                myRankField = `> 📍 **Vị trí #${myRank}** · Lv.**${myData.level}** \`${myBar}\` ${myData.xp.toLocaleString()} XP · Expert **${myData.expertScore.toLocaleString('vi-VN')}** · Góp **${myData.contributionScore.toLocaleString('vi-VN')}**`;
+                myRankField = `> 📍 **Vị trí #${myRank}** · Lv.**${myData.level}** \`${myBar}\` ${myData.xp.toLocaleString()} XP · ${emojis.expert} Chuyên gia **${myData.expertScore.toLocaleString('vi-VN')}** · ${emojis.contribution} Đóng góp **${myData.contributionScore.toLocaleString('vi-VN')}**`;
             }
 
             const embed = new EmbedBuilder()
