@@ -39,6 +39,68 @@ const tables = [
         client: 'managedChannel',
         key: row => ({ key: row.key }),
         dateFields: ['updatedAt']
+    },
+    {
+        name: 'ScoinTransaction',
+        client: 'scoinTransaction',
+        key: row => ({ id: row.id }),
+        dateFields: ['createdAt'],
+        sequence: '"ScoinTransaction_id_seq"'
+    },
+    {
+        name: 'MusicPlaylistTrack',
+        client: 'musicPlaylistTrack',
+        key: row => ({ id: row.id }),
+        dateFields: ['addedAt'],
+        sequence: '"MusicPlaylistTrack_id_seq"'
+    },
+    {
+        name: 'StarInventory',
+        client: 'starInventory',
+        key: row => ({ userId: row.userId }),
+        dateFields: ['lastHuntAt', 'updatedAt']
+    },
+    {
+        name: 'StarTool',
+        client: 'starTool',
+        key: row => ({ userId_key: { userId: row.userId, key: row.key } }),
+        dateFields: ['createdAt', 'updatedAt'],
+        sequence: '"StarTool_id_seq"'
+    },
+    {
+        name: 'StarBuff',
+        client: 'starBuff',
+        key: row => ({ id: row.id }),
+        dateFields: ['expiresAt', 'createdAt'],
+        sequence: '"StarBuff_id_seq"'
+    },
+    {
+        name: 'StarHarvestSession',
+        client: 'starHarvestSession',
+        key: row => ({ id: row.id }),
+        dateFields: ['createdAt'],
+        sequence: '"StarHarvestSession_id_seq"'
+    },
+    {
+        name: 'Giveaway',
+        client: 'giveaway',
+        key: row => ({ id: row.id }),
+        dateFields: ['endsAt', 'createdAt', 'updatedAt'],
+        sequence: '"Giveaway_id_seq"'
+    },
+    {
+        name: 'GiveawayEntry',
+        client: 'giveawayEntry',
+        key: row => ({ giveawayId_userId: { giveawayId: row.giveawayId, userId: row.userId } }),
+        dateFields: ['joinedAt'],
+        sequence: '"GiveawayEntry_id_seq"'
+    },
+    {
+        name: 'GiveawayRewardDelivery',
+        client: 'giveawayRewardDelivery',
+        key: row => ({ id: row.id }),
+        dateFields: ['createdAt'],
+        sequence: '"GiveawayRewardDelivery_id_seq"'
     }
 ];
 

@@ -15,10 +15,19 @@ model User {
   totalMessages Int      @default(0)
   expertScore   Int      @default(0)
   contributionScore Int @default(0)
+  scoinBalance  Int      @default(0)
+  scoinEarnedTotal Int   @default(0)
   // Hệ thống Daily
   lastDaily     DateTime?
   dailyStreak   Int      @default(0)
   createdAt     DateTime @default(now())
+
+  scoinTransactions ScoinTransaction[]
+  musicPlaylistTracks MusicPlaylistTrack[]
+  starInventory StarInventory?
+  starTools StarTool[]
+  starBuffs StarBuff[]
+  giveawayEntries GiveawayEntry[]
 }
 
 model Blacklist {
@@ -75,4 +84,144 @@ model ManagedChannel {
   key       String   @id
   channelId String
   updatedAt DateTime @updatedAt
+}
+
+model ScoinTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  amount    Int
+  reason    String
+  source    String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([source])
+  @@index([createdAt])
+}
+
+model MusicPlaylistTrack {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  position  Int
+  title     String
+  uri       String
+  source    String?
+  duration  Int?
+  addedAt   DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, position])
+  @@index([userId])
+}
+
+model StarInventory {
+  userId       String   @id
+  dust         Int      @default(0)
+  small        Int      @default(0)
+  bright       Int      @default(0)
+  comet        Int      @default(0)
+  galaxy       Int      @default(0)
+  lastHuntAt   DateTime?
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StarTool {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  key       String
+  level     Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+model StarBuff {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  key       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model StarHarvestSession {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  toolKey   String
+  result    String
+  soldValue Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Giveaway {
+  id              Int      @id @default(autoincrement())
+  messageId       String?  @unique
+  channelId       String
+  title           String
+  description     String
+  prize           String
+  hostId          String
+  winnersCount    Int
+  endsAt          DateTime
+  status          String   @default("ACTIVE")
+  requiredRoleId  String?
+  minLevel        Int?
+  minScoin        Int?
+  entryCost       Int      @default(0)
+  rewardType      String   @default("contact_host")
+  rewardSecret    String?
+  publicMediaUrl  String?
+  bannerUrl       String?
+  winnerIds       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  entries         GiveawayEntry[]
+  deliveries      GiveawayRewardDelivery[]
+
+  @@index([status])
+  @@index([endsAt])
+}
+
+model GiveawayEntry {
+  id          Int      @id @default(autoincrement())
+  giveawayId  Int
+  userId      String
+  entries     Int      @default(1)
+  joinedAt    DateTime @default(now())
+
+  giveaway    Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([giveawayId, userId])
+  @@index([userId])
+}
+
+model GiveawayRewardDelivery {
+  id          Int      @id @default(autoincrement())
+  giveawayId  Int
+  userId      String
+  status      String
+  error       String?
+  createdAt   DateTime @default(now())
+
+  giveaway    Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+
+  @@index([giveawayId])
+  @@index([userId])
 }
