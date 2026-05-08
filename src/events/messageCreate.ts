@@ -7,6 +7,7 @@ import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcas
 import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
+import { guardEveryoneMention } from '../systems/antiRaidManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -19,6 +20,7 @@ export default {
     name: Events.MessageCreate,
     once: false,
     async execute(message: Message) {
+        await guardEveryoneMention(message);
         // Bỏ qua tin nhắn của bot
         if (message.author.bot) return;
 

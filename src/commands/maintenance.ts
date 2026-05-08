@@ -51,8 +51,12 @@ export default {
 
         const results: string[] = [];
         for (const item of targets) {
-            const deleted = await clearMaintenanceTarget(interaction.client, item, interaction.user.id);
-            results.push(`${item}: ${deleted} tin nhắn`);
+            try {
+                const deleted = await clearMaintenanceTarget(interaction.client, item, interaction.user.id);
+                results.push(`${item}: OK (${deleted} tin nhắn)`);
+            } catch (error) {
+                results.push(`${item}: Lỗi - ${String(error).slice(0, 300)}`);
+            }
         }
 
         await interaction.editReply(`${config.ui.emojis.success} Đã clear xong:\n${results.join('\n')}`);

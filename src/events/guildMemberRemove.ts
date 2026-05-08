@@ -1,11 +1,13 @@
 import { EmbedBuilder, Events, GuildMember, PartialGuildMember, TextChannel } from 'discord.js';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
+import { guardMemberRemove } from '../systems/antiRaidManager';
 
 export default {
     name: Events.GuildMemberRemove,
     once: false,
     async execute(member: GuildMember | PartialGuildMember) {
+        if (!member.partial) await guardMemberRemove(member);
         const channel = await member.client.channels.fetch(config.channels.welcome).catch(() => null);
         if (!channel || !channel.isTextBased()) {
             await sendAdminLog(member.client, {

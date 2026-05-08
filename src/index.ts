@@ -18,13 +18,18 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildModeration,
         GatewayIntentBits.GuildMessageReactions,
     ],
     partials: [
         Partials.Message,
         Partials.Reaction,
         Partials.User,
-    ]
+    ],
+    allowedMentions: {
+        parse: ['users', 'roles'],
+        repliedUser: false
+    }
 });
 
 client.commands = new Collection();

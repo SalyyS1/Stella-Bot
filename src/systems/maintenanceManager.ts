@@ -25,6 +25,47 @@ function configuredParentId(target: MaintenanceTarget): string | null {
     return config.maintenance.categories.requests;
 }
 
+function targetNameCandidates(target: MaintenanceTarget): string[] {
+    if (target === 'serverAds') return ['server-ads', 'server ads', 'ads'];
+    if (target === 'requestPaid') return ['request-paid', 'paid-request', 'paid request', 'request paid'];
+    return ['request-free', 'free-request', 'free request', 'request free'];
+}
+
+async function findTextChannelInCategory(client: Client, target: MaintenanceTarget, parentId: string | null): Promise<TextChannel | null> {
+    if (!parentId) return null;
+    const parent = await client.channels.fetch(parentId).catch(() => null);
+    if (!parent || parent.type !== ChannelType.GuildCategory) return null;
+
+    const candidates = targetNameCandidates(target);
+    const channel = (parent as CategoryChannel).children.cache.find(child =>
+        child.type === ChannelType.GuildText &&
+        candidates.some(name => child.name.toLowerCase().includes(name))
+    );
+    return channel && channel.type === ChannelType.GuildText ? channel as TextChannel : null;
+}
+
+async function resolveMaintenanceChannel(client: Client, target: MaintenanceTarget): Promise<TextChannel> {
+    const channelId = await getManagedChannelId(target);
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (channel?.type === ChannelType.GuildText) return channel as TextChannel;
+
+    if (channel?.type === ChannelType.GuildCategory) {
+        const child = await findTextChannelInCategory(client, target, channel.id);
+        if (child) {
+            await setManagedChannelId(target, child.id);
+            return child;
+        }
+    }
+
+    const configured = await findTextChannelInCategory(client, target, configuredParentId(target));
+    if (configured) {
+        await setManagedChannelId(target, configured.id);
+        return configured;
+    }
+
+    throw new Error(`Maintenance channel for ${target} not found. Last channel id: ${channelId}`);
+}
+
 async function recreateChannel(channel: TextChannel, target: MaintenanceTarget): Promise<TextChannel> {
     const oldPosition = channel.rawPosition;
     const parentId = configuredParentId(target) || channel.parentId;
@@ -80,12 +121,10 @@ async function postGuide(channel: TextChannel, target: MaintenanceTarget): Promi
 }
 
 export async function clearMaintenanceTarget(client: Client, target: MaintenanceTarget, actorId?: string, period?: string): Promise<number> {
-    const channelId = await getManagedChannelId(target);
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel || !channel.isTextBased() || channel.type !== ChannelType.GuildText) throw new Error(`Channel ${channelId} not found or not text`);
+    const channel = await resolveMaintenanceChannel(client, target);
 
     const oldChannelId = channel.id;
-    const refreshed = await recreateChannel(channel as TextChannel, target);
+    const refreshed = await recreateChannel(channel, target);
     await postGuide(refreshed, target);
 
     if (period) {

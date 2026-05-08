@@ -87,5 +87,22 @@ export const config = {
             serverAds: "1214591309042688070",
             requests: "1490686130335780946"
         }
+    },
+    antiRaid: {
+        enabled: true,
+        windowMs: 60_000,
+        punishmentReason: "Stella anti-raid protection",
+        thresholds: {
+            everyoneMention: 1,
+            channelCreate: 3,
+            channelDelete: 2,
+            channelUpdate: 4,
+            memberKick: 3,
+            memberBan: 3,
+            roleCreate: 3,
+            roleDelete: 2,
+            roleUpdate: 4,
+            webhookCreate: 2
+        }
     }
 };
