@@ -1,4 +1,4 @@
-import { CategoryChannel, ChannelType, Client, EmbedBuilder, GuildTextBasedChannel, TextChannel } from 'discord.js';
+import { CategoryChannel, ChannelType, Client, EmbedBuilder, NewsChannel, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
@@ -7,6 +7,7 @@ import { getManagedChannelId, ManagedChannelKey, setManagedChannelId } from '../
 import { markInternalAntiRaidAction } from './antiRaidManager';
 
 export type MaintenanceTarget = ManagedChannelKey;
+type MaintenanceChannel = TextChannel | NewsChannel;
 
 function currentSaigonDateParts(): { day: string; period: string } {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -32,23 +33,27 @@ function targetNameCandidates(target: MaintenanceTarget): string[] {
     return ['request-free', 'free-request', 'free request', 'request free'];
 }
 
-async function findTextChannelInCategory(client: Client, target: MaintenanceTarget, parentId: string | null): Promise<TextChannel | null> {
+function isMaintenanceChannelType(type: ChannelType): boolean {
+    return type === ChannelType.GuildText || type === ChannelType.GuildAnnouncement;
+}
+
+async function findTextChannelInCategory(client: Client, target: MaintenanceTarget, parentId: string | null): Promise<MaintenanceChannel | null> {
     if (!parentId) return null;
     const parent = await client.channels.fetch(parentId).catch(() => null);
     if (!parent || parent.type !== ChannelType.GuildCategory) return null;
 
     const candidates = targetNameCandidates(target);
     const channel = (parent as CategoryChannel).children.cache.find(child =>
-        child.type === ChannelType.GuildText &&
+        isMaintenanceChannelType(child.type) &&
         candidates.some(name => child.name.toLowerCase().includes(name))
     );
-    return channel && channel.type === ChannelType.GuildText ? channel as TextChannel : null;
+    return channel && isMaintenanceChannelType(channel.type) ? channel as MaintenanceChannel : null;
 }
 
-async function resolveMaintenanceChannel(client: Client, target: MaintenanceTarget): Promise<TextChannel> {
+async function resolveMaintenanceChannel(client: Client, target: MaintenanceTarget): Promise<MaintenanceChannel> {
     const channelId = await getManagedChannelId(target);
     const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (channel?.type === ChannelType.GuildText) return channel as TextChannel;
+    if (channel && isMaintenanceChannelType(channel.type)) return channel as MaintenanceChannel;
 
     if (channel?.type === ChannelType.GuildCategory) {
         const child = await findTextChannelInCategory(client, target, channel.id);
@@ -67,7 +72,7 @@ async function resolveMaintenanceChannel(client: Client, target: MaintenanceTarg
     throw new Error(`Maintenance channel for ${target} not found. Last channel id: ${channelId}`);
 }
 
-async function recreateChannel(channel: TextChannel, target: MaintenanceTarget): Promise<TextChannel> {
+async function recreateChannel(channel: MaintenanceChannel, target: MaintenanceTarget): Promise<MaintenanceChannel> {
     const oldPosition = channel.rawPosition;
     const parentId = configuredParentId(target) || channel.parentId;
     const topic = channel.topic || undefined;
@@ -83,7 +88,7 @@ async function recreateChannel(channel: TextChannel, target: MaintenanceTarget):
     markInternalAntiRaidAction('channelCreate', '*');
     const clone = await channel.guild.channels.create({
         name: channel.name,
-        type: ChannelType.GuildText,
+        type: channel.type,
         topic,
         nsfw,
         rateLimitPerUser,
@@ -97,7 +102,7 @@ async function recreateChannel(channel: TextChannel, target: MaintenanceTarget):
     markInternalAntiRaidAction('channelDelete', channel.id);
     await channel.delete('Stella monthly channel refresh').catch(() => {});
     await setManagedChannelId(target, clone.id);
-    return clone;
+    return clone as MaintenanceChannel;
 }
 
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
@@ -116,7 +121,7 @@ function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {
         .setTimestamp();
 }
 
-async function postGuide(channel: TextChannel, target: MaintenanceTarget): Promise<void> {
+async function postGuide(channel: MaintenanceChannel, target: MaintenanceTarget): Promise<void> {
     if (target === 'serverAds') {
         await channel.send({ embeds: [buildServerAdsGuideEmbed()] });
         return;
