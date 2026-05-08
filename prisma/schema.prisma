@@ -176,6 +176,7 @@ model Giveaway {
   description     String
   prize           String
   hostId          String
+  pingRoleId      String?
   winnersCount    Int
   endsAt          DateTime
   status          String   @default("ACTIVE")

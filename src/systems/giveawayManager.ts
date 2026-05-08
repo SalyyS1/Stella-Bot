@@ -13,6 +13,7 @@ import {
 import prisma from '../lib/prisma';
 import { adjustScoinTx } from './scoinManager';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
+import { config } from '../config';
 
 export const GIVEAWAY_BANNER = 'https://i.pinimg.com/originals/26/7b/1c/267b1c57cc1a1ac4644df3d91d4d377b.gif';
 
@@ -28,11 +29,12 @@ export function parseDuration(input: string): number {
 }
 
 export function giveawayButtons(id: number, disabled = false) {
+    const emojis = config.ui.emojis;
     return [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId(`giveaway_join_${id}`).setLabel('Tham gia').setStyle(ButtonStyle.Success).setEmoji('🎉').setDisabled(disabled),
-            new ButtonBuilder().setCustomId(`giveaway_leave_${id}`).setLabel('Roi giveaway').setStyle(ButtonStyle.Secondary).setDisabled(disabled),
-            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Danh sach').setStyle(ButtonStyle.Primary)
+            new ButtonBuilder().setCustomId(`giveaway_join_${id}`).setLabel('Tham gia').setStyle(ButtonStyle.Success).setEmoji(emojis.success).setDisabled(disabled),
+            new ButtonBuilder().setCustomId(`giveaway_leave_${id}`).setLabel('Rời giveaway').setStyle(ButtonStyle.Secondary).setEmoji(emojis.error).setDisabled(disabled),
+            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Danh sách').setStyle(ButtonStyle.Primary).setEmoji(emojis.note)
         )
     ];
 }
@@ -44,31 +46,38 @@ export async function buildGiveawayEmbed(giveawayId: number) {
     });
     if (!giveaway) throw new Error('Không tìm thấy giveaway.');
 
+    const emojis = config.ui.emojis;
     const requirements = [
-        giveaway.requiredRoleId ? `Role: <@&${giveaway.requiredRoleId}>` : null,
-        giveaway.minLevel ? `Level tối thiểu: **${giveaway.minLevel}**` : null,
-        giveaway.minScoin ? `Scoin tối thiểu: **${giveaway.minScoin.toLocaleString('vi-VN')}**` : null,
-        giveaway.entryCost ? `Phí tham gia: **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : 'Miễn phí tham gia'
+        giveaway.requiredRoleId ? `${emojis.keep} Role bắt buộc: <@&${giveaway.requiredRoleId}>` : null,
+        giveaway.minLevel ? `${emojis.star} Level tối thiểu: **${giveaway.minLevel}**` : null,
+        giveaway.minScoin ? `${emojis.budget} Scoin tối thiểu: **${giveaway.minScoin.toLocaleString('vi-VN')}**` : null,
+        giveaway.entryCost ? `${emojis.budget} Phí tham gia: **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : `${emojis.success} Miễn phí tham gia`
     ].filter(Boolean).join('\n');
 
     const winners = giveaway.winnerIds ? giveaway.winnerIds.split(',').filter(Boolean).map(id => `<@${id}>`).join(', ') : null;
+    const statusLabel = giveaway.status === 'ACTIVE' ? 'Đang mở' : giveaway.status === 'CANCELLED' ? 'Đã hủy' : 'Đã kết thúc';
     const embed = new EmbedBuilder()
-        .setColor(giveaway.status === 'ACTIVE' ? '#f1c40f' : giveaway.status === 'CANCELLED' ? '#95a5a6' : '#2ecc71')
-        .setTitle(`🎁 ${giveaway.title}`)
-        .setDescription(giveaway.description || 'Nhấn nút bên dưới để tham gia giveaway.')
+        .setColor(giveaway.status === 'ACTIVE' ? '#ff66cc' : giveaway.status === 'CANCELLED' ? '#95a5a6' : '#2ecc71')
+        .setTitle(`${emojis.starJump} ${giveaway.title}`)
+        .setDescription([
+            giveaway.description || 'Nhấn nút bên dưới để tham gia giveaway.',
+            '',
+            `${emojis.purpleArrow} **Phần thưởng:** ${giveaway.prize}`
+        ].join('\n'))
         .addFields(
-            { name: 'Phần thưởng', value: giveaway.prize, inline: false },
-            { name: 'Host', value: `<@${giveaway.hostId}>`, inline: true },
-            { name: 'Người thắng', value: `${giveaway.winnersCount}`, inline: true },
-            { name: 'Kết thúc', value: `<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:R>`, inline: true },
-            { name: 'Điều kiện', value: requirements || 'Không có', inline: false },
-            { name: 'Đã tham gia', value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** người`, inline: true }
+            { name: `${emojis.contact} Host`, value: `<@${giveaway.hostId}>`, inline: true },
+            { name: `${emojis.star} Số winner`, value: `**${giveaway.winnersCount}**`, inline: true },
+            { name: `${emojis.note} Trạng thái`, value: statusLabel, inline: true },
+            { name: `${emojis.purpleArrow} Ping role`, value: giveaway.pingRoleId ? `<@&${giveaway.pingRoleId}>` : 'Không ping role', inline: true },
+            { name: `${emojis.redArrow} Kết thúc`, value: `<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:R>\n<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:F>`, inline: false },
+            { name: `${emojis.keep} Điều kiện tham gia`, value: requirements || 'Không có', inline: false },
+            { name: `${emojis.contribution} Đã tham gia`, value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** người`, inline: true }
         )
         .setImage(giveaway.publicMediaUrl || giveaway.bannerUrl || GIVEAWAY_BANNER)
-        .setFooter({ text: `Giveaway #${giveaway.id} - ${giveaway.status}` })
+        .setFooter({ text: `Giveaway #${giveaway.id} • Stella Studio` })
         .setTimestamp(giveaway.endsAt);
 
-    if (winners) embed.addFields({ name: 'Winner', value: winners, inline: false });
+    if (winners) embed.addFields({ name: `${emojis.success} Winner`, value: winners, inline: false });
     return { giveaway, embed };
 }
 
@@ -87,6 +96,7 @@ export async function createGiveaway(client: Client, options: {
     description: string;
     prize: string;
     hostId: string;
+    pingRoleId?: string | null;
     durationMs: number;
     winnersCount: number;
     requiredRoleId?: string | null;
@@ -105,6 +115,7 @@ export async function createGiveaway(client: Client, options: {
             description: options.description || 'Nhấn nút bên dưới để tham gia giveaway.',
             prize: options.prize,
             hostId: options.hostId,
+            pingRoleId: options.pingRoleId || null,
             winnersCount: Math.max(1, options.winnersCount),
             endsAt: new Date(Date.now() + options.durationMs),
             requiredRoleId: options.requiredRoleId || null,
@@ -119,7 +130,12 @@ export async function createGiveaway(client: Client, options: {
     });
 
     const { embed } = await buildGiveawayEmbed(giveaway.id);
-    const message = await options.channel.send({ embeds: [embed], components: giveawayButtons(giveaway.id) }) as Message;
+    const message = await options.channel.send({
+        content: options.pingRoleId ? `<@&${options.pingRoleId}>` : undefined,
+        embeds: [embed],
+        components: giveawayButtons(giveaway.id),
+        allowedMentions: options.pingRoleId ? { roles: [options.pingRoleId] } : { parse: [] }
+    }) as Message;
     await prisma.giveaway.update({ where: { id: giveaway.id }, data: { messageId: message.id } });
 
     await sendAdminLog(client, {

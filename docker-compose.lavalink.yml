@@ -10,3 +10,5 @@ services:
       - ./lavalink/plugins:/opt/Lavalink/plugins
     environment:
       - _JAVA_OPTIONS=-Xmx512m
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}

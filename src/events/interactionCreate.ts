@@ -6,6 +6,7 @@ import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManag
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelId, getManagedChannelIds } from '../utils/managedChannels';
 import { createGiveaway, joinGiveaway, leaveGiveaway, GIVEAWAY_BANNER, parseDuration } from '../systems/giveawayManager';
+import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { controlMusic, musicPanel } from '../systems/musicManager';
@@ -427,12 +428,21 @@ export default {
                 await publishServerAd(channel as TextChannel, interaction.user, input);
                 await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${serverAdsChannelId}>.`);
             }
-            else if (interaction.customId === 'giveaway_quick_modal') {
+            else if (interaction.customId === 'giveaway_quick_modal' || interaction.customId.startsWith('giveaway_create_modal_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 if (!interaction.memberPermissions?.has('Administrator')) {
                     return interaction.editReply('Bạn cần quyền Administrator để tạo giveaway.');
                 }
-                const channel = interaction.channel as TextChannel;
+                const draftId = interaction.customId.startsWith('giveaway_create_modal_')
+                    ? interaction.customId.replace('giveaway_create_modal_', '')
+                    : null;
+                const draft = draftId ? takeGiveawayDraft(draftId, interaction.user.id) : null;
+                if (draftId && !draft) {
+                    return interaction.editReply(`${config.ui.emojis.error} Form giveaway đã hết hạn. Vui lòng dùng lại \`/giveaway create\`.`);
+                }
+                const channel = draft?.channelId
+                    ? await interaction.client.channels.fetch(draft.channelId).catch(() => null) as TextChannel | null
+                    : interaction.channel as TextChannel;
                 if (!channel?.isTextBased()) return interaction.editReply('Kênh hiện tại không hợp lệ.');
 
                 const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
@@ -444,11 +454,18 @@ export default {
                     description: interaction.fields.getTextInputValue('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
                     durationMs,
                     winnersCount: winners,
-                    hostId: interaction.user.id,
-                    publicMediaUrl: GIVEAWAY_BANNER,
+                    hostId: draft?.hostId || interaction.user.id,
+                    pingRoleId: draft?.pingRoleId || null,
+                    requiredRoleId: draft?.requiredRoleId || null,
+                    minLevel: draft?.minLevel || null,
+                    minScoin: draft?.minScoin || null,
+                    entryCost: draft?.entryCost || 0,
+                    rewardType: draft?.rewardType || 'contact_host',
+                    rewardSecret: draft?.rewardSecret || null,
+                    publicMediaUrl: draft?.publicMediaUrl || GIVEAWAY_BANNER,
                     createdBy: interaction.user.id
                 });
-                await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway nhanh #${giveaway.id}.`);
+                await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway #${giveaway.id} tại <#${channel.id}>.`);
             }
         }
     }

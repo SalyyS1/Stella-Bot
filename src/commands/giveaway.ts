@@ -20,6 +20,7 @@ import {
     GIVEAWAY_BANNER,
     parseDuration
 } from '../systems/giveawayManager';
+import { saveGiveawayDraft } from '../systems/giveawayDraftManager';
 
 function setInputValue(input: TextInputBuilder, value: string | number | null | undefined) {
     if (value !== null && value !== undefined && String(value).trim()) {
@@ -28,9 +29,9 @@ function setInputValue(input: TextInputBuilder, value: string | number | null | 
     return input;
 }
 
-function buildGiveawayCreateModal(interaction: ChatInputCommandInteraction) {
+function buildGiveawayCreateModal(interaction: ChatInputCommandInteraction, customId = 'giveaway_quick_modal') {
     const modal = new ModalBuilder()
-        .setCustomId('giveaway_quick_modal')
+        .setCustomId(customId)
         .setTitle('Tạo Giveaway');
 
     const title = setInputValue(
@@ -78,6 +79,7 @@ export default {
                 .addIntegerOption(option => option.setName('winners').setDescription('Số winner').setRequired(false).setMinValue(1).setMaxValue(20))
                 .addStringOption(option => option.setName('description').setDescription('Mô tả').setRequired(false).setMaxLength(1000))
                 .addChannelOption(option => option.setName('channel').setDescription('Kênh đăng giveaway').setRequired(false))
+                .addRoleOption(option => option.setName('ping_role').setDescription('Role được ping khi đăng giveaway').setRequired(false))
                 .addUserOption(option => option.setName('host').setDescription('Host giveaway').setRequired(false))
                 .addRoleOption(option => option.setName('required_role').setDescription('Role bắt buộc').setRequired(false))
                 .addIntegerOption(option => option.setName('min_level').setDescription('Level tối thiểu').setRequired(false).setMinValue(1))
@@ -132,7 +134,21 @@ export default {
                 interaction.options.getInteger('winners');
 
             if (!hasCommandInput) {
-                return interaction.showModal(buildGiveawayCreateModal(interaction));
+                const mediaFile = interaction.options.getAttachment('media_file');
+                const draftId = saveGiveawayDraft({
+                    creatorId: interaction.user.id,
+                    channelId: interaction.options.getChannel('channel')?.id || interaction.channelId,
+                    hostId: interaction.options.getUser('host')?.id || interaction.user.id,
+                    pingRoleId: interaction.options.getRole('ping_role')?.id || null,
+                    requiredRoleId: interaction.options.getRole('required_role')?.id || null,
+                    minLevel: interaction.options.getInteger('min_level'),
+                    minScoin: interaction.options.getInteger('min_scoin'),
+                    entryCost: interaction.options.getInteger('entry_cost') || 0,
+                    rewardType: interaction.options.getString('reward_type') || 'contact_host',
+                    rewardSecret: interaction.options.getString('reward_secret'),
+                    publicMediaUrl: mediaFile?.url || interaction.options.getString('media_url') || GIVEAWAY_BANNER
+                });
+                return interaction.showModal(buildGiveawayCreateModal(interaction, `giveaway_create_modal_${draftId}`));
             }
         }
 
@@ -153,6 +169,7 @@ export default {
                     winnersCount: interaction.options.getInteger('winners', true),
                     description: interaction.options.getString('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
                     hostId: interaction.options.getUser('host')?.id || interaction.user.id,
+                    pingRoleId: interaction.options.getRole('ping_role')?.id || null,
                     requiredRoleId: interaction.options.getRole('required_role')?.id || null,
                     minLevel: interaction.options.getInteger('min_level'),
                     minScoin: interaction.options.getInteger('min_scoin'),
