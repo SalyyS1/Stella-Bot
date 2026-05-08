@@ -37,6 +37,8 @@ export const config = {
             customer: "<:customer:1490702764488265958>",
             budget: "<a:monedas:1490702767495315477>",
             service: "<a:8144bluecrystalmoon:1490702771710722209>",
+            contribution: "<a:8144bluecrystalmoon:1490702771710722209>",
+            expert: "<a:nitro_unlock:1490702738424729772>",
             note: "<a:Notebook:1490702775539994906>",
             contact: "<a:CatToken:1490702781903016126>",
             portfolio: "<:Support:1490702785443008584>",

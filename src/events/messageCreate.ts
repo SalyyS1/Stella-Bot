@@ -27,6 +27,26 @@ export default {
 
         if (await handleMusicPrefix(message)) return;
 
+        if (message.channel?.isThread() && message.channel.parentId === config.channels.betterShowcase) {
+            const isAdmin = message.member?.permissions.has('Administrator') ?? false;
+            if (!isAdmin) {
+                const thread = message.channel;
+                await sendAdminLog(message.client, {
+                    title: 'Unauthorized better-showcase post blocked',
+                    color: '#e74c3c',
+                    fields: [
+                        { name: 'User', value: `<@${message.author.id}>`, inline: true },
+                        { name: 'Thread', value: thread.name || thread.id, inline: true }
+                    ]
+                }).catch(() => {});
+                await message.author.send('Bài trong better-showcase chỉ được đăng tự động sau khi showcase đạt đủ vote. Hãy đăng bài ở kênh showcase trước nhé.').catch(() => {});
+                await thread.delete('Unauthorized direct better-showcase post').catch(() => {
+                    message.delete().catch(() => {});
+                });
+                return;
+            }
+        }
+
         if (message.channelId === config.channels.welcome) {
             await message.delete().catch(() => {});
             const warning = await (message.channel as any).send({

@@ -1,4 +1,5 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { AttachmentBuilder, ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import path from 'path';
 import prisma from '../lib/prisma';
 import { adjustScoinTx, getScoinBalance } from '../systems/scoinManager';
 import { config } from '../config';
@@ -14,6 +15,21 @@ const BUFF_SHOP = [
     { key: 'lucky_meteor', name: 'Lucky Meteor', price: 180, note: 'Tang tier cao trong 30 phut.' },
     { key: 'double_spark', name: 'Double Spark', price: 150, note: 'Nhan doi sao thuong trong 30 phut.' }
 ];
+const STAR_ASSETS: Record<keyof typeof STAR_VALUES, string> = {
+    dust: 'star_dust.png',
+    small: 'star_small.png',
+    bright: 'star_bright.png',
+    comet: 'star_comet.png',
+    galaxy: 'star_galaxy.png'
+};
+
+function starAsset(tier: keyof typeof STAR_VALUES) {
+    const name = STAR_ASSETS[tier];
+    return {
+        name,
+        attachment: new AttachmentBuilder(path.join(process.cwd(), 'src', 'assets', 'star-game', name), { name })
+    };
+}
 
 function wait(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -168,11 +184,14 @@ export default {
                 data: { userId, toolKey: toolKeys.has('galaxy_harvester') ? 'galaxy_harvester' : toolKeys.has('silver_net') ? 'silver_net' : 'wooden_net', result: `${tier}:${amount}` }
             });
 
+            const asset = starAsset(tier);
             return interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#8e44ad')
                     .setTitle(`${starEmoji} Thu hoach thanh cong`)
-                    .setDescription(`Ban hai duoc **${amount} ${tier} star**.\nDung \`/star sell\` de ban lay Scoin.`)]
+                    .setDescription(`Ban hai duoc **${amount} ${tier} star**.\nDung \`/star sell\` de ban lay Scoin.`)
+                    .setThumbnail(`attachment://${asset.name}`)],
+                files: [asset.attachment]
             });
         } catch (error) {
             console.error(error);

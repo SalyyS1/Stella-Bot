@@ -53,10 +53,10 @@ export default {
             });
 
             const member = await interaction.guild?.members.fetch(targetUser.id).catch(() => null);
-            let roleStr = '*Khong co*';
+            let roleStr = '*Không có*';
             if (member) {
                 const roles = member.roles.cache.filter((r: any) => r.name !== '@everyone').sort((a: any, b: any) => b.position - a.position);
-                roleStr = roles.size > 0 ? roles.map((r: any) => r.toString()).slice(0, 5).join(' ') : '*Khong co*';
+                roleStr = roles.size > 0 ? roles.map((r: any) => r.toString()).slice(0, 5).join(' ') : '*Không có*';
                 if (roles.size > 5) roleStr += ` (+${roles.size - 5})`;
             }
 
@@ -65,17 +65,17 @@ export default {
                 .setImage('attachment://profile-card.png')
                 .addFields(
                     {
-                        name: 'Trang thai',
-                        value: `> ${isBlacklisted ? 'BLACKLISTED' : 'Binh thuong'}`,
+                        name: 'Trạng thái',
+                        value: `> ${isBlacklisted ? 'BLACKLISTED' : 'Bình thường'}`,
                         inline: true
                     },
                     {
-                        name: 'Diem Stella',
-                        value: `> ${config.ui.emojis.upvote} Chuyen gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.downvote} Dong gop: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**`,
+                        name: 'Điểm Stella',
+                        value: `> ${config.ui.emojis.expert} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contribution} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**`,
                         inline: true
                     },
                     {
-                        name: 'Vai tro',
+                        name: 'Vai trò',
                         value: `> ${roleStr}`,
                         inline: true
                     }
@@ -85,8 +85,8 @@ export default {
 
             if (isBlacklisted) {
                 embed.addFields({
-                    name: 'Canh bao blacklist',
-                    value: `> Ly do: \`${isBlacklisted.reason}\``,
+                    name: 'Cảnh báo blacklist',
+                    value: `> Lý do: \`${isBlacklisted.reason}\``,
                     inline: false
                 });
             }
@@ -94,7 +94,7 @@ export default {
             await interaction.editReply({ embeds: [embed], files: [card] });
         } catch (error) {
             console.error(error);
-            await interaction.editReply(`${emojis.error} Loi khi lay ho so.`);
+            await interaction.editReply(`${emojis.error} Lỗi khi lấy hồ sơ.`);
         }
     }
 };
