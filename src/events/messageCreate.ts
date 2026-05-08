@@ -8,6 +8,7 @@ import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
 import { guardEveryoneMention } from '../systems/antiRaidManager';
 import { adjustScoin, levelScoinReward } from '../systems/scoinManager';
+import { handleMusicPrefix } from '../systems/musicManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -23,6 +24,8 @@ export default {
         await guardEveryoneMention(message);
         // Bỏ qua tin nhắn của bot
         if (message.author.bot) return;
+
+        if (await handleMusicPrefix(message)) return;
 
         if (message.channelId === config.channels.welcome) {
             await message.delete().catch(() => {});

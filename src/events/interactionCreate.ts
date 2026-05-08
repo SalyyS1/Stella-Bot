@@ -8,6 +8,7 @@ import { getManagedChannelId, getManagedChannelIds } from '../utils/managedChann
 import { createGiveaway, joinGiveaway, leaveGiveaway, GIVEAWAY_BANNER, parseDuration } from '../systems/giveawayManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
+import { controlMusic, musicPanel } from '../systems/musicManager';
 
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
@@ -141,6 +142,13 @@ export default {
                 } catch (error: any) {
                     return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Khong gui duoc thong bao.'}`, flags: MessageFlags.Ephemeral });
                 }
+            }
+
+            if (action === 'music') {
+                if (!interaction.guildId) return interaction.reply({ content: 'Chi dung music trong server.', flags: MessageFlags.Ephemeral });
+                const type = part[1];
+                controlMusic(interaction.guildId, type);
+                return interaction.update(musicPanel(interaction.guildId));
             }
 
             if (action === 'giveaway') {
