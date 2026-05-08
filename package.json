@@ -7,11 +7,17 @@
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
     "build": "npx prisma generate && tsc",
-    "db:push": "npx prisma db push"
+    "db:migrate": "npx prisma migrate deploy",
+    "db:push": "npx prisma db push",
+    "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",
+    "db:backup": "node scripts/backup-db.js",
+    "db:restore": "node scripts/restore-db.js",
+    "db:verify": "node scripts/verify-db.js"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.99",
     "@prisma/client": "^5.0.0",
+    "better-sqlite3": "^12.9.0",
     "discord.js": "^14.26.2",
     "dotenv": "^16.6.1",
     "minecraft-server-util": "^5.4.4"
