@@ -1,6 +1,6 @@
 import { Events, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { config } from '../config';
-import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
+import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { processMessageXp } from '../systems/xpManager';
 import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcaseManager';
 import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
@@ -9,6 +9,7 @@ import { getManagedChannelIds } from '../utils/managedChannels';
 import { guardEveryoneMention } from '../systems/antiRaidManager';
 import { adjustScoin, levelScoinReward } from '../systems/scoinManager';
 import { handleMusicPrefix } from '../systems/musicManager';
+import { createCommunityRequest } from '../systems/requestManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -176,11 +177,16 @@ export default {
                 const budget = getPart(content, 'Budget');
                 const other = getPart(content, 'Other');
 
-                const embed = buildRequestPaidEmbed(message.author, service, requestDesc, budget, other);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`close_${message.author.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success)
-                );
-                await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
+                await createCommunityRequest({
+                    client: message.client,
+                    channel: message.channel as any,
+                    requester: message.author,
+                    kind: 'PAID',
+                    service,
+                    description: requestDesc,
+                    budget,
+                    other
+                });
             }
         } 
         else if (message.channelId === managedChannels.requestFree) {
@@ -196,16 +202,19 @@ export default {
                 const requestDesc = getPart(content, 'Request');
                 const other = getPart(content, 'Other');
 
-                const embed = buildRequestFreeEmbed(message.author, service, requestDesc, other);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`close_${message.author.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success)
-                );
-                await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
+                await createCommunityRequest({
+                    client: message.client,
+                    channel: message.channel as any,
+                    requester: message.author,
+                    kind: 'FREE',
+                    service,
+                    description: requestDesc,
+                    other
+                });
             }
         }
         else if ([
             config.channels.portfolio,
-            config.channels.levelUp,
             config.channels.botLog
         ].includes(message.channelId)) {
             await message.delete().catch(() => {});

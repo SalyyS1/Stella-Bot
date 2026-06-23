@@ -2,7 +2,7 @@ import { ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } from '
 import { clearMaintenanceTarget, MaintenanceTarget } from '../systems/maintenanceManager';
 import { config } from '../config';
 import { backfillVotesAndScores } from '../systems/voteBackfillManager';
-import { publishEligibleShowcases } from '../systems/showcaseManager';
+import { t } from '../i18n';
 
 export default {
     data: new SlashCommandBuilder()
@@ -40,8 +40,14 @@ export default {
 
         if (interaction.options.getSubcommand() === 'backfill-votes') {
             const result = await backfillVotesAndScores(interaction.client);
-            const published = await publishEligibleShowcases(interaction.client);
-            return interaction.editReply(`${config.ui.emojis.success} Backfill xong: scanned ${result.scanned}, reacted ${result.reacted}, votes ${result.votes}, published ${published}.`);
+            const text = await t(interaction.guildId, 'showcase.reconcileDone', {
+                scanned: result.scanned,
+                created: result.created,
+                reacted: result.reacted,
+                votes: result.votes,
+                published: result.published
+            });
+            return interaction.editReply(`${config.ui.emojis.success} ${text}`);
         }
 
         const target = interaction.options.getString('target', true);

@@ -187,7 +187,18 @@ export async function renderShowcaseControl(client: Client, messageId: string, u
 }
 
 export async function maybePublishShowcase(client: Client, message: Message): Promise<void> {
-    const post = await prisma.showcasePost.findUnique({ where: { messageId: message.id } });
+    let post = await prisma.showcasePost.findUnique({ where: { messageId: message.id } });
+    if (!post && message.author && message.channelId === config.channels.showcase && isAllowedShowcaseMessage(message)) {
+        post = await prisma.showcasePost.create({
+            data: {
+                messageId: message.id,
+                channelId: message.channelId,
+                authorId: message.author.id,
+                title: `Showcase by ${message.author.username}`,
+                tagName: 'Nothing'
+            }
+        });
+    }
     if (!post || post.status !== 'VOTING') return;
 
     const plusCount = await prisma.vote.count({
@@ -224,13 +235,28 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
         `[Bài gốc](${messageLink(message.guildId, message.channelId, message.id)})`
     ].filter(Boolean).join('\n\n').slice(0, 1900);
 
-    const thread = await forumChannel.threads.create({
-        name: post.title.slice(0, 100),
-        appliedTags: tag ? [tag.id] : [],
-        message: {
-            content
-        }
-    });
+    let thread;
+    try {
+        thread = await forumChannel.threads.create({
+            name: post.title.slice(0, 100),
+            appliedTags: tag ? [tag.id] : [],
+            message: {
+                content
+            }
+        });
+    } catch (error: any) {
+        await sendAdminLog(client, {
+            title: 'Showcase publish failed',
+            color: '#e74c3c',
+            fields: [
+                { name: 'User', value: `<@${post.authorId}>`, inline: true },
+                { name: 'Votes', value: `${plusCount}`, inline: true },
+                { name: 'Error', value: String(error?.message || error).slice(0, 800) },
+                { name: 'Original', value: messageLink(message.guildId, message.channelId, message.id) }
+            ]
+        });
+        return;
+    }
 
     await prisma.showcasePost.update({
         where: { messageId: message.id },
@@ -266,15 +292,9 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
 }
 
 export async function publishEligibleShowcases(client: Client, limit = 25): Promise<number> {
-    const rows = await prisma.vote.groupBy({
-        by: ['messageId'],
-        where: {
-            channelId: config.channels.showcase,
-            value: 1
-        },
-        _count: { id: true },
-        having: { id: { _count: { gte: config.showcase.threshold } } },
-        orderBy: { _count: { id: 'desc' } },
+    const posts = await prisma.showcasePost.findMany({
+        where: { status: 'VOTING', channelId: config.channels.showcase },
+        orderBy: { createdAt: 'desc' },
         take: limit
     });
 
@@ -282,16 +302,23 @@ export async function publishEligibleShowcases(client: Client, limit = 25): Prom
     if (!channel || !channel.isTextBased()) return 0;
 
     let published = 0;
-    for (const row of rows) {
-        const post = await prisma.showcasePost.findUnique({ where: { messageId: row.messageId } });
-        if (!post || post.status !== 'VOTING') continue;
+    for (const post of posts) {
+        const plusCount = await prisma.vote.count({
+            where: {
+                messageId: post.messageId,
+                channelId: config.channels.showcase,
+                value: 1,
+                voterId: { not: post.authorId }
+            }
+        });
+        if (plusCount < config.showcase.threshold) continue;
 
-        const message = await (channel as TextChannel).messages.fetch(row.messageId).catch(() => null);
+        const message = await (channel as TextChannel).messages.fetch(post.messageId).catch(() => null);
         if (!message) continue;
 
         const before = post.status;
         await maybePublishShowcase(client, message as Message);
-        const after = await prisma.showcasePost.findUnique({ where: { messageId: row.messageId } });
+        const after = await prisma.showcasePost.findUnique({ where: { messageId: post.messageId } });
         if (before === 'VOTING' && after?.status === 'PUBLISHED') published++;
     }
 

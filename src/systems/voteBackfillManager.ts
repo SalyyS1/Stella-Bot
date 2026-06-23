@@ -1,9 +1,8 @@
 import { Client, Message, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
-import { isAllowedShowcaseMessage } from './showcaseManager';
+import { isAllowedShowcaseMessage, maybePublishShowcase, publishEligibleShowcases } from './showcaseManager';
 import { sendAdminLog } from '../utils/adminLog';
-import { publishEligibleShowcases } from './showcaseManager';
 
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
@@ -212,12 +211,14 @@ async function collectReactionUserIds(message: Message, emojiId: string | undefi
     return users.filter(user => !user.bot && user.id !== message.author?.id).map(user => user.id);
 }
 
-export async function backfillVotesAndScores(client: Client): Promise<{ scanned: number; reacted: number; votes: number }> {
+export async function backfillVotesAndScores(client: Client): Promise<{ scanned: number; reacted: number; votes: number; created: number; published: number }> {
     const shareId = config.channels.share;
     const showcaseId = config.channels.showcase;
     const channels = [shareId, showcaseId];
     let scanned = 0;
     let reacted = 0;
+    let created = 0;
+    let published = 0;
 
     for (const channelId of channels) {
         const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -236,6 +237,7 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
             if (message.reactions.cache.size !== before) reacted++;
 
             if (channelId === showcaseId) {
+                const existingPost = await prisma.showcasePost.findUnique({ where: { messageId: message.id }, select: { messageId: true } });
                 await prisma.showcasePost.upsert({
                     where: { messageId: message.id },
                     update: {},
@@ -247,9 +249,16 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
                         tagName: 'Nothing'
                     }
                 }).catch(() => {});
+                if (!existingPost) created++;
             }
 
             await syncVotesForMessage(message, channelId);
+            if (channelId === showcaseId) {
+                const before = await prisma.showcasePost.findUnique({ where: { messageId: message.id }, select: { status: true } });
+                await maybePublishShowcase(client, message);
+                const after = await prisma.showcasePost.findUnique({ where: { messageId: message.id }, select: { status: true } });
+                if (before?.status === 'VOTING' && after?.status === 'PUBLISHED') published++;
+            }
         }
     }
 
@@ -281,15 +290,18 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
     }
 
     const votes = await prisma.vote.count();
+    published += await publishEligibleShowcases(client, 100);
     await sendAdminLog(client, {
         title: 'Vote backfill completed',
         color: '#2ecc71',
         fields: [
             { name: 'Scanned', value: `${scanned}`, inline: true },
+            { name: 'Created', value: `${created}`, inline: true },
             { name: 'Reacted', value: `${reacted}`, inline: true },
-            { name: 'Votes', value: `${votes}`, inline: true }
+            { name: 'Votes', value: `${votes}`, inline: true },
+            { name: 'Published', value: `${published}`, inline: true }
         ]
     });
 
-    return { scanned, reacted, votes };
+    return { scanned, reacted, votes, created, published };
 }

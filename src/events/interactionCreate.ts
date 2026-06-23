@@ -1,6 +1,6 @@
 import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { config } from '../config';
-import { buildRequestPaidEmbed, buildRequestFreeEmbed, buildPortfolioEmbed } from '../utils/embedFormatter';
+import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
 import { isValidServerAdInput, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
@@ -10,6 +10,7 @@ import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { controlMusic, musicPanel } from '../systems/musicManager';
+import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest } from '../systems/requestManager';
 
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
@@ -70,9 +71,7 @@ export default {
             }
             let expectedChannel = null;
 
-            if (cmdName === 'requestpaid') expectedChannel = await getManagedChannelId('requestPaid');
-            else if (cmdName === 'requestfree') expectedChannel = await getManagedChannelId('requestFree');
-            else if (cmdName === 'portfolio') expectedChannel = config.channels.portfolio;
+            if (cmdName === 'portfolio') expectedChannel = config.channels.portfolio;
             const managedChannels = await getManagedChannelIds();
 
             if (expectedChannel && interaction.channelId !== expectedChannel) {
@@ -233,6 +232,47 @@ export default {
                 return;
             }
 
+            if (action === 'request') {
+                const type = part[1];
+                const requestId = Number(part[2]);
+                if (!Number.isFinite(requestId)) return;
+
+                try {
+                    if (type === 'claim') {
+                        const text = await claimRequest(interaction.client, interaction.guildId, requestId, interaction.user);
+                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
+                    }
+                    if (type === 'complete') {
+                        const text = await completeRequest(
+                            interaction.client,
+                            interaction.guildId,
+                            requestId,
+                            interaction.user.id,
+                            interaction.memberPermissions?.has('Administrator') ?? false
+                        );
+                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
+                    }
+                    if (type === 'close') {
+                        const text = await closeRequest(
+                            interaction.client,
+                            interaction.guildId,
+                            requestId,
+                            interaction.user.id,
+                            interaction.memberPermissions?.has('Administrator') ?? false
+                        );
+                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
+                    }
+                    if (type === 'rate') {
+                        const rating = Math.max(1, Math.min(5, Number(part[3]) || 1));
+                        const text = await rateRequest(interaction.client, interaction.guildId, requestId, interaction.user.id, rating);
+                        return interaction.update({ content: `${config.ui.emojis.success} ${text}`, embeds: [], components: [] });
+                    }
+                } catch (error: any) {
+                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Request error.'}`, flags: MessageFlags.Ephemeral });
+                }
+                return;
+            }
+
             if (action === 'panel') {
                 const type = part[1];
 
@@ -347,30 +387,41 @@ export default {
                 const b = interaction.fields.getTextInputValue('budget');
                 const o = interaction.fields.getTextInputValue('other');
 
-                const embed = buildRequestPaidEmbed(interaction.user, s, r, b, o);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`close_${interaction.user.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success));
-
                 const requestPaidChannelId = await getManagedChannelId('requestPaid');
                 const targetChan = await interaction.client.channels.fetch(requestPaidChannelId).catch(() => null) as any;
                 if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
-                
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${requestPaidChannelId}>!`, flags: MessageFlags.Ephemeral });
-                await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+
+                const request = await createCommunityRequest({
+                    client: interaction.client,
+                    channel: targetChan,
+                    requester: interaction.user,
+                    kind: 'PAID',
+                    service: s,
+                    description: r,
+                    budget: b,
+                    other: o
+                });
+                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo request #${request.id} tại <#${requestPaidChannelId}>!`, flags: MessageFlags.Ephemeral });
 
             } else if (interaction.customId === 'requestfree_modal') {
                 const s = interaction.fields.getTextInputValue('service');
                 const r = interaction.fields.getTextInputValue('request_desc');
                 const o = interaction.fields.getTextInputValue('other');
 
-                const embed = buildRequestFreeEmbed(interaction.user, s, r, o);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`close_${interaction.user.id}`).setLabel('Hoàn Thành').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success));
-
                 const requestFreeChannelId = await getManagedChannelId('requestFree');
                 const targetChan = await interaction.client.channels.fetch(requestFreeChannelId).catch(() => null) as any;
                 if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
-                
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo bài đăng thành công tại <#${requestFreeChannelId}>!`, flags: MessageFlags.Ephemeral });
-                await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+
+                const request = await createCommunityRequest({
+                    client: interaction.client,
+                    channel: targetChan,
+                    requester: interaction.user,
+                    kind: 'FREE',
+                    service: s,
+                    description: r,
+                    other: o
+                });
+                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo request #${request.id} tại <#${requestFreeChannelId}>!`, flags: MessageFlags.Ephemeral });
 
             } else if (interaction.customId === 'portfolio_modal') {
                 const n = interaction.fields.getTextInputValue('name');

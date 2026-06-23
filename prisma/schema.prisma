@@ -25,9 +25,20 @@ model User {
   scoinTransactions ScoinTransaction[]
   musicPlaylistTracks MusicPlaylistTrack[]
   starInventory StarInventory?
+  starItems StarItemStack[]
   starTools StarTool[]
   starBuffs StarBuff[]
   giveawayEntries GiveawayEntry[]
+  requestClaims RequestClaim[]
+  requestReviews RequestReview[] @relation("RequestReviewer")
+  receivedRequestReviews RequestReview[] @relation("RequestReviewTarget")
+}
+
+model GuildSettings {
+  guildId    String   @id
+  locale     String   @default("vi")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Blacklist {
@@ -131,6 +142,19 @@ model StarInventory {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model StarItemStack {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  key       String
+  quantity  Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
 model StarTool {
   id        Int      @id @default(autoincrement())
   userId    String
@@ -225,4 +249,62 @@ model GiveawayRewardDelivery {
 
   @@index([giveawayId])
   @@index([userId])
+}
+
+model RequestPost {
+  id            Int      @id @default(autoincrement())
+  messageId     String?  @unique
+  channelId     String
+  requesterId   String
+  kind          String
+  service       String
+  description   String
+  budget        String?
+  other         String?
+  status        String   @default("OPEN")
+  claimedById   String?
+  completedAt   DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  claims        RequestClaim[]
+  reviews       RequestReview[]
+
+  @@index([requesterId])
+  @@index([status])
+  @@index([kind])
+}
+
+model RequestClaim {
+  id          Int      @id @default(autoincrement())
+  requestId   Int
+  claimerId   String
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  request     RequestPost @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  claimer     User        @relation(fields: [claimerId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, claimerId])
+  @@index([claimerId])
+  @@index([status])
+}
+
+model RequestReview {
+  id          Int      @id @default(autoincrement())
+  requestId   Int
+  reviewerId  String
+  targetId    String
+  rating      Int
+  note        String?
+  createdAt   DateTime @default(now())
+
+  request     RequestPost @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewer    User        @relation("RequestReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  target      User        @relation("RequestReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, reviewerId])
+  @@index([targetId])
 }
