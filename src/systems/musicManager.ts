@@ -15,6 +15,14 @@ const DEFAULT_PREFIX = process.env.MUSIC_PREFIX || 's!';
 const MAX_PLAYLIST_TRACKS = 20;
 const playCooldown = new Map<string, number>();
 
+type LavalinkNodeConfig = {
+    id: string;
+    host: string;
+    port: number;
+    authorization: string;
+    secure: boolean;
+};
+
 function isUrl(input: string) {
     return /^https?:\/\//i.test(input);
 }
@@ -30,8 +38,52 @@ function checkPlayCooldown(userId: string) {
     playCooldown.set(userId, now + 5000);
 }
 
+function parseBoolean(value: unknown, fallback = false) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value !== 'string') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function normalizeNode(node: any, index: number): LavalinkNodeConfig | null {
+    if (!node || typeof node !== 'object') return null;
+    const host = String(node.host || '').trim();
+    const authorization = String(node.authorization || node.password || '').trim();
+    const port = Number(node.port || (parseBoolean(node.secure) ? 443 : 2333));
+    if (!host || !authorization || !Number.isFinite(port)) return null;
+
+    return {
+        id: String(node.id || `Stella Node ${index + 1}`),
+        host,
+        port,
+        authorization,
+        secure: parseBoolean(node.secure, port === 443)
+    };
+}
+
+function getLavalinkNodes(): LavalinkNodeConfig[] {
+    const rawNodes = process.env.LAVALINK_NODES?.trim();
+    if (rawNodes) {
+        try {
+            const parsed = JSON.parse(rawNodes);
+            const list = Array.isArray(parsed) ? parsed : [parsed];
+            return list.map((node, index) => normalizeNode(node, index)).filter(Boolean) as LavalinkNodeConfig[];
+        } catch {
+            console.warn('LAVALINK_NODES is not valid JSON. Falling back to LAVALINK_HOST/LAVALINK_PORT.');
+        }
+    }
+
+    const node = normalizeNode({
+        id: process.env.LAVALINK_NODE_ID || 'Stella Main',
+        host: process.env.LAVALINK_HOST,
+        port: process.env.LAVALINK_PORT,
+        authorization: process.env.LAVALINK_PASSWORD,
+        secure: process.env.LAVALINK_SECURE
+    }, 0);
+    return node ? [node] : [];
+}
+
 function lavalinkConfigured() {
-    return Boolean(process.env.LAVALINK_HOST && process.env.LAVALINK_PORT && process.env.LAVALINK_PASSWORD);
+    return getLavalinkNodes().length > 0;
 }
 
 function getLavalink(client: Client): any {
@@ -43,22 +95,15 @@ function getPlayer(client: Client, guildId: string): any | null {
 }
 
 export function setupLavalink(client: Client) {
-    if (!lavalinkConfigured()) {
+    const nodes = getLavalinkNodes();
+    if (!nodes.length) {
         console.warn('Lavalink env is missing. Music playback is disabled.');
         return;
     }
     if (getLavalink(client)) return;
 
     (client as any).lavalink = new LavalinkManager({
-        nodes: [
-            {
-                id: 'Stella Main',
-                host: process.env.LAVALINK_HOST || '127.0.0.1',
-                port: Number(process.env.LAVALINK_PORT || 2333),
-                authorization: process.env.LAVALINK_PASSWORD || 'stella_lavalink_password',
-                secure: process.env.LAVALINK_SECURE === 'true'
-            }
-        ],
+        nodes,
         sendToShard: (guildId: string, payload: any) => client.guilds.cache.get(guildId)?.shard?.send(payload),
         autoSkip: true,
         client: {
@@ -74,12 +119,36 @@ export function setupLavalink(client: Client) {
     });
 
     const lavalink = getLavalink(client);
+    console.log(`[Lavalink] Configured ${nodes.length} node(s): ${nodes.map(node => `${node.id}@${node.host}:${node.port}${node.secure ? ' secure' : ''}`).join(', ')}`);
     lavalink.nodeManager.on('connect', (node: any) => console.log(`[Lavalink] Node connected: ${node.id}`));
     lavalink.nodeManager.on('error', (node: any, error: any) => console.error(`[Lavalink] Node error ${node?.id}:`, error?.message || error));
     lavalink.on('queueEnd', async (player: any) => {
         const channel = client.channels.cache.get(player.textChannelId) as any;
         await channel?.send('Queue đã hết, Stella sẽ rời voice nếu không có bài mới.').catch(() => {});
     });
+}
+
+export function musicHealthPanel(client: Client) {
+    const nodes = getLavalinkNodes();
+    const lavalink = getLavalink(client);
+    const nodeLines = nodes.length
+        ? nodes.map(node => `**${node.id}** - ${node.host}:${node.port}${node.secure ? ' TLS' : ''}`).join('\n')
+        : 'Chưa cấu hình node Lavalink.';
+    const playerCount = lavalink?.players?.size ?? lavalink?.playerManager?.players?.size ?? lavalink?.players?.cache?.size ?? 0;
+
+    return {
+        embeds: [new EmbedBuilder()
+            .setColor(nodes.length && lavalink ? '#2ecc71' : '#e67e22')
+            .setTitle('Music Health')
+            .setDescription(lavalink ? 'Music manager đã khởi tạo.' : 'Music manager chưa khởi tạo hoặc thiếu Lavalink env.')
+            .addFields(
+                { name: 'Node configured', value: String(nodes.length), inline: true },
+                { name: 'Players', value: String(playerCount), inline: true },
+                { name: 'Prefix', value: DEFAULT_PREFIX, inline: true },
+                { name: 'Nodes', value: nodeLines.slice(0, 1000) }
+            )
+            .setFooter({ text: 'Không hiển thị password/token trong health check.' })]
+    };
 }
 
 export function initLavalink(client: Client) {
@@ -151,6 +220,31 @@ export async function queueTrack(client: Client, guildId: string, textChannelId:
     };
 }
 
+async function queueTrackWithoutCooldown(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string, query: string) {
+    if (!lavalinkConfigured() || !getLavalink(client)) {
+        throw new Error('Music chưa được cấu hình Lavalink. Hãy cấu hình Lavalink remote/local trong .env.');
+    }
+    ensureVoice(member);
+
+    const player = getLavalink(client).createPlayer({
+        guildId,
+        voiceChannelId: member!.voice.channelId!,
+        textChannelId,
+        selfDeaf: true,
+        selfMute: false,
+        volume: 75
+    });
+
+    await player.connect();
+    const result = await player.search(isUrl(query) ? query : { query, source: 'ytmsearch' }, { id: userId }, true);
+    const tracks = (result.tracks || []).filter((track: any) => getLavalink(client).utils.isNotBrokenTrack(track));
+    if (!tracks.length) throw new Error(`Không tìm thấy bài hợp lệ: ${query}`);
+    if (result.loadType === 'playlist') await player.queue.add(tracks);
+    else await player.queue.add(tracks[0]);
+    if (!player.playing && !player.paused) await player.play();
+    return tracks.length;
+}
+
 export async function controlMusic(client: Client, guildId: string, action: string) {
     const player = getPlayer(client, guildId);
     if (!player) throw new Error('Không có player đang chạy.');
@@ -210,8 +304,9 @@ export async function playPlaylist(client: Client, guildId: string, textChannelI
     ensureVoice(member);
     const tracks = await getPlaylist(userId);
     if (!tracks.length) throw new Error('Playlist của bạn đang trống.');
+    checkPlayCooldown(userId);
     for (const track of tracks) {
-        await queueTrack(client, guildId, textChannelId, member, userId, track.uri);
+        await queueTrackWithoutCooldown(client, guildId, textChannelId, member, userId, track.uri);
     }
     return tracks.length;
 }
@@ -233,6 +328,10 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
         }
         if (['queue', 'now'].includes(command)) {
             await message.reply(musicPanel(message.client, message.guild.id));
+            return true;
+        }
+        if (['health', 'status'].includes(command)) {
+            await message.reply(musicHealthPanel(message.client));
             return true;
         }
         if (['skip', 'stop', 'pause', 'resume', 'loop', 'shuffle'].includes(command)) {
@@ -269,6 +368,7 @@ export async function executeMusicSlash(interaction: ChatInputCommandInteraction
     }
 
     if (['queue', 'now'].includes(sub)) return interaction.editReply(musicPanel(interaction.client, guildId));
+    if (sub === 'health') return interaction.editReply(musicHealthPanel(interaction.client));
 
     if (['stop', 'skip', 'pause', 'resume', 'loop', 'shuffle'].includes(sub)) {
         await controlMusic(interaction.client, guildId, sub === 'resume' ? 'pause' : sub);

@@ -18,6 +18,7 @@ prisma/*.db-wal
 # Logs and temporary files
 *.log
 tmp_*.ts
+*.zip
 
 # Local database backups
 backups/*.json

@@ -24,6 +24,7 @@ export default {
         .addSubcommand(sub => sub.setName('resume').setDescription('Resume'))
         .addSubcommand(sub => sub.setName('loop').setDescription('Bật/tắt loop'))
         .addSubcommand(sub => sub.setName('shuffle').setDescription('Trộn queue'))
+        .addSubcommand(sub => sub.setName('health').setDescription('Kiểm tra trạng thái cấu hình music/Lavalink'))
         .addSubcommandGroup(group =>
             group.setName('playlist')
                 .setDescription('Playlist cá nhân tối đa 20 bài')
