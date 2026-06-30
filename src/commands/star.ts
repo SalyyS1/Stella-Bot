@@ -1,5 +1,6 @@
 import { AttachmentBuilder, ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import fs from 'fs';
 import path from 'path';
 import prisma from '../lib/prisma';
 import { adjustScoinTx, getScoinBalance } from '../systems/scoinManager';
@@ -50,7 +51,12 @@ function wait(ms: number) {
 }
 
 function assetPath(file: string) {
-    return path.join(process.cwd(), 'src', 'assets', 'star-game', file);
+    const candidates = [
+        path.join(process.cwd(), 'assets', 'star-game', file),
+        path.join(process.cwd(), 'src', 'assets', 'star-game', file),
+        path.join(process.cwd(), 'dist', 'assets', 'star-game', file)
+    ];
+    return candidates.find(candidate => fs.existsSync(candidate)) || candidates[0];
 }
 
 function isLegacyStar(key: string): key is LegacyStar {

@@ -1,3 +1,11 @@
-// Hosting panels often default to `node index.js`.
-// Keep the real app compiled from TypeScript in dist/.
-require('./dist/index.js');
+const fs = require('fs');
+const path = require('path');
+
+const entry = path.join(__dirname, 'dist', 'index.js');
+
+if (!fs.existsSync(entry)) {
+    console.error('Missing dist/index.js. Run `npm run build` locally or before starting the bot.');
+    process.exit(1);
+}
+
+require(entry);
