@@ -48,6 +48,7 @@ export default {
     once: false,
     async execute(interaction: Interaction, client: any) {
         if (interaction.isChatInputCommand()) {
+            const startedAt = Date.now();
             const command = client.commands.get(interaction.commandName);
             if (!command) return;
 
@@ -97,6 +98,8 @@ export default {
 
             try {
                 await command.execute(interaction);
+                const elapsed = Date.now() - startedAt;
+                if (elapsed > 2500) console.warn(`[InteractionSlow] /${interaction.commandName} took ${elapsed}ms`);
             } catch (error: any) {
                 console.error(error);
                 await sendAdminLog(client, {
@@ -180,22 +183,25 @@ export default {
                 if (!Number.isFinite(giveawayId)) return;
 
                 try {
+                    if (!interaction.deferred && !interaction.replied) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+                    }
                     if (type === 'join') {
                         if (!interaction.guild) throw new Error('Chỉ dùng giveaway trong server.');
                         await joinGiveaway(client, interaction.guild, giveawayId, interaction.user.id);
-                        return interaction.reply({ content: `${config.ui.emojis.success} Đã tham gia giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                        return interaction.editReply({ content: `${config.ui.emojis.success} Đã tham gia giveaway #${giveawayId}.` });
                     }
                     if (type === 'leave') {
                         await leaveGiveaway(client, giveawayId, interaction.user.id);
-                        return interaction.reply({ content: `${config.ui.emojis.success} Đã rời giveaway #${giveawayId}.`, flags: MessageFlags.Ephemeral });
+                        return interaction.editReply({ content: `${config.ui.emojis.success} Đã rời giveaway #${giveawayId}.` });
                     }
                     if (type === 'participants') {
                         const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 });
                         const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
-                        return interaction.reply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${giveawayId}`).setDescription(lines)], flags: MessageFlags.Ephemeral });
+                        return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${giveawayId}`).setDescription(lines)] });
                     }
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Đã có lỗi khi xử lý giveaway.'}`, flags: MessageFlags.Ephemeral });
+                    return interaction.editReply({ content: `${config.ui.emojis.error} ${error?.message || 'Đã có lỗi khi xử lý giveaway.'}` }).catch(() => {});
                 }
                 return;
             }

@@ -6,6 +6,7 @@ import {
     EmbedBuilder,
     Guild,
     Message,
+    PermissionFlagsBits,
     TextBasedChannel,
     TextChannel,
     User
@@ -108,6 +109,17 @@ export async function createGiveaway(client: Client, options: {
     publicMediaUrl?: string | null;
     createdBy: string;
 }) {
+    const me = options.channel.guild?.members.me;
+    const permissions = me ? options.channel.permissionsFor(me) : null;
+    const missing = [
+        permissions?.has(PermissionFlagsBits.ViewChannel) ? null : 'View Channel',
+        permissions?.has(PermissionFlagsBits.SendMessages) ? null : 'Send Messages',
+        permissions?.has(PermissionFlagsBits.EmbedLinks) ? null : 'Embed Links'
+    ].filter(Boolean);
+    if (missing.length) {
+        throw new Error(`Bot thiếu quyền ở <#${options.channel.id}>: ${missing.join(', ')}.`);
+    }
+
     const giveaway = await prisma.giveaway.create({
         data: {
             channelId: options.channel.id,
