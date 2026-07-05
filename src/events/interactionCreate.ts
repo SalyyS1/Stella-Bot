@@ -22,6 +22,17 @@ async function safeInteractionReply(interaction: any, payload: any) {
     }
 }
 
+async function safeDeferEphemeral(interaction: any) {
+    if (interaction.deferred || interaction.replied) return true;
+    try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        return true;
+    } catch (error: any) {
+        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
+        return false;
+    }
+}
+
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
         await interaction.showModal(modal);
@@ -183,25 +194,40 @@ export default {
                 if (!Number.isFinite(giveawayId)) return;
 
                 try {
-                    if (!interaction.deferred && !interaction.replied) {
-                        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
-                    }
+                    const acknowledged = await safeDeferEphemeral(interaction);
+                    if (!acknowledged) return;
                     if (type === 'join') {
                         if (!interaction.guild) throw new Error('Chỉ dùng giveaway trong server.');
-                        await joinGiveaway(client, interaction.guild, giveawayId, interaction.user.id);
-                        return interaction.editReply({ content: `${config.ui.emojis.success} Đã tham gia giveaway #${giveawayId}.` });
+                        const created = await joinGiveaway(client, interaction.guild, giveawayId, interaction.user.id);
+                        return interaction.editReply({
+                            content: created
+                                ? `${config.ui.emojis.success} Đã tham gia giveaway #${giveawayId}. Chúc bạn may mắn.`
+                                : `${config.ui.emojis.note} Bạn đã có trong danh sách giveaway #${giveawayId} rồi.`
+                        }).catch(() => {});
                     }
                     if (type === 'leave') {
-                        await leaveGiveaway(client, giveawayId, interaction.user.id);
-                        return interaction.editReply({ content: `${config.ui.emojis.success} Đã rời giveaway #${giveawayId}.` });
+                        const removed = await leaveGiveaway(client, giveawayId, interaction.user.id);
+                        return interaction.editReply({
+                            content: removed
+                                ? `${config.ui.emojis.success} Đã rời giveaway #${giveawayId}.`
+                                : `${config.ui.emojis.note} Bạn chưa tham gia giveaway #${giveawayId}.`
+                        }).catch(() => {});
                     }
                     if (type === 'participants') {
                         const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 });
                         const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
-                        return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${giveawayId}`).setDescription(lines)] });
+                        return interaction.editReply({
+                            embeds: [new EmbedBuilder()
+                                .setColor('#f1c40f')
+                                .setTitle(`Danh sách tham gia #${giveawayId}`)
+                                .setDescription(lines)
+                                .setFooter({ text: 'Hiển thị tối đa 50 người đầu tiên.' })]
+                        }).catch(() => {});
                     }
                 } catch (error: any) {
-                    return interaction.editReply({ content: `${config.ui.emojis.error} ${error?.message || 'Đã có lỗi khi xử lý giveaway.'}` }).catch(() => {});
+                    return interaction.editReply({
+                        content: `${config.ui.emojis.error} ${error?.message || 'Không xử lý được giveaway. Vui lòng thử lại sau.'}`
+                    }).catch(() => {});
                 }
                 return;
             }

@@ -34,8 +34,8 @@ export function giveawayButtons(id: number, disabled = false) {
     return [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId(`giveaway_join_${id}`).setLabel('Tham gia').setStyle(ButtonStyle.Success).setEmoji(emojis.success).setDisabled(disabled),
-            new ButtonBuilder().setCustomId(`giveaway_leave_${id}`).setLabel('Rời giveaway').setStyle(ButtonStyle.Secondary).setEmoji(emojis.error).setDisabled(disabled),
-            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Danh sách').setStyle(ButtonStyle.Primary).setEmoji(emojis.note)
+            new ButtonBuilder().setCustomId(`giveaway_leave_${id}`).setLabel('Rời').setStyle(ButtonStyle.Secondary).setEmoji(emojis.error).setDisabled(disabled),
+            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Người tham gia').setStyle(ButtonStyle.Primary).setEmoji(emojis.note)
         )
     ];
 }
@@ -49,30 +49,32 @@ export async function buildGiveawayEmbed(giveawayId: number) {
 
     const emojis = config.ui.emojis;
     const requirements = [
-        giveaway.requiredRoleId ? `${emojis.keep} Role bắt buộc: <@&${giveaway.requiredRoleId}>` : null,
-        giveaway.minLevel ? `${emojis.star} Level tối thiểu: **${giveaway.minLevel}**` : null,
-        giveaway.minScoin ? `${emojis.budget} Scoin tối thiểu: **${giveaway.minScoin.toLocaleString('vi-VN')}**` : null,
-        giveaway.entryCost ? `${emojis.budget} Phí tham gia: **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : `${emojis.success} Miễn phí tham gia`
+        giveaway.requiredRoleId ? `${emojis.keep} Cần role <@&${giveaway.requiredRoleId}>` : null,
+        giveaway.minLevel ? `${emojis.star} Level từ **${giveaway.minLevel}** trở lên` : null,
+        giveaway.minScoin ? `${emojis.budget} Có ít nhất **${giveaway.minScoin.toLocaleString('vi-VN')}** Scoin` : null,
+        giveaway.entryCost ? `${emojis.budget} Phí tham gia **${giveaway.entryCost.toLocaleString('vi-VN')}** Scoin` : `${emojis.success} Miễn phí tham gia`
     ].filter(Boolean).join('\n');
 
     const winners = giveaway.winnerIds ? giveaway.winnerIds.split(',').filter(Boolean).map(id => `<@${id}>`).join(', ') : null;
     const statusLabel = giveaway.status === 'ACTIVE' ? 'Đang mở' : giveaway.status === 'CANCELLED' ? 'Đã hủy' : 'Đã kết thúc';
+    const endsAt = Math.floor(giveaway.endsAt.getTime() / 1000);
     const embed = new EmbedBuilder()
         .setColor(giveaway.status === 'ACTIVE' ? '#ff66cc' : giveaway.status === 'CANCELLED' ? '#95a5a6' : '#2ecc71')
-        .setTitle(`${emojis.starJump} ${giveaway.title}`)
+        .setTitle(`${emojis.starJump} Giveaway - ${giveaway.title}`)
         .setDescription([
-            giveaway.description || 'Nhấn nút bên dưới để tham gia giveaway.',
+            `${emojis.purpleArrow} **Phần thưởng**`,
+            `> ${giveaway.prize}`,
             '',
-            `${emojis.purpleArrow} **Phần thưởng:** ${giveaway.prize}`
+            giveaway.description || 'Nhấn nút **Tham gia** bên dưới để vào danh sách quay thưởng.'
         ].join('\n'))
         .addFields(
+            { name: `${emojis.note} Trạng thái`, value: `**${statusLabel}**`, inline: true },
+            { name: `${emojis.star} Winner`, value: `**${giveaway.winnersCount}**`, inline: true },
+            { name: `${emojis.contribution} Tham gia`, value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** người`, inline: true },
+            { name: `${emojis.redArrow} Thời gian`, value: `Kết thúc <t:${endsAt}:R>\n<t:${endsAt}:F>`, inline: false },
+            { name: `${emojis.keep} Điều kiện`, value: requirements || 'Không có điều kiện.', inline: false },
             { name: `${emojis.contact} Host`, value: `<@${giveaway.hostId}>`, inline: true },
-            { name: `${emojis.star} Số winner`, value: `**${giveaway.winnersCount}**`, inline: true },
-            { name: `${emojis.note} Trạng thái`, value: statusLabel, inline: true },
-            { name: `${emojis.purpleArrow} Ping role`, value: giveaway.pingRoleId ? `<@&${giveaway.pingRoleId}>` : 'Không ping role', inline: true },
-            { name: `${emojis.redArrow} Kết thúc`, value: `<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:R>\n<t:${Math.floor(giveaway.endsAt.getTime() / 1000)}:F>`, inline: false },
-            { name: `${emojis.keep} Điều kiện tham gia`, value: requirements || 'Không có', inline: false },
-            { name: `${emojis.contribution} Đã tham gia`, value: `**${giveaway.entries.length.toLocaleString('vi-VN')}** người`, inline: true }
+            { name: `${emojis.purpleArrow} Ping`, value: giveaway.pingRoleId ? `<@&${giveaway.pingRoleId}>` : 'Không ping role', inline: true }
         )
         .setImage(giveaway.publicMediaUrl || giveaway.bannerUrl || GIVEAWAY_BANNER)
         .setFooter({ text: `Giveaway #${giveaway.id} • Stella Studio` })
@@ -182,6 +184,7 @@ export async function joinGiveaway(client: Client, guild: Guild, giveawayId: num
     const reason = await checkRequirements(guild, giveaway, userId);
     if (reason) throw new Error(reason);
 
+    let created = false;
     await prisma.$transaction(async tx => {
         const existing = await tx.giveawayEntry.findUnique({ where: { giveawayId_userId: { giveawayId, userId } } });
         if (existing) return;
@@ -189,15 +192,18 @@ export async function joinGiveaway(client: Client, guild: Guild, giveawayId: num
             await adjustScoinTx(tx, userId, -giveaway.entryCost, `Join giveaway #${giveawayId}`, 'giveaway:entry', `giveaway:${giveawayId}`);
         }
         await tx.giveawayEntry.create({ data: { giveawayId, userId } });
+        created = true;
     });
 
-    await refreshGiveawayMessage(client, giveawayId);
+    if (created) await refreshGiveawayMessage(client, giveawayId);
+    return created;
 }
 
 export async function leaveGiveaway(client: Client, giveawayId: number, userId: string) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId } });
     if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway này đã kết thúc.');
 
+    let removed = false;
     await prisma.$transaction(async tx => {
         const existing = await tx.giveawayEntry.findUnique({ where: { giveawayId_userId: { giveawayId, userId } } });
         if (!existing) return;
@@ -205,9 +211,11 @@ export async function leaveGiveaway(client: Client, giveawayId: number, userId: 
         if (giveaway.entryCost > 0) {
             await adjustScoinTx(tx, userId, giveaway.entryCost, `Leave giveaway #${giveawayId}`, 'giveaway:refund', `giveaway:${giveawayId}`);
         }
+        removed = true;
     });
 
-    await refreshGiveawayMessage(client, giveawayId);
+    if (removed) await refreshGiveawayMessage(client, giveawayId);
+    return removed;
 }
 
 function pickWinners(userIds: string[], count: number): string[] {
