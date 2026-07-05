@@ -217,7 +217,8 @@ export default {
                 const winners = await endGiveaway(interaction.client, id, true);
                 return interaction.editReply(`Đã reroll giveaway #${id}. Winner mới: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'không có'}.`);
             }
-            await cancelGiveaway(interaction.client, id);
+            const result = await cancelGiveaway(interaction.client, id);
+            if (!result.cancelled) return interaction.editReply(result.reason || `Giveaway #${id} không thể hủy.`);
             return interaction.editReply(`Đã hủy giveaway #${id} và hoàn phí tham gia nếu có.`);
         } catch (error: any) {
             console.error(error);

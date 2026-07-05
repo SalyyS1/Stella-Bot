@@ -294,7 +294,15 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
 
 export async function cancelGiveaway(client: Client, giveawayId: number) {
     const giveaway = await prisma.giveaway.findUnique({ where: { id: giveawayId }, include: { entries: true } });
-    if (!giveaway || giveaway.status !== 'ACTIVE') throw new Error('Giveaway không active.');
+    if (!giveaway) throw new Error('Không tìm thấy giveaway.');
+    if (giveaway.status !== 'ACTIVE') {
+        return {
+            cancelled: false,
+            reason: giveaway.status === 'CANCELLED'
+                ? 'Giveaway này đã được hủy trước đó.'
+                : 'Giveaway này đã kết thúc nên không thể hủy.'
+        };
+    }
 
     await prisma.$transaction(async tx => {
         await tx.giveaway.update({ where: { id: giveawayId }, data: { status: 'CANCELLED' } });
@@ -305,6 +313,7 @@ export async function cancelGiveaway(client: Client, giveawayId: number) {
         }
     });
     await refreshGiveawayMessage(client, giveawayId);
+    return { cancelled: true, reason: null };
 }
 
 let giveawayInterval: NodeJS.Timeout | null = null;
