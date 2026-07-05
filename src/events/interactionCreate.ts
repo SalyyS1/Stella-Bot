@@ -12,6 +12,16 @@ import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } fro
 import { controlMusic, musicPanel } from '../systems/musicManager';
 import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest } from '../systems/requestManager';
 
+async function safeInteractionReply(interaction: any, payload: any) {
+    try {
+        if (interaction.replied || interaction.deferred) return await interaction.followUp(payload);
+        return await interaction.reply(payload);
+    } catch (error: any) {
+        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
+        return null;
+    }
+}
+
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
         await interaction.showModal(modal);
@@ -26,12 +36,10 @@ async function showModalSafely(interaction: any, modal: ModalBuilder, client: an
             ]
         });
 
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({
-                content: `${config.ui.emojis.error} Không mở được form. Vui lòng bấm lại sau vài giây.`,
-                flags: MessageFlags.Ephemeral
-            }).catch(() => {});
-        }
+        await safeInteractionReply(interaction, {
+            content: `${config.ui.emojis.error} Không mở được form. Vui lòng bấm lại sau vài giây.`,
+            flags: MessageFlags.Ephemeral
+        });
     }
 }
 
@@ -61,11 +69,7 @@ export default {
                         ]
                     }).catch(() => {});
                     const content = `${config.ui.emojis.error} Lệnh lỗi: ${String(error?.message || error).slice(0, 300)}`;
-                    if (interaction.replied || interaction.deferred) {
-                        await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
-                    } else {
-                        await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
-                    }
+                    await safeInteractionReply(interaction, { content, flags: MessageFlags.Ephemeral });
                 }
                 return;
             }
@@ -75,7 +79,7 @@ export default {
             const managedChannels = await getManagedChannelIds();
 
             if (expectedChannel && interaction.channelId !== expectedChannel) {
-                return interaction.reply({ content: `${config.ui.emojis.error} Lệnh \`/${cmdName}\` chỉ được phép sử dụng trong kênh <#${expectedChannel}>.`, flags: MessageFlags.Ephemeral });
+                return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Lệnh \`/${cmdName}\` chỉ được phép sử dụng trong kênh <#${expectedChannel}>.`, flags: MessageFlags.Ephemeral });
             }
 
             const restrictedChannels = [
@@ -88,7 +92,7 @@ export default {
             ];
 
             if (!expectedChannel && restrictedChannels.includes(interaction.channelId)) {
-                return interaction.reply({ content: `${config.ui.emojis.error} Không được phép dùng lệnh \`/${cmdName}\` ở kênh này để tránh trôi tin nhắn giao dịch!`, flags: MessageFlags.Ephemeral });
+                return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không được phép dùng lệnh \`/${cmdName}\` ở kênh này để tránh trôi tin nhắn giao dịch!`, flags: MessageFlags.Ephemeral });
             }
 
             try {
@@ -106,11 +110,7 @@ export default {
                     ]
                 }).catch(() => {});
                 const content = `${config.ui.emojis.error} Lệnh lỗi: ${String(error?.message || error).slice(0, 300)}`;
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-                } else {
-                    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
-                }
+                await safeInteractionReply(interaction, { content, flags: MessageFlags.Ephemeral });
             }
         } 
         else if (interaction.isButton()) {
