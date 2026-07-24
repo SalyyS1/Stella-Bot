@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stella Bot — AI Report & Q&A System · Plan</title>
+<style>
+  :root {
+    --paper: #faf7f2;
+    --panel: #f0ebe1;
+    --ink: #0a0a0a;
+    --muted: #6b6258;
+    --accent: #b8232c;
+    --hair: #d8cfc0;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    background-image: radial-gradient(rgba(120,110,95,0.035) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  /* Cover */
+  .cover { padding: 72px 0 40px; border-bottom: 2px solid var(--ink); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin-bottom: 20px; }
+  .cover h1 { font-family: var(--serif); font-size: clamp(34px, 6vw, 58px); line-height: 1.05; margin: 0 0 18px; font-weight: 600; }
+  .cover .lede { font-family: var(--serif); font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); font-style: italic; max-width: 720px; }
+  .cover .meta { margin-top: 28px; font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 24px; }
+  .cover .meta b { color: var(--ink); font-weight: 600; }
+
+  /* Stat band */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--hair); }
+  .stat { padding: 24px 18px; border-right: 1px solid var(--hair); }
+  .stat:last-child { border-right: none; }
+  .stat .n { font-family: var(--serif); font-size: 34px; font-weight: 600; }
+  .stat .l { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); margin-top: 4px; }
+
+  section { padding: 48px 0; border-bottom: 1px solid var(--hair); }
+  h2.sec { font-family: var(--mono); font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 28px; }
+  h3 { font-family: var(--serif); font-size: 24px; margin: 0 0 12px; font-weight: 600; }
+  p { margin: 0 0 16px; }
+  .muted { color: var(--muted); }
+
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li { padding: 8px 0 8px 22px; border-bottom: 1px solid var(--hair); position: relative; }
+  ul.clean li::before { content: "—"; position: absolute; left: 0; color: var(--accent); }
+
+  .pull { border-left: 3px solid var(--accent); padding: 8px 0 8px 20px; font-family: var(--serif); font-style: italic; font-size: 19px; color: var(--ink); margin: 24px 0; }
+
+  /* Phase grid */
+  .phase-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--hair); padding: 22px; cursor: pointer; transition: transform .12s ease, border-color .12s ease; }
+  .card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card .tag { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; }
+  .card .tag .pri { color: var(--accent); }
+  .card h4 { font-family: var(--serif); font-size: 20px; margin: 12px 0 8px; font-weight: 600; }
+  .card .obj { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+  .card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+  .card ul li { margin-bottom: 4px; }
+  .card .foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .card .open { color: var(--accent); font-family: var(--mono); font-size: 11px; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+
+  .dep { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* Flow */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12px; }
+  .flow .node { background: var(--panel); border: 1px solid var(--hair); padding: 8px 14px; }
+  .flow .arr { color: var(--accent); }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(10,10,10,0.55); display: none; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto; z-index: 50; }
+  .modal-bg.on { display: flex; }
+  .modal { background: var(--paper); max-width: 800px; width: 100%; border: 2px solid var(--ink); padding: 40px; }
+  .modal .close { float: right; font-family: var(--mono); font-size: 12px; border: 1px solid var(--ink); background: none; padding: 6px 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; }
+  .modal .close:hover { background: var(--ink); color: var(--paper); }
+  .md h1,.md h2,.md h3 { font-family: var(--serif); }
+  .md h1 { font-size: 26px; border-bottom: 2px solid var(--ink); padding-bottom: 8px; }
+  .md h2 { font-size: 19px; color: var(--accent); margin-top: 26px; }
+  .md h3 { font-size: 16px; margin-top: 18px; }
+  .md code { font-family: var(--mono); font-size: 12.5px; background: var(--panel); padding: 2px 5px; border: 1px solid var(--hair); }
+  .md pre { background: var(--panel); border: 1px solid var(--hair); padding: 14px; overflow-x: auto; }
+  .md pre code { border: none; padding: 0; background: none; }
+  .md ul,.md ol { padding-left: 22px; }
+  .md li { margin-bottom: 5px; }
+  .md blockquote { border-left: 3px solid var(--accent); margin: 12px 0; padding-left: 16px; color: var(--muted); font-style: italic; }
+  .md table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13px; }
+  .md th,.md td { border: 1px solid var(--hair); padding: 7px 10px; text-align: left; }
+  .md th { background: var(--panel); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .md hr { border: none; border-top: 1px solid var(--hair); margin: 20px 0; }
+  .md .fm { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel); border: 1px dashed var(--hair); padding: 10px; margin-bottom: 18px; white-space: pre-wrap; }
+
+  .cite { font-family: var(--mono); font-size: 12px; color: var(--accent); word-break: break-all; }
+  footer { padding: 40px 0 80px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat:nth-child(2n) { border-right: none; }
+    .modal { padding: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .card { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <div class="eyebrow">Stella Bot · Implementation Plan · 2026-07-24</div>
+    <h1>AI Report &amp; Q&amp;A System</h1>
+    <p class="lede">Một lớp AI đặt trên nền Stella đã ổn định: báo cáo cộng đồng viết bằng AI mỗi tối, trợ lý hỏi-đáp kích hoạt bằng reply với kho wiki plugin, và lệnh admin thêm wiki — tất cả qua một client OpenAI-compatible tới agentgw.cloud.</p>
+    <div class="meta">
+      <span><b>Branch</b> main</span>
+      <span><b>Phases</b> 5</span>
+      <span><b>Tasks</b> 23</span>
+      <span><b>Priority</b> P2</span>
+      <span><b>DB</b> Supabase (Postgres)</span>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">AI client dùng chung</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">Điểm vào Q&amp;A (reply + /ask)</div></div>
+    <div class="stat"><div class="n">6</div><div class="l">Kênh đọc cho báo cáo</div></div>
+    <div class="stat"><div class="n">1×</div><div class="l">Báo cáo / ngày (21-22h)</div></div>
+  </div>
+
+  <section>
+    <h2 class="sec">Tổng quan</h2>
+    <p>Bot Stella vừa qua đợt nâng cấp lớn (service-flow, retention, cross-post) và đã chuyển DB sang Supabase. Plan này thêm <b>một lớp AI</b> gồm ba năng lực trên cùng một client dùng chung:</p>
+    <ul class="clean">
+      <li><b>Hạ tầng AI</b> — một client OpenAI-compatible (agentgw.cloud), key ở <code>.env</code>, model+endpoint ở config, không bao giờ log/commit.</li>
+      <li><b>Kho wiki</b> — bảng <code>WikiEntry</code> seed sẵn plugin phổ biến; admin thêm qua <code>/add wiki</code>.</li>
+      <li><b>Trợ lý Q&amp;A</b> — kênh riêng, reply-to-bot để tiếp tục hội thoại; <code>/ask</code> mọi nơi; cooldown + trần đồng thời.</li>
+      <li><b>Báo cáo AI hàng ngày</b> — 21-22h VN, đọc 24h chat (live, không lưu), tóm tắt + changelog Mojang, đăng forum; <b>thay thế digest cũ</b>.</li>
+    </ul>
+    <div class="pull">Mỗi lần gọi AI là tốn token. Cooldown + khóa mỗi-người-một-câu + trần đồng thời là các van chi phí. Đọc chat cộng đồng: tóm tắt rồi bỏ, không bao giờ lưu nguyên văn.</div>
+  </section>
+
+  <section>
+    <h2 class="sec">Luồng phụ thuộc</h2>
+    <div class="flow">
+      <span class="node">P1 Prereq</span>
+      <span class="arr">→</span>
+      <span class="node">P2 AI Client</span>
+      <span class="arr">→</span>
+      <span class="node">P3 Wiki Store</span>
+      <span class="arr">→</span>
+      <span class="node">P4 Q&amp;A</span>
+      <span class="arr">·</span>
+      <span class="node">P5 Daily Report</span>
+    </div>
+    <p class="muted" style="margin-top:18px; font-size:14px;">Phase 2 là nền — mọi thứ gọi nó. Phase 3 trước Phase 4 (Q&amp;A cần fetch wiki). Phase 5 chỉ phụ thuộc Phase 2, độc lập với Q&amp;A, và gỡ bỏ scheduler digest cũ.</p>
+  </section>
+
+  <section>
+    <h2 class="sec">Các Phase — bấm để xem chi tiết</h2>
+    <div class="phase-grid" id="grid"></div>
+  </section>
+
+  <section>
+    <h2 class="sec">Tiêu chí thành công (toàn plan)</h2>
+    <ul class="clean">
+      <li>AI client gọi agentgw theo chuẩn OpenAI; key chỉ ở <code>.env</code>, không log.</li>
+      <li><code>/add wiki</code> (admin) lưu link wiki; seed có mặt ở lần chạy đầu.</li>
+      <li>Trong kênh Q&amp;A, reply tin bot ping bạn thì tiếp tục; reply tin bot trả người khác thì bỏ qua.</li>
+      <li><code>/ask</code> chạy mọi nơi; cooldown + khóa một-câu-mỗi-người + trần đồng thời được thực thi.</li>
+      <li>Báo cáo tối đăng forum: tóm tắt chat + bài nổi bật + changelog Mojang (bỏ qua nếu fetch lỗi).</li>
+      <li>Scheduler digest cũ đã gỡ; không đăng trùng.</li>
+      <li><code>npm run build</code> sạch.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="sec">Chi phí &amp; An toàn</h2>
+    <ul class="clean">
+      <li><b>Token/quota:</b> cooldown + single-in-flight + trần đồng thời là van chặn; báo cáo 1 lần/ngày (bị chặn trên).</li>
+      <li><b>Riêng tư:</b> đọc chat cộng đồng — fetch live, tóm tắt, <b>không lưu nguyên văn</b>; báo cáo là tổng hợp, không trích DM/kênh riêng.</li>
+      <li><b>Secret:</b> API key chỉ ở <code>.env</code>, redact khỏi mọi log (dùng lại pattern redact của Facebook manager).</li>
+      <li><b>SSRF:</b> chỉ fetch URL wiki do admin thêm, http(s), timeout + giới hạn kích thước, không follow redirect nội bộ.</li>
+      <li><b>Prompt injection:</b> nội dung wiki/chat là dữ liệu không tin cậy, phân định rõ trong prompt; Q&amp;A chỉ trả text, không thực thi hành động.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="sec">Nguồn tham chiếu</h2>
+    <ul class="clean">
+      <li>Mojang Java patch notes (ổn định hơn scrape HTML): <span class="cite">https://launchercontent.mojang.com/v2/javaPatchNotes.json</span></li>
+      <li>Minecraft articles (Mojang chính thức): <span class="cite">https://www.minecraft.net/en-us/articles</span></li>
+      <li>agentgw endpoint (cần xác nhận + rotate key): <span class="cite">https://agentgw.cloud</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="sec">Câu hỏi mở</h2>
+    <ul class="clean">
+      <li>Base URL + model id chính xác của agentgw — user xác nhận/rotate key trước go-live (key hiện là test key, sẽ thay).</li>
+      <li>Ngân sách token mỗi báo cáo — 24h chat qua 6 kênh có thể lớn; Phase 5 phải cap/truncate input.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Stella Studio · ak:plan · plan.html là artifact chính. Bấm một phase để đọc toàn bộ markdown chi tiết.
+  </footer>
+
+</div>
+
+<div class="modal-bg" id="modalbg" role="dialog" aria-modal="true">
+  <div class="modal">
+    <button class="close" id="closebtn" aria-label="Đóng">✕ Đóng</button>
+    <div class="md" id="modalbody"></div>
+  </div>
+</div>
+
+<script>
+// Phase data — outline for cards + raw markdown for modal.
+const PHASES = [
+  {
+    id: 1, title: "Prerequisites & decisions", pri: "P2", dep: "—", effort: "0.5h + key setup",
+    obj: "Non-code: chốt provider AI + env keys cho các phase sau. Key agentgw hiện là test key, phải rotate.",
+    bullets: [
+      "Xác nhận base URL + model id + dạng endpoint OpenAI-compat",
+      "Thêm placeholder AI_API_KEY / AI_BASE_URL / AI_MODEL vào .env.example",
+      "Key thật chỉ ở .env, không commit, không log"
+    ],
+    files: ".env.example",
+    md: `## Overview
+Non-code phase. Lock the AI provider details and env keys the later phases consume. The agentgw key is currently a shared/test value the user will rotate before go-live.
+
+## Requirements
+- Functional: confirm agentgw base URL, model id, and OpenAI-compatible endpoint shape. Add \`.env.example\` placeholders.
+- Non-functional: real key lives only in \`.env\` (host + local), never committed, never logged.
+
+## Architecture
+No code beyond \`.env.example\` placeholders. Produces the config values Phase 2 wires.
+
+## Related Code Files
+- Modify: \`.env.example\` — add \`AI_API_KEY\`, \`AI_BASE_URL\`, \`AI_MODEL\` placeholders (no real values).
+
+## Implementation Steps
+1. Confirm base URL (likely https://agentgw.cloud + an OpenAI-compatible path such as /v1/chat/completions — verify at cook time) and model id (agentgw-opus-4-8 per user).
+2. Add placeholder env keys to \`.env.example\`.
+3. Note: user rotates the leaked test key before production use (key was pasted in chat; treat as compromised).
+
+## Success Criteria
+- [ ] \`.env.example\` has AI placeholders; no secrets committed.
+- [ ] Base URL + model id confirmed for Phase 2.
+- [ ] Key-rotation reminder recorded.
+
+## Risk Assessment
+- Wrong endpoint shape (MED): if agentgw is NOT OpenAI-compatible, Phase 2's client needs adjusting — verify with one manual test call.
+- Leaked key (HIGH until rotated): current key exposed in chat; rotate before go-live.`
+  },
+  {
+    id: 2, title: "AI client infrastructure", pri: "P1", dep: "1", effort: "1d",
+    obj: "Client AI dùng chung cho mọi phase. OpenAI-compatible, fail-closed khi thiếu key, redact key khỏi log.",
+    bullets: [
+      "Module aiClient.ts: isAiEnabled() + askAI(messages, opts)",
+      "fetch + AbortController timeout ~30s, trả null khi lỗi (không throw)",
+      "Token qua Authorization: Bearer, không bao giờ vào URL/log",
+      "config.ai = { baseUrl, model, maxTokens, temperature }"
+    ],
+    files: "src/systems/aiClient.ts, src/config.ts",
+    md: `## Overview
+Shared AI client every later phase uses. OpenAI-compatible chat-completions call to agentgw, fail-closed when key/config missing, redact key from any log. Foundation for Q&A (Phase 4) and the daily report (Phase 5).
+
+## Requirements
+- Functional: a single \`askAI(messages, opts)\` helper that POSTs to the agentgw chat-completions endpoint and returns text, with timeout + error handling.
+- Non-functional: key via \`process.env.AI_API_KEY\` in \`Authorization: Bearer\` header (never query string, never logged); base URL + model in \`config.ai\`; feature-disabled + logged-once when key missing (fail-closed, matching the Facebook manager).
+
+## Architecture
+- New module \`src/systems/aiClient.ts\` (<200 lines).
+  - \`isAiEnabled()\`: true only when AI_API_KEY + base URL + model present.
+  - \`askAI(messages, opts?)\` — global fetch (Node 20+), AbortController timeout (~30s), returns null on failure (callers degrade).
+  - \`redactAi(err)\`: strip the key from any error string (reuse the redaction idiom from facebookCrossPostManager.ts).
+- Config: \`config.ai = { baseUrl, model, maxTokens, temperature }\`.
+- No DB. No Discord coupling — pure HTTP helper reused by Q&A and report.
+
+## Related Code Files
+- Create: \`src/systems/aiClient.ts\`.
+- Modify: \`src/config.ts\` (add ai block), \`.env.example\` (done in Phase 1).
+- Reference: \`src/systems/facebookCrossPostManager.ts\` (fail-closed + redact + header-token pattern).
+
+## Implementation Steps
+1. Add config.ai block reading AI_BASE_URL / AI_MODEL (+ defaults for maxTokens/temperature).
+2. Write aiClient.ts: isAiEnabled, askAI (fetch + AbortController + Bearer header), redactAi.
+3. On any non-2xx or network error: log once via console.error(redactAi(...)), return null. Never throw.
+4. Manual smoke: a throwaway call to confirm endpoint shape/model before Phase 4/5.
+5. npm run build.
+
+## Success Criteria
+- [ ] askAI returns text on success, null on failure (never throws).
+- [ ] Key sent via Authorization header; never in a URL or log line.
+- [ ] Fail-closed when AI_API_KEY unset (logged once, callers no-op).
+- [ ] npm run build clean.
+
+## Risk Assessment
+- Endpoint not OpenAI-compatible (MED): verify shape with one manual call before Phase 4/5 depend on it.
+- Token cost blowout (MED): cap maxTokens; Q&A cooldown + single daily report bound volume.
+- Key leak via logs (HIGH → mitigated): redaction helper + header-only token.`
+  },
+  {
+    id: 3, title: "Wiki store & /add wiki", pri: "P2", dep: "2", effort: "1d",
+    obj: "Catalog link wiki plugin trong DB để AI tra cứu. Seed sẵn plugin phổ biến; admin thêm qua /add wiki.",
+    bullets: [
+      "Bảng WikiEntry (name @id, url, aliases, addedBy)",
+      "Seed on ClientReady: MythicMobs, MMOItems, MMOCore, ModelEngine, DeluxeMenus, PlaceholderAPI, Vault, LuckPerms...",
+      "/add wiki <name> <url> — admin-gated, validate http(s)",
+      "findWikiEntry(query) theo name/alias cho Phase 4"
+    ],
+    files: "src/systems/wikiManager.ts, src/commands/add.ts, prisma/schema.prisma",
+    md: `## Overview
+A DB-backed catalog of plugin wiki links the AI can consult. Seeded with popular plugins on startup; admins extend via \`/add wiki\`. Q&A (Phase 4) reads it to decide which link to fetch.
+
+## Requirements
+- Functional:
+  1. WikiEntry table: name (unique, lowercased), url, aliases (optional CSV), addedBy, timestamps.
+  2. Seed popular plugins on ClientReady if absent (idempotent create-if-missing).
+  3. \`/add wiki <name> <url>\` — admin-gated; validates URL; upserts.
+  4. listWikiEntries() / findWikiEntry(query) helper for Phase 4.
+- Non-functional: URL validated (http/https only); admin check fail-closed.
+
+## Architecture
+- Schema: new WikiEntry model (name @id lowercased, url, aliases String?, addedBy, createdAt, updatedAt). Additive migration (db:push).
+- Seed list (config): config.ai.seedWikis — MythicMobs, MMOItems, MMOCore, ModelEngine, MythicCrucible, DeluxeMenus, PlaceholderAPI, Vault, LuckPerms, Citizens, WorldGuard... Bot upserts missing on ready (create-if-absent, never overwrite an admin edit).
+- New module src/systems/wikiManager.ts (<200 lines): seedWikis(), addWiki(name,url,actorId), findWikiEntry(query), listWikiEntries().
+- Admin authz: use \`Administrator\` for consistency with existing commands (panel.ts:11, maintenance.ts). Note "higher than bot" phrasing in command description.
+- Command: \`/add\` with subcommand \`wiki\`. New file src/commands/add.ts (auto-loaded).
+
+## Related Code Files
+- Create: \`src/systems/wikiManager.ts\`, \`src/commands/add.ts\`.
+- Modify: \`prisma/schema.prisma\` (WikiEntry), \`src/config.ts\` (ai.seedWikis), \`src/events/ready.ts\` (call seedWikis()).
+- Reference: panel.ts:11 (Administrator gate), skillRoleManager.ts (create-if-missing seed on ready).
+
+## Implementation Steps
+1. Add WikiEntry model; db:push (user runs against Supabase).
+2. config.ai.seedWikis list with official wiki URLs.
+3. wikiManager.ts: seed (create-if-absent), add (validate URL, upsert), find (name/alias), list.
+4. /add wiki command, Administrator-gated, validates http(s), calls addWiki.
+5. Call seedWikis() in ready.ts (guarded, non-fatal).
+6. npm run build.
+
+## Success Criteria
+- [ ] Seed plugins exist after first ready (idempotent — re-run doesn't duplicate/overwrite edits).
+- [ ] /add wiki rejects non-admins and invalid URLs; adds valid ones.
+- [ ] findWikiEntry("mmoitems") resolves by name and alias.
+- [ ] npm run build clean.
+
+## Risk Assessment
+- Wiki URL rot (LOW): admins fix via /add wiki (upsert overwrites).
+- SSRF via arbitrary URL (MED): Phase 4 fetches these; restrict /add wiki to admins + http(s). Fetch hardening lives in Phase 4.
+- Seed overwrites admin edit (LOW → mitigated): seed is create-if-absent only.`
+  },
+  {
+    id: 4, title: "Q&A via reply & /ask", pri: "P1", dep: "2, 3", effort: "2-3d",
+    obj: "Q&A AI cộng đồng. Reply-to-bot trong kênh Q&A tiếp tục hội thoại; /ask mọi nơi. AI tra wiki khi hỏi về plugin.",
+    bullets: [
+      "Kênh Q&A: reply tin bot đã ping bạn → kích hoạt; !s <câu hỏi> cũng được",
+      "Chia luồng: chỉ reply được tin bot ping CHÍNH bạn, không xen luồng người khác",
+      "Khóa mỗi-người-một-câu + trần đồng thời ~3 + cooldown ~15-20s",
+      "Wiki-aware: hỏi về plugin đã seed → fetch trang wiki làm context"
+    ],
+    files: "src/systems/aiQaManager.ts, src/commands/ask.ts, src/events/messageCreate.ts",
+    md: `## Overview
+Community-facing AI Q&A. Two entry points: a dedicated Q&A channel where replying to the bot continues a thread, and a \`/ask\` slash command anywhere. The AI can consult the Phase-3 wiki catalog and fetch a matching page when the question is about a plugin.
+
+## Requirements
+- Functional:
+  1. Q&A channel 1530093732500869231: a message that is a reply to one of the bot's own messages triggers an AI answer. Also support prefix \`!s <question>\`.
+  2. Thread ownership: a reply only triggers if the bot message being replied to itself pinged THAT same user. Replying to the bot's answer meant for someone else is ignored.
+  3. \`/ask <question>\` slash command works in any channel.
+  4. Per-user serialization: each user has at most ONE in-flight AI request; a second while one is processing is rejected. Different users run concurrently, capped ~2-3.
+  5. Cooldown: light per-user (~15-20s).
+  6. Wiki-aware: if the question mentions a known plugin (Phase-3 match), fetch that wiki page and include an excerpt as context.
+- Non-functional: bot always pings the asker (so reply-ownership works next turn); answers ≤2000 chars (or split); AI/token errors fail gracefully.
+
+## Architecture
+- New module src/systems/aiQaManager.ts (<200 lines): per-user in-flight Set, global concurrency counter, cooldown map, answerQuestion() → assemble context → askAI (Phase 2) → text.
+- Trigger 1 (reply) in messageCreate.ts: if channelId === config.ai.qaChannel AND message.reference points to a bot message → fetch referenced msg; confirm author is bot AND refMsg.mentions.has(author.id). Else ignore silently. Also handle !s prefix.
+- Trigger 2 (/ask) new src/commands/ask.ts: defer → answerQuestion → editReply; ping caller.
+- Reply-ownership rule ("chia luồng"): fresh question (!s / /ask) → bot answers pinging asker → that becomes the head of the user's thread. Continue only by replying to a bot message that pinged them.
+- Concurrency/cooldown ("nổ đầu"): inFlight Set rejects a user's new question while busy; activeCount MAX_CONCURRENT=3; cooldown Map 15-20s.
+- Wiki context: findWikiEntry(tokens) → fetch URL (SSRF-safe) → strip HTML, cap ~2-4k chars → prepend as context. No match/fail → model knowledge only.
+- System prompt: short, Vietnamese-first, "you are Stella, a Minecraft server/plugin assistant; concise; if unsure, say so."
+
+## Related Code Files
+- Create: \`src/systems/aiQaManager.ts\`, \`src/commands/ask.ts\`.
+- Modify: \`src/events/messageCreate.ts\` (reply + !s trigger in Q&A channel, near top), \`src/config.ts\` (ai.qaChannel, cooldown/concurrency).
+- Reference: messageCreate.ts (guard structure, handleMusicPrefix pattern), aiClient (Phase 2), wikiManager (Phase 3).
+
+## Implementation Steps
+1. config.ai: qaChannel='1530093732500869231', qaCooldownMs, qaMaxConcurrent.
+2. aiQaManager.ts: in-flight set + concurrency + cooldown + answerQuestion (wiki context, askAI, ≤2000 chars).
+3. messageCreate.ts: Q&A-channel handler — reply-ownership check + !s; ignore non-owner replies silently.
+4. ask.ts: /ask command (defer, answer, ping caller).
+5. Wiki fetch + HTML→text excerpt helper.
+6. npm run build.
+
+## Success Criteria
+- [ ] Replying to a bot message that pinged you continues the thread; one that pinged someone else is ignored.
+- [ ] !s and /ask both return an AI answer pinging the asker.
+- [ ] A second question from same user while processing is rejected; different users still work.
+- [ ] Cooldown blocks rapid repeats from one user.
+- [ ] A plugin question fetches the matching wiki page as context.
+- [ ] npm run build clean.
+
+## Risk Assessment
+- Token/quota burn (HIGH — main cost surface): cooldown + per-user in-flight + global cap; cap max_tokens per answer.
+- SSRF via wiki fetch (MED): only admin-curated catalog URLs, http(s), timeout + size cap, no internal redirects.
+- Prompt injection via chat/wiki content (MED): treat fetched content as untrusted, delimited; system prompt authoritative; Q&A only returns text.
+- Reply-ownership false negatives (LOW): always ping the asker in every answer.
+- 2000-char overflow (LOW): truncate or split.`
+  },
+  {
+    id: 5, title: "Daily AI report (replaces digest)", pri: "P2", dep: "2", effort: "2-3d",
+    obj: "Báo cáo AI mỗi tối 21-22h VN đăng forum. Đọc 24h chat 6 kênh (live, không lưu), tóm tắt + changelog Mojang. Thay digest cũ.",
+    bullets: [
+      "Scheduler nightly 21-22h Asia/Saigon, đăng thẳng (không duyệt)",
+      "Đọc live 24h từ 6 kênh cấu hình, ≤200 msg/kênh, loại tin bot",
+      "AI tóm tắt: chat nổi bật + share/showcase + open requests (gộp digest)",
+      "Fetch javaPatchNotes.json (ổn định hơn scrape) — fail-soft",
+      "Idempotent 1 báo cáo/ngày; XÓA digestManager.ts"
+    ],
+    files: "src/systems/reportManager.ts (create), src/systems/digestManager.ts (delete)",
+    md: `## Overview
+A nightly (21-22h Saigon) AI-written community report posted to forum 1530077329102078042. Reads the last 24h of chat from a fixed set of source channels, has the AI summarize activity + notable shares/showcases, folds in the open-request service board (replacing the plain Phase-4 digest), and appends a summary of the official Minecraft changelog from minecraft.net.
+
+## Requirements
+- Functional:
+  1. Scheduled nightly run (21-22h Asia/Saigon), posts directly, auto (no mod approval).
+  2. Read live the last 24h of messages from configured source channels (no persistence — read, summarize, discard).
+  3. AI produces: what the community chatted about, notable shares/showcases, plus the open service requests (folds in the old digest).
+  4. Fetch the official Minecraft changelog and summarize the latest update.
+  5. Post as a forum thread/post in 1530077329102078042.
+  6. Idempotent: one report per day (unique-constraint row), safe on restart/multi-process.
+  7. Skip-when-empty: no activity + nothing open → skip.
+- Non-functional: rate-limit-aware (bounded batches, ≤200/channel); fetched chat is untrusted data in the prompt; fail-soft per sub-part.
+
+## Architecture
+- Replaces digestManager.ts: create src/systems/reportManager.ts, delete digestManager.ts and its ready.ts/maintenance.ts wiring (digest content lives in the report now). Keep the MaintenanceLog(kind, period) idempotency idiom.
+- Source channels: config.report.sourceChannels = ['1281598090058665996','943893730123980881','1401215533243957388','1401215370978922506','1490685483892867163','1530093732500869231']. Read via messages.fetch({limit:100}) in ≤2 pages, filter last 24h, strip bot messages.
+- Report assembly: gather chat excerpts per channel (capped) → query open requests + recent showcases → fetch MC changelog → ONE AI prompt (Vietnamese) → post as forum thread "Bản tin Stella — <date>".
+- Minecraft changelog: prefer JSON endpoint https://launchercontent.mojang.com/v2/javaPatchNotes.json (far more stable than HTML scraping). Fail-soft: omit section on error, still post.
+- Scheduler: hourly setInterval; fire when Saigon hour in 21-22h AND no MaintenanceLog(kind='report', period=<date>); claim the row BEFORE posting so multi-instance can't double-post.
+- Manual trigger: replace /maintenance digest with /maintenance report (force-run, still records period row).
+
+## Related Code Files
+- Create: \`src/systems/reportManager.ts\`.
+- Delete: \`src/systems/digestManager.ts\`.
+- Modify: \`src/events/ready.ts\` (startDigestScheduler → startReportScheduler), \`src/commands/maintenance.ts\` (digest → report subcommand), \`src/config.ts\` (report block, remove digest config).
+- Reference: digestManager.ts (idempotency + tz idiom), requestManager.ts/showcaseManager.ts (queries), aiClient (Phase 2).
+
+## Implementation Steps
+1. config.report block (forum channel, source channels, hour window). Remove digest config.
+2. reportManager.ts: gather chat (bounded) + open requests + showcases + MC changelog (JSON, fail-soft).
+3. One AI call to compose the Vietnamese report; cap max_tokens.
+4. Post to forum (thread if Forum, message if text); claim MaintenanceLog(kind='report', period=date) before posting.
+5. ready.ts: replace digest scheduler with report scheduler (hourly check, 21-22h window).
+6. maintenance.ts: digest subcommand → report (force run).
+7. Delete digestManager.ts; remove imports. npm run build.
+
+## Success Criteria
+- [ ] At 21-22h Saigon, one AI report posts to the forum with chat highlights + notable posts + open requests + MC update summary.
+- [ ] Reading covers only configured channels, last 24h, bot messages excluded.
+- [ ] Changelog fetch failure does NOT block the report.
+- [ ] Exactly one report per day; restart/second instance doesn't double-post.
+- [ ] No post on a dead day.
+- [ ] digestManager.ts removed; /maintenance report triggers a manual run; npm run build clean.
+
+## Risk Assessment
+- Token cost of a day of chat (HIGH): cap messages/channel (≤200), cap max_tokens, ONE AI call/day.
+- Privacy reading chat (MED): only admin-configured channels; summarized then discarded; footer states this; no DMs/private channels.
+- minecraft.net fragility (MED → mitigated): prefer javaPatchNotes.json; fail-soft.
+- Discord read rate limits (MED): bounded fetch (≤2 pages/channel), sequential; nightly cadence.
+- Prompt injection from chat/changelog (MED): untrusted delimited context; report only returns text.
+- Double-post on multi-instance (LOW): unique MaintenanceLog(kind='report', period) claim before posting.`
+  }
+];
+
+// Minimal, safe markdown renderer (escapes HTML first).
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function renderMd(src){
+  const lines = src.split("\n");
+  let html = "", i = 0, inUl = false, inOl = false, inPre = false, pre = "";
+  const closeLists = () => { if(inUl){html+="</ul>";inUl=false;} if(inOl){html+="</ol>";inOl=false;} };
+  function inline(t){
+    t = esc(t);
+    t = t.replace(/\`([^\`]+)\`/g, "<code>$1</code>");
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    return t;
+  }
+  for(; i<lines.length; i++){
+    let ln = lines[i];
+    if(ln.trim().startsWith("\`\`\`")){
+      if(inPre){ html += "<pre><code>"+esc(pre)+"</code></pre>"; pre=""; inPre=false; }
+      else { closeLists(); inPre=true; }
+      continue;
+    }
+    if(inPre){ pre += ln+"\n"; continue; }
+    if(/^### /.test(ln)){ closeLists(); html+="<h3>"+inline(ln.slice(4))+"</h3>"; continue; }
+    if(/^## /.test(ln)){ closeLists(); html+="<h2>"+inline(ln.slice(3))+"</h2>"; continue; }
+    if(/^# /.test(ln)){ closeLists(); html+="<h1>"+inline(ln.slice(2))+"</h1>"; continue; }
+    if(/^\s*[-*] \[[ x]\] /.test(ln)){
+      if(!inUl){closeLists();html+="<ul>";inUl=true;}
+      const checked = /\[x\]/.test(ln);
+      const txt = ln.replace(/^\s*[-*] \[[ x]\] /,"");
+      html+="<li>"+(checked?"☑ ":"☐ ")+inline(txt)+"</li>"; continue;
+    }
+    if(/^\s*[-*] /.test(ln)){
+      if(!inUl){closeLists();html+="<ul>";inUl=true;}
+      html+="<li>"+inline(ln.replace(/^\s*[-*] /,""))+"</li>"; continue;
+    }
+    if(/^\s*\d+\. /.test(ln)){
+      if(!inOl){closeLists();html+="<ol>";inOl=true;}
+      html+="<li>"+inline(ln.replace(/^\s*\d+\. /,""))+"</li>"; continue;
+    }
+    if(ln.trim()===""){ closeLists(); continue; }
+    closeLists(); html+="<p>"+inline(ln)+"</p>";
+  }
+  closeLists();
+  if(inPre) html += "<pre><code>"+esc(pre)+"</code></pre>";
+  return html;
+}
+
+const grid = document.getElementById("grid");
+PHASES.forEach(p => {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.tabIndex = 0;
+  card.setAttribute("role","button");
+  card.innerHTML =
+    '<div class="tag"><span>Phase '+p.id+'</span><span class="pri">'+p.pri+'</span></div>'+
+    '<h4>'+esc(p.title)+'</h4>'+
+    '<div class="obj">'+esc(p.obj)+'</div>'+
+    '<ul>'+p.bullets.map(b=>"<li>"+esc(b)+"</li>").join("")+'</ul>'+
+    '<div class="foot">Depends: '+esc(p.dep)+' · '+esc(p.effort)+'<br>Files: '+esc(p.files)+'</div>'+
+    '<div class="open">Xem chi tiết →</div>';
+  const open = () => showModal(p);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", e => { if(e.key==="Enter"||e.key===" "){ e.preventDefault(); open(); } });
+  grid.appendChild(card);
+});
+
+const modalbg = document.getElementById("modalbg");
+const modalbody = document.getElementById("modalbody");
+function showModal(p){
+  const fm = 'phase: '+p.id+'\ntitle: "'+p.title+'"\npriority: '+p.pri+'\ndependencies: ['+p.dep.replace(/—/,'')+']\neffort: "'+p.effort+'"';
+  modalbody.innerHTML = '<div class="fm">'+esc(fm)+'</div>' + renderMd("# Phase "+p.id+": "+p.title+"\n\n"+p.md);
+  modalbg.classList.add("on");
+  document.getElementById("closebtn").focus();
+}
+function closeModal(){ modalbg.classList.remove("on"); }
+document.getElementById("closebtn").addEventListener("click", closeModal);
+modalbg.addEventListener("click", e => { if(e.target===modalbg) closeModal(); });
+document.addEventListener("keydown", e => { if(e.key==="Escape") closeModal(); });
+</script>
+</body>
+</html>

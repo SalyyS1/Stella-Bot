@@ -11,6 +11,8 @@ import { levelScoinReward } from '../systems/scoinManager';
 import { handleMusicPrefix } from '../systems/musicManager';
 import { createCommunityRequest } from '../systems/requestManager';
 import { isSkillKey } from '../systems/skillRoleManager';
+import { isAiEnabled } from '../systems/aiClient';
+import { reserveQaSlot, gateMessage, answerQuestion } from '../systems/aiQaManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -25,6 +27,51 @@ const getSkill = (text: string): string | null => {
     const raw = getPart(text, 'Skill').toLowerCase();
     return isSkillKey(raw) ? raw : null;
 };
+
+// AI Q&A in the dedicated channel. Returns true if the message was handled as a
+// Q&A trigger (so the caller stops further processing).
+async function handleAiQa(message: Message): Promise<boolean> {
+    if (!isAiEnabled()) return false;
+
+    let question: string | null = null;
+
+    // Trigger (b): "!s <question>" — a fresh question, no reply needed.
+    if (message.content.startsWith('!s ')) {
+        question = message.content.slice(3).trim();
+    } else if (message.reference?.messageId) {
+        // Trigger (a): reply to one of the bot's OWN messages that pinged THIS user.
+        const ref = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+        if (!ref || ref.author.id !== message.client.user?.id) return false;
+        // Ownership: the bot message must have pinged this same user. Replying to a
+        // bot answer meant for someone else is ignored (separate conversation lanes).
+        if (!ref.mentions.users.has(message.author.id)) return false;
+        question = message.content.trim();
+    }
+
+    if (!question) return false;
+    if (question.length < 2) {
+        await message.reply(`${config.ui.emojis.error} Câu hỏi hơi ngắn, thử hỏi rõ hơn nhé.`).catch(() => {});
+        return true;
+    }
+
+    // Atomic reserve: claims the slot in the same sync call so a burst can't bypass the cap.
+    const gate = reserveQaSlot(message.author.id);
+    if (!gate.ok) {
+        await message.reply(gateMessage(gate.reason)).catch(() => {});
+        return true;
+    }
+
+    // sendTyping is best-effort (.catch) so it can't throw between reserve and
+    // answerQuestion — answerQuestion always runs and releases the slot in its finally.
+    await (message.channel as any).sendTyping?.().catch(() => {});
+    const answer = await answerQuestion(message.author.id, question);
+    // Ping the asker so their follow-up reply is attributable (ownership check).
+    await message.reply({
+        content: `<@${message.author.id}> ${answer}`,
+        allowedMentions: { users: [message.author.id] }
+    }).catch(() => {});
+    return true;
+}
 
 async function warnInvalidRequestForm(message: Message, missing: string[]) {
     const warning = await message.reply({
@@ -42,6 +89,13 @@ export default {
         if (message.author.bot) return;
 
         if (await handleMusicPrefix(message)) return;
+
+        // === AI Q&A (kênh chỉ định) ===
+        // Kích hoạt bằng: (a) reply vào tin bot đã ping CHÍNH bạn, hoặc (b) prefix "!s <câu hỏi>".
+        // Reply vào tin bot trả lời người khác sẽ bị bỏ qua (chia luồng theo người).
+        if (message.channelId === config.ai.qaChannel) {
+            if (await handleAiQa(message)) return;
+        }
 
         if (message.channel?.isThread() && message.channel.parentId === config.channels.betterShowcase) {
             const isAdmin = message.member?.permissions.has('Administrator') ?? false;

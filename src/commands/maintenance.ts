@@ -5,7 +5,7 @@ import { backfillVotesAndScores } from '../systems/voteBackfillManager';
 import { t } from '../i18n';
 import { antiRaidStatus } from '../systems/antiRaidManager';
 import { getManagedChannelIds } from '../utils/managedChannels';
-import { runDigest } from '../systems/digestManager';
+import { runReport } from '../systems/reportManager';
 import prisma from '../lib/prisma';
 
 export default {
@@ -41,8 +41,8 @@ export default {
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName('digest')
-                .setDescription('Đăng ngay bảng tin dịch vụ (bỏ qua lịch, để test)')
+                .setName('report')
+                .setDescription('Đăng ngay bản tin AI (bỏ qua lịch, để test)')
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -78,13 +78,15 @@ export default {
             });
         }
 
-        if (interaction.options.getSubcommand() === 'digest') {
-            const result = await runDigest(interaction.client, true);
+        if (interaction.options.getSubcommand() === 'report') {
+            const result = await runReport(interaction.client, true);
             const msg = result === 'posted'
-                ? 'Đã đăng bảng tin dịch vụ.'
+                ? 'Đã đăng bản tin AI.'
                 : result === 'empty'
-                    ? 'Không có gì để đăng (không có request mở / showcase mới) hoặc kênh digest không hợp lệ.'
-                    : 'Bảng tin cho kỳ này đã đăng rồi.';
+                    ? 'Không có gì để đăng (không có hoạt động / request mở) hoặc kênh báo cáo không hợp lệ.'
+                    : result === 'disabled'
+                        ? 'Tính năng AI đang tắt (thiếu AI_API_KEY).'
+                        : 'Bản tin cho hôm nay đã đăng rồi.';
             return interaction.editReply(`${config.ui.emojis.success} ${msg}`);
         }
 

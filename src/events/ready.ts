@@ -4,9 +4,10 @@ import { ensureRecentVoteReactions } from '../systems/voteBackfillManager';
 import { startGiveawayScheduler } from '../systems/giveawayManager';
 import { initLavalink } from '../systems/musicManager';
 import { ensureSkillRoles } from '../systems/skillRoleManager';
-import { startDigestScheduler } from '../systems/digestManager';
+import { startReportScheduler } from '../systems/reportManager';
 import { reconcilePendingCrossPosts } from '../systems/facebookCrossPostManager';
 import { ensureVerifiedRole } from '../systems/freelancerManager';
+import { seedWikis } from '../systems/wikiManager';
 
 export default {
     name: Events.ClientReady,
@@ -16,7 +17,7 @@ export default {
         initLavalink(client);
         startMaintenanceScheduler(client);
         startGiveawayScheduler(client);
-        startDigestScheduler(client);
+        startReportScheduler(client);
         // Single-guild bot: create/persist skill roles for request routing on the
         // primary guild. Lazy — safe to re-run; reuses existing roles by id/name.
         const guild = client.guilds.cache.first();
@@ -25,6 +26,8 @@ export default {
             await ensureVerifiedRole(guild).catch(error => console.error('Verified-role bootstrap failed:', error));
         }
         await ensureRecentVoteReactions(client).catch(error => console.error('Vote self-heal failed:', error));
+        // Seed the plugin-wiki catalog (create-if-absent; never overwrites admin edits).
+        await seedWikis().catch(error => console.error('Wiki seed failed:', error));
         // Recover any FB cross-post stuck mid-publish across a restart (flags for
         // manual review — never blind re-posts, to avoid duplicate Page posts).
         await reconcilePendingCrossPosts(client).catch(error => console.error('FB cross-post reconcile failed:', error));

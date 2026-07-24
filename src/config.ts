@@ -103,6 +103,51 @@ export const config = {
         // Token read at call time from env; NEVER hardcoded, NEVER logged.
         graphVersion: 'v21.0'
     },
+    ai: {
+        // OpenAI-compatible endpoint (agentgw). Key read at call time from env,
+        // sent via Authorization header, NEVER hardcoded/logged. Feature is
+        // fail-closed: disabled unless AI_API_KEY + baseUrl + model all present.
+        baseUrl: process.env.AI_BASE_URL || 'https://agentgw.cloud',
+        model: process.env.AI_MODEL || 'agentgw-opus-4-8',
+        maxTokens: 900,
+        temperature: 0.6,
+        timeoutMs: 30_000,
+        // Q&A assistant
+        qaChannel: '1530093732500869231',
+        qaCooldownMs: 20_000,   // light per-user cooldown to blunt spam
+        qaMaxConcurrent: 3,     // global cap so simultaneous askers don't overload
+        // Seed catalog of popular plugin wikis (create-if-absent on ready).
+        seedWikis: [
+            { name: 'mythicmobs', url: 'https://git.luminemc.net/MythicCraft/MythicMobs/-/wikis/home', aliases: 'mythic,mm' },
+            { name: 'mmoitems', url: 'https://gitlab.com/phoenix-dvpmt/mmoitems/-/wikis/home', aliases: 'mmo items' },
+            { name: 'mmocore', url: 'https://gitlab.com/phoenix-dvpmt/mmocore/-/wikis/home', aliases: 'mmo core' },
+            { name: 'modelengine', url: 'https://git.luminemc.net/Nightcore/ModelEngine-Wiki/-/wikis/home', aliases: 'model engine,meg' },
+            { name: 'deluxemenus', url: 'https://wiki.helpch.at/clips-plugins/deluxemenus', aliases: 'dm,menu' },
+            { name: 'placeholderapi', url: 'https://wiki.placeholderapi.com/', aliases: 'papi' },
+            { name: 'vault', url: 'https://github.com/MilkBowl/Vault/wiki', aliases: '' },
+            { name: 'luckperms', url: 'https://luckperms.net/wiki/Home', aliases: 'lp,perms' },
+            { name: 'citizens', url: 'https://wiki.citizensnpcs.co/', aliases: 'npc' },
+            { name: 'worldguard', url: 'https://worldguard.enginehub.org/en/latest/', aliases: 'wg' }
+        ] as { name: string; url: string; aliases: string }[]
+    },
+    report: {
+        // Nightly AI report (replaces the old plain digest). Posts to a forum channel.
+        forumChannel: '1530077329102078042',
+        // Channels read LIVE for the 24h summary (never persisted).
+        sourceChannels: [
+            '1281598090058665996',
+            '943893730123980881',
+            '1401215533243957388',
+            '1401215370978922506',
+            '1490685483892867163',
+            '1530093732500869231'
+        ],
+        hourStart: 21,           // 21:00 Asia/Saigon
+        hourEnd: 22,             // fire within the 21-22h window
+        maxMessagesPerChannel: 200,
+        // Official Mojang patch-notes JSON (stable; preferred over HTML scraping).
+        changelogUrl: 'https://launchercontent.mojang.com/v2/javaPatchNotes.json'
+    },
     showcase: {
         threshold: 5,
         controlGif: "https://i.pinimg.com/originals/ae/52/d9/ae52d968e7d8117170d2eeff6245ca5c.gif",

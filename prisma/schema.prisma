@@ -329,3 +329,12 @@ model FacebookCrossPost {
 
   @@index([status])
 }
+
+model WikiEntry {
+  name      String   @id // lowercased plugin key
+  url       String
+  aliases   String?  // optional CSV of alternate names
+  addedBy   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
