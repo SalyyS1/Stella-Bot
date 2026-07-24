@@ -12,7 +12,7 @@ import { handleMusicPrefix } from '../systems/musicManager';
 import { createCommunityRequest } from '../systems/requestManager';
 import { isSkillKey } from '../systems/skillRoleManager';
 import { isAiEnabled } from '../systems/aiClient';
-import { reserveQaSlot, gateMessage, answerQuestion } from '../systems/aiQaManager';
+import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -65,11 +65,19 @@ async function handleAiQa(message: Message): Promise<boolean> {
     // answerQuestion — answerQuestion always runs and releases the slot in its finally.
     await (message.channel as any).sendTyping?.().catch(() => {});
     const answer = await answerQuestion(message.author.id, question);
-    // Ping the asker so their follow-up reply is attributable (ownership check).
+    // Answers can be long (config/skill samples) → embed (4096/desc) + split.
+    // First message pings the asker so their follow-up reply is attributable.
+    const chunks = splitForDiscord(answer);
     await message.reply({
-        content: `<@${message.author.id}> ${answer}`,
+        content: `<@${message.author.id}>`,
+        embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(chunks[0])],
         allowedMentions: { users: [message.author.id] }
     }).catch(() => {});
+    for (const chunk of chunks.slice(1)) {
+        await (message.channel as any).send?.({
+            embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(chunk)]
+        }).catch(() => {});
+    }
     return true;
 }
 

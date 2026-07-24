@@ -144,30 +144,56 @@ async function composeReport(chat: string, board: string, changelog: string | nu
 
 // Post the report to the forum channel. Creates a thread for ForumChannel, else
 // sends a message. Returns true on a successful post.
+// Split a long body into ≤4096-char pieces (Discord embed description cap),
+// breaking on newlines where possible so nothing is truncated.
+function splitForEmbed(text: string): string[] {
+    const LIMIT = 4096;
+    const out: string[] = [];
+    let rest = text.trim();
+    while (rest.length > LIMIT) {
+        let cut = rest.lastIndexOf('\n', LIMIT);
+        if (cut < LIMIT * 0.5) cut = LIMIT;
+        out.push(rest.slice(0, cut));
+        rest = rest.slice(cut).replace(/^\n+/, '');
+    }
+    if (rest) out.push(rest);
+    return out.length ? out : [''];
+}
+
+// Post the report to the forum channel. Creates a thread for ForumChannel, else
+// sends a message. Uses embeds (4096/desc) and splits long bodies into follow-up
+// embeds so full AI reports (config/skill samples) are never truncated.
 async function postReport(client: Client, period: string, body: string): Promise<boolean> {
     const channel = await client.channels.fetch(config.report.forumChannel).catch(() => null);
     if (!channel) return false;
     const title = `Bản tin Stella — ${period}`;
-    // Discord forum post/message body cap.
-    const content = body.length > 1900 ? body.slice(0, 1895) + ' …' : body;
+    const chunks = splitForEmbed(body);
+    const footer = 'Stella • Bản tin tổng hợp bằng AI (chat được tóm tắt, không lưu trữ)';
+    const makeEmbed = (desc: string, first: boolean) => {
+        const e = new EmbedBuilder().setColor('#f1c40f').setDescription(desc).setTimestamp();
+        if (first) e.setTitle(title);
+        return e.setFooter({ text: footer });
+    };
 
     if (channel.type === ChannelType.GuildForum) {
         const forum = channel as ForumChannel;
         const thread = await forum.threads.create({
             name: title.slice(0, 100),
-            message: { content }
+            message: { embeds: [makeEmbed(chunks[0], true)] }
         }).catch(() => null);
-        return !!thread;
+        if (!thread) return false;
+        for (const chunk of chunks.slice(1)) {
+            await thread.send({ embeds: [makeEmbed(chunk, false)] }).catch(() => {});
+        }
+        return true;
     }
     if (channel.isTextBased() && 'send' in channel) {
-        const embed = new EmbedBuilder()
-            .setColor('#f1c40f')
-            .setTitle(title)
-            .setDescription(content)
-            .setFooter({ text: 'Stella • Bản tin tổng hợp bằng AI (chat được tóm tắt, không lưu trữ)' })
-            .setTimestamp();
-        const sent = await (channel as TextChannel).send({ embeds: [embed] }).catch(() => null);
-        return !!sent;
+        const sent = await (channel as TextChannel).send({ embeds: [makeEmbed(chunks[0], true)] }).catch(() => null);
+        if (!sent) return false;
+        for (const chunk of chunks.slice(1)) {
+            await (channel as TextChannel).send({ embeds: [makeEmbed(chunk, false)] }).catch(() => {});
+        }
+        return true;
     }
     return false;
 }

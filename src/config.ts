@@ -109,9 +109,12 @@ export const config = {
         // fail-closed: disabled unless AI_API_KEY + baseUrl + model all present.
         baseUrl: process.env.AI_BASE_URL || 'https://agentgw.cloud',
         model: process.env.AI_MODEL || 'agentgw-opus-4-8',
-        maxTokens: 900,
+        // Free API — allow long answers so the AI can output full config/skill
+        // samples. Long output means slower generation, so timeout is raised to
+        // match; the Q&A reply splits into multiple messages past Discord's 2000 limit.
+        maxTokens: 4000,
         temperature: 0.6,
-        timeoutMs: 30_000,
+        timeoutMs: 90_000,
         // Q&A assistant
         qaChannel: '1530093732500869231',
         qaCooldownMs: 20_000,   // light per-user cooldown to blunt spam

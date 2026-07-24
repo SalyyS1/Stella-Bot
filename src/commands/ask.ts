@@ -1,7 +1,7 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
 import { config } from '../config';
 import { isAiEnabled } from '../systems/aiClient';
-import { reserveQaSlot, gateMessage, answerQuestion } from '../systems/aiQaManager';
+import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
 
 // /ask <question> — AI Q&A usable in any channel. Pings the caller in the answer
 // so the reply-ownership check in the Q&A channel works on the next turn.
@@ -26,10 +26,18 @@ export default {
             return interaction.editReply({ content: gateMessage(gate.reason) }).catch(() => {});
         }
         const answer = await answerQuestion(interaction.user.id, question);
-        // Ping the caller so a follow-up reply is attributable to them.
+        // Answers can be long (config/skill samples) → embed (4096/desc) + split.
+        // First chunk pings the caller so a follow-up reply is attributable to them.
+        const chunks = splitForDiscord(answer);
         await interaction.editReply({
-            content: `<@${interaction.user.id}> ${answer}`,
+            content: `<@${interaction.user.id}>`,
+            embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(chunks[0])],
             allowedMentions: { users: [interaction.user.id] }
         }).catch(() => {});
+        for (const chunk of chunks.slice(1)) {
+            await interaction.followUp({
+                embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(chunk)]
+            }).catch(() => {});
+        }
     }
 };

@@ -41,6 +41,33 @@ export function reserveQaSlot(userId: string): QaGateResult {
     return { ok: true };
 }
 
+// Split a long answer into ≤2000-char chunks for Discord. Prefers to break on
+// blank lines / newlines so code blocks and paragraphs aren't cut mid-line. Falls
+// back to a hard slice only for a single oversized line. Re-balances unclosed ```
+// fences per chunk so a split inside a code block still renders on both sides.
+const DISCORD_LIMIT = 4000; // embed description limit is 4096; leave headroom
+export function splitForDiscord(text: string): string[] {
+    const out: string[] = [];
+    let rest = text.trim();
+    while (rest.length > DISCORD_LIMIT) {
+        let cut = rest.lastIndexOf('\n', DISCORD_LIMIT);
+        if (cut < DISCORD_LIMIT * 0.5) cut = DISCORD_LIMIT; // no good newline → hard cut
+        out.push(rest.slice(0, cut));
+        rest = rest.slice(cut).replace(/^\n+/, '');
+    }
+    if (rest) out.push(rest);
+    // Balance code fences: if a chunk has an odd number of ```, close it and reopen
+    // in the next chunk so Discord renders each piece correctly.
+    for (let i = 0; i < out.length; i++) {
+        const fences = (out[i].match(/```/g) || []).length;
+        if (fences % 2 === 1) {
+            out[i] = out[i] + '\n```';
+            if (out[i + 1] !== undefined) out[i + 1] = '```\n' + out[i + 1];
+        }
+    }
+    return out.length ? out : [''];
+}
+
 export function gateMessage(reason: QaGateResult['reason']): string {
     switch (reason) {
         case 'cooldown': return `${config.ui.emojis.error} Hỏi hơi nhanh — chờ vài giây rồi thử lại nhé.`;
@@ -133,8 +160,9 @@ export async function answerQuestion(userId: string, question: string): Promise<
 
         const answer = await askAI(messages);
         if (!answer) return `${config.ui.emojis.error} Stella chưa trả lời được lúc này, thử lại sau nhé.`;
-        // Discord hard limit is 2000 chars.
-        return answer.length > 1990 ? answer.slice(0, 1985) + ' …' : answer;
+        // Return the FULL answer (config/skill samples can be long). Callers split
+        // it into ≤2000-char Discord messages via splitForDiscord — do NOT truncate here.
+        return answer;
     } finally {
         inFlight.delete(userId);
         activeCount = Math.max(0, activeCount - 1);
