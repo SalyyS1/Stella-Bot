@@ -17,7 +17,7 @@ Local Docker:
 MUSIC_PREFIX=s!
 LAVALINK_HOST=127.0.0.1
 LAVALINK_PORT=2333
-LAVALINK_PASSWORD=stella_lavalink_password
+LAVALINK_PASSWORD=doi_password_dai_ngau_nhien
 LAVALINK_SECURE=false
 ```
 
@@ -28,7 +28,7 @@ MUSIC_PREFIX=s!
 LAVALINK_NODES=[{"id":"Remote Main","host":"your-lavalink-host.com","port":443,"authorization":"your-password","secure":true}]
 ```
 
-`LAVALINK_NODES` cho phép nhiều node. Nếu có biến này, bot sẽ bỏ qua `LAVALINK_HOST/LAVALINK_PORT`.
+`LAVALINK_NODES` cho phép nhiều node. Nếu có biến này, bot sẽ bỏ qua `LAVALINK_HOST/LAVALINK_PORT`. Password là bắt buộc và phải trùng `LAVALINK_SERVER_PASSWORD` của node; không dùng giá trị mẫu hay để trống.
 
 Nếu muốn Spotify playlist/album/track ổn hơn, tạo app tại Spotify Developer Dashboard rồi thêm:
 
@@ -94,6 +94,8 @@ Slash command:
 
 Playlist cá nhân giới hạn 20 bài/người.
 
+Khi Stella đã phát nhạc, người dùng phải ở **cùng voice channel với Stella** mới điều khiển được player, gồm các thao tác như queue, skip và stop. Nếu Stella đang ở channel khác, hãy vào đúng channel đó trước.
+
 ## Lưu Ý Cho Hosting
 
 - Không upload `.env` lên GitHub. Tạo `.env` trực tiếp trong file manager/SFTP hoặc biến môi trường của panel.
@@ -105,6 +107,7 @@ Playlist cá nhân giới hạn 20 bài/người.
 ## Lỗi Thường Gặp
 
 - Bot không vào voice: kiểm tra bot có quyền `Connect`, `Speak`, `Use Voice Activity`.
+- Không điều khiển được nhạc: kiểm tra bạn có đang ở cùng voice channel với Stella không.
 - Không search được YouTube: xem log `stella-lavalink`, plugin YouTube có tải thành công không.
 - Spotify không chạy: cần `SPOTIFY_CLIENT_ID` và `SPOTIFY_CLIENT_SECRET`, rồi chạy lại container Lavalink.
 - Port 2333 bị chiếm: đổi port trong `docker-compose.lavalink.yml` và `.env`.

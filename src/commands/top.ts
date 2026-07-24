@@ -2,16 +2,56 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from '
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { xpToNextLevel } from '../systems/xpManager';
+import { getFreelancerLeaderboard } from '../systems/freelancerManager';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('top')
-        .setDescription('Xem bảng xếp hạng hoạt động Top 10 server'),
+        .setDescription('Xem bảng xếp hạng server')
+        .addStringOption(option =>
+            option
+                .setName('type')
+                .setDescription('Loại bảng xếp hạng')
+                .setRequired(false)
+                .addChoices(
+                    { name: 'Hoạt động (Level + XP)', value: 'activity' },
+                    { name: 'Freelancer (rating + jobs)', value: 'freelancers' }
+                )
+        ),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
 
         const emojis = config.ui.emojis;
+
+        if (interaction.options.getString('type') === 'freelancers') {
+            try {
+                const ranks = await getFreelancerLeaderboard(10);
+                if (!ranks.length) {
+                    return interaction.editReply(`${emojis.emptyStar} Chưa có freelancer nào đủ số lượt đánh giá để lên bảng (cần tối thiểu 3 review).`);
+                }
+                const medals = ['🥇', '🥈', '🥉'];
+                let board = '';
+                for (let i = 0; i < ranks.length; i++) {
+                    const r = ranks[i];
+                    let username = 'Unknown';
+                    try { username = (await interaction.client.users.fetch(r.userId)).username; } catch { }
+                    const medal = medals[i] || `\`#${i + 1}\``;
+                    board += `${medal} **${username}** · ${emojis.star} ${r.avgRating.toFixed(2)}/5 · ${r.jobCount} job\n`;
+                }
+                const embed = new EmbedBuilder()
+                    .setColor('#57f287')
+                    .setAuthor({ name: 'Stella Studio', iconURL: interaction.client.user?.displayAvatarURL() })
+                    .setTitle('🏆 Bảng Xếp Hạng Freelancer')
+                    .setDescription(board)
+                    .setFooter({ text: 'Xếp theo điểm đánh giá trung bình · tối thiểu 3 review' })
+                    .setTimestamp();
+                return interaction.editReply({ embeds: [embed] });
+            } catch (error) {
+                console.error(error);
+                return interaction.editReply(`${emojis.error} Lỗi khi lấy bảng xếp hạng freelancer.`);
+            }
+        }
 
         try {
             const topUsers = await prisma.user.findMany({
@@ -22,15 +62,19 @@ export default {
                 take: 10
             });
 
-            // Tìm vị trí của người gọi lệnh
-            const allUsers = await prisma.user.findMany({
-                orderBy: [
-                    { level: 'desc' },
-                    { xp: 'desc' }
-                ]
+            const myData = await prisma.user.findUnique({
+                where: { id: interaction.user.id }
             });
-            const myRank = allUsers.findIndex(u => u.id === interaction.user.id) + 1;
-            const myData = allUsers.find(u => u.id === interaction.user.id);
+            const myRank = myData
+                ? await prisma.user.count({
+                    where: {
+                        OR: [
+                            { level: { gt: myData.level } },
+                            { level: myData.level, xp: { gt: myData.xp } }
+                        ]
+                    }
+                }) + 1
+                : 0;
 
             const medals = ['🥇', '🥈', '🥉'];
             let leaderboard = '';

@@ -11,6 +11,8 @@
     "dev": "nodemon src/index.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && npx prisma generate && tsc",
+    "test": "node scripts/self-check.js",
+    "test:money": "node --require ./tests/helpers/setup-test-env.cjs --require ts-node/register --test tests/money-flow-concurrency.test.ts",
     "db:migrate": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",
@@ -22,10 +24,9 @@
     "@napi-rs/canvas": "^0.1.99",
     "@prisma/client": "^5.0.0",
     "better-sqlite3": "^12.9.0",
-    "discord.js": "^14.26.2",
+    "discord.js": "^14.27.0",
     "dotenv": "^16.6.1",
-    "lavalink-client": "^2.10.1",
-    "minecraft-server-util": "^5.4.4"
+    "lavalink-client": "^2.10.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",

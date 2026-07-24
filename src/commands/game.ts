@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
-import { adjustScoin, getScoinBalance } from '../systems/scoinManager';
+import { settleScoinWager } from '../systems/scoinManager';
 import { config } from '../config';
+import { randomInt } from 'crypto';
 
 const cooldowns = new Map<string, number>();
 const COOLDOWN_MS = 15_000;
@@ -15,23 +16,21 @@ function checkBet(bet: number) {
     if (bet < MIN_BET || bet > MAX_BET) throw new Error(`Cược từ ${MIN_BET} đến ${MAX_BET} Scoin.`);
 }
 
-async function ensureCanPlay(userId: string, bet: number) {
+function ensureCanPlay(userId: string, bet: number) {
     checkBet(bet);
     const now = Date.now();
     const until = cooldowns.get(userId) || 0;
     if (until > now) throw new Error(`Chờ thêm ${Math.ceil((until - now) / 1000)}s rồi chơi tiếp nhé.`);
-    const balance = await getScoinBalance(userId);
-    if (balance < bet) throw new Error('Không đủ Scoin để đặt cược.');
     cooldowns.set(userId, now + COOLDOWN_MS);
 }
 
 export default {
     data: new SlashCommandBuilder()
         .setName('game')
-        .setDescription('Minigame Scoin nhanh')
+        .setDescription('Minigame Scoin nhanh — coinflip x2, dice đúng số lời x5')
         .addSubcommand(sub =>
             sub.setName('coinflip')
-                .setDescription('Lật xu đoán mặt')
+                .setDescription('Lật xu đoán mặt; thắng lời bằng tiền cược')
                 .addIntegerOption(option => option.setName('bet').setDescription('Số Scoin cược').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
                 .addStringOption(option =>
                     option.setName('choice')
@@ -40,7 +39,7 @@ export default {
                         .addChoices({ name: 'Heads', value: 'heads' }, { name: 'Tails', value: 'tails' })))
         .addSubcommand(sub =>
             sub.setName('dice')
-                .setDescription('Đoán xúc xắc 1-6')
+                .setDescription('Đoán xúc xắc 1-6; đúng số lời 5 lần tiền cược')
                 .addIntegerOption(option => option.setName('bet').setDescription('Số Scoin cược').setRequired(true).setMinValue(MIN_BET).setMaxValue(MAX_BET))
                 .addIntegerOption(option => option.setName('guess').setDescription('Số bạn đoán').setRequired(false).setMinValue(1).setMaxValue(6))),
 
@@ -52,10 +51,21 @@ export default {
         const coin = config.ui.emojis.budget;
 
         try {
-            await ensureCanPlay(interaction.user.id, bet);
+            ensureCanPlay(interaction.user.id, bet);
 
             if (sub === 'coinflip') {
-                const choice = interaction.options.getString('choice') || (Math.random() > 0.5 ? 'heads' : 'tails');
+                const choice = interaction.options.getString('choice') || (randomInt(2) === 0 ? 'heads' : 'tails');
+                const result = randomInt(2) === 0 ? 'heads' : 'tails';
+                const won = result === choice;
+                const user = await settleScoinWager(
+                    interaction.user.id,
+                    bet,
+                    won ? bet * 2 : 0,
+                    won ? 'Coinflip win' : 'Coinflip lose',
+                    'game:coinflip',
+                    `bet:${bet};result:${result}`
+                );
+
                 const frames = ['Đồng xu đang bay...', 'Đồng xu xoay vòng...', 'Đồng xu sắp chạm đất...'];
                 for (const frame of frames) {
                     await interaction.editReply({
@@ -63,11 +73,6 @@ export default {
                     });
                     await wait(650);
                 }
-
-                const result = Math.random() > 0.5 ? 'heads' : 'tails';
-                const won = result === choice;
-                const delta = won ? bet : -bet;
-                const user = await adjustScoin(interaction.user.id, delta, won ? 'Coinflip win' : 'Coinflip lose', 'game:coinflip', `bet:${bet};result:${result}`);
 
                 return interaction.editReply({
                     embeds: [new EmbedBuilder()
@@ -77,19 +82,25 @@ export default {
                 });
             }
 
-            const guess = interaction.options.getInteger('guess') || Math.floor(Math.random() * 6) + 1;
+            const guess = interaction.options.getInteger('guess') || randomInt(1, 7);
+            const result = randomInt(1, 7);
+            const won = result === guess;
+            const prize = bet * 5;
+            const user = await settleScoinWager(
+                interaction.user.id,
+                bet,
+                won ? bet + prize : 0,
+                won ? 'Dice win' : 'Dice lose',
+                'game:dice',
+                `bet:${bet};guess:${guess};result:${result}`
+            );
+
             for (const frame of ['Đang lắc xúc xắc...', 'Xúc xắc nảy lên...', 'Xúc xắc dừng lại...']) {
                 await interaction.editReply({
                     embeds: [new EmbedBuilder().setColor('#9b59b6').setTitle('Dice').setDescription(`${coin} **${frame}**\nBạn đoán: **${guess}**`)]
                 });
                 await wait(650);
             }
-
-            const result = Math.floor(Math.random() * 6) + 1;
-            const won = result === guess;
-            const prize = bet * 5;
-            const delta = won ? prize : -bet;
-            const user = await adjustScoin(interaction.user.id, delta, won ? 'Dice win' : 'Dice lose', 'game:dice', `bet:${bet};guess:${guess};result:${result}`);
 
             return interaction.editReply({
                 embeds: [new EmbedBuilder()
@@ -98,8 +109,7 @@ export default {
                     .setDescription(`Kết quả: **${result}**\n${won ? '+' : '-'}**${won ? prize : bet}** Scoin\nSố dư: **${user.scoinBalance.toLocaleString('vi-VN')}**`)]
             });
         } catch (error: any) {
-            cooldowns.delete(interaction.user.id);
-            return interaction.editReply(error?.message || 'Đã có lỗi khi chơi game.');
+            return interaction.editReply(error?.message === 'Not enough Scoin.' ? 'Không đủ Scoin để đặt cược.' : error?.message || 'Đã có lỗi khi chơi game.');
         }
     }
 };

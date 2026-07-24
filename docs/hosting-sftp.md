@@ -62,6 +62,8 @@ MUSIC_PREFIX=s!
 LAVALINK_NODES=[{"id":"Remote Main","host":"lavalink.example.com","port":443,"authorization":"password","secure":true}]
 ```
 
+Lavalink remote phải có địa chỉ và port mà deployment bot truy cập được. Không dùng `127.0.0.1`, `localhost` hoặc IP mạng nội bộ của máy Lavalink khi bot chạy trên deployment khác. Giá trị `authorization` phải trùng `LAVALINK_SERVER_PASSWORD` của deployment Lavalink.
+
 Sau khi start bot, kiểm tra:
 
 ```text
@@ -74,6 +76,9 @@ Nếu health có node nhưng không phát được, kiểm tra:
 - Password đúng không.
 - Hosting có chặn outbound connection tới host/port đó không.
 - Bot có quyền `Connect`, `Speak`, `Use Voice Activity` trong voice channel không.
+- Người ra lệnh có ở cùng voice channel với Stella không.
+
+Xem cấu hình deployment Java, password bắt buộc và giới hạn nguồn HTTP tại [Lavalink Trên Bot-Hosting.net](./lavalink-bot-hosting.md).
 
 ## Cảnh Báo Secret
 

@@ -100,7 +100,13 @@ async function recreateChannel(channel: MaintenanceChannel, target: MaintenanceT
     await clone.setPosition(oldPosition).catch(() => {});
     markInternalAntiRaidAction('channelUpdate', clone.id);
     markInternalAntiRaidAction('channelDelete', channel.id);
-    await channel.delete('Stella monthly channel refresh').catch(() => {});
+    try {
+        await channel.delete('Stella monthly channel refresh');
+    } catch (error) {
+        markInternalAntiRaidAction('channelDelete', clone.id);
+        await clone.delete('Rollback failed Stella monthly channel refresh').catch(() => {});
+        throw error;
+    }
     await setManagedChannelId(target, clone.id);
     return clone as MaintenanceChannel;
 }
@@ -114,26 +120,27 @@ async function bulkClearChannel(channel: MaintenanceChannel): Promise<number> {
     }
 
     let deleted = 0;
-    for (let page = 0; page < 10; page++) {
-        const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-        if (!messages || messages.size === 0) break;
+    while (true) {
+        const messages = await channel.messages.fetch({ limit: 100 });
+        if (messages.size === 0) return deleted;
 
+        let pageDeleted = 0;
         const fresh = messages.filter(message => Date.now() - message.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
         if (fresh.size > 0) {
             const result = await channel.bulkDelete(fresh, true).catch(() => null);
-            deleted += result?.size || 0;
+            pageDeleted += result?.size || 0;
         }
 
         const old = messages.filter(message => Date.now() - message.createdTimestamp >= 14 * 24 * 60 * 60 * 1000);
         for (const message of old.values()) {
-            const removed = await message.delete().then(() => true).catch(() => false);
-            if (removed) deleted++;
+            if (await message.delete().then(() => true).catch(() => false)) pageDeleted++;
         }
 
-        if (messages.size < 100) break;
+        deleted += pageDeleted;
+        if (pageDeleted === 0) {
+            throw new Error(`Could not delete the remaining ${messages.size} messages in #${channel.name}; ${deleted} deleted.`);
+        }
     }
-
-    return deleted;
 }
 
 function buildRequestGuideEmbed(target: MaintenanceTarget): EmbedBuilder {

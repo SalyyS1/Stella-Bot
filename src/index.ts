@@ -54,4 +54,7 @@ async function init() {
     await client.login(process.env.BOT_TOKEN);
 }
 
-init();
+init().catch(error => {
+    console.error('Bot startup failed:', error);
+    process.exitCode = 1;
+});

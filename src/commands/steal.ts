@@ -40,9 +40,10 @@ export default {
 
         let successCount = 0;
         let failedCount = 0;
-        let resultMsg = '🎯 **KẾT QUẢ CHÔM CHỈA:**\n```typescript\n';
+        const resultLines = ['// KẾT QUẢ CHÔM CHỈA'];
 
-        for (const target of emojisToProcess) {
+        for (let index = 0; index < emojisToProcess.length; index++) {
+            const target = emojisToProcess[index];
             if (target.name.length < 2) target.name = 'emoji_' + target.name;
 
             const extension = target.isAnimated ? 'gif' : 'png';
@@ -55,19 +56,26 @@ export default {
                 });
                 successCount++;
                 const format = target.isAnimated ? `<a:${addedEmoji.name}:${addedEmoji.id}>` : `<:${addedEmoji.name}:${addedEmoji.id}>`;
-                resultMsg += `${target.name}: "${format}",\n`;
+                resultLines.push(`${target.name}: "${format}",`);
             } catch (error: any) {
                 failedCount++;
                 if (error.code === 30008) {
-                    resultMsg += `// ❌ ${target.name}: Bị tạch (Đầy slot Emoji!)\n`;
+                    resultLines.push(`// ❌ ${target.name}: Bị tạch (Đầy slot Emoji!)`);
+                    for (const skipped of emojisToProcess.slice(index + 1)) {
+                        resultLines.push(`// ⏭️ ${skipped.name}: Bỏ qua vì server đã đầy slot Emoji.`);
+                    }
                     break;
                 }
-                resultMsg += `// ❌ ${target.name}: Bị tạch (Lỗi file/Quyền)\n`;
+                resultLines.push(`// ❌ ${target.name}: Bị tạch (Lỗi file/Quyền)`);
             }
         }
 
         await interaction.editReply({
-            content: `Đã xử lý xong! Thành công: **${successCount}** | Thất bại: **${failedCount}**\n\n${resultMsg}\n\`\`\`\n📌 _Copy đoạn code trên dán đè vào \`config.ts\` phần \`emojis\` là xài bốc đầu!_`
+            content: `Đã xử lý xong! Thành công: **${successCount}** | Thất bại: **${failedCount}**\n📎 Chi tiết đầy đủ nằm trong file đính kèm để không bị giới hạn 2.000 ký tự.`,
+            files: [{
+                attachment: Buffer.from(resultLines.join('\n'), 'utf8'),
+                name: 'stella-emoji-results.txt'
+            }]
         });
     }
 };

@@ -1,6 +1,5 @@
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, TextChannel, User } from 'discord.js';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
-import { status as directMinecraftStatus } from 'minecraft-server-util';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 
@@ -19,7 +18,12 @@ export function getPart(text: string, key: string): string {
 
 export function isValidServerAdInput(input: ServerAdInput): boolean {
     if (!input.name.trim() || !input.link.trim()) return false;
-    return /^https?:\/\/\S+/i.test(input.link) || /(discord\.gg|discord\.com\/invite)\//i.test(input.link);
+    try {
+        const link = new URL(normalizeLink(input.link));
+        return (link.protocol === 'http:' || link.protocol === 'https:') && Boolean(link.hostname);
+    } catch {
+        return false;
+    }
 }
 
 function normalizeLink(link: string): string {
@@ -71,22 +75,11 @@ function cleanMinecraftText(text?: string): string {
 
 async function fetchMinecraftStatus(address: { host: string; port: number }): Promise<McStatusApiResponse> {
     const target = address.port === 25565 ? address.host : `${address.host}:${address.port}`;
-    try {
-        const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`);
-        if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
-        return await response.json() as McStatusApiResponse;
-    } catch {
-        const direct = await directMinecraftStatus(address.host, address.port, { timeout: 8000 });
-        return {
-            online: true,
-            host: address.host,
-            port: address.port,
-            version: { name_clean: direct.version.name },
-            players: { online: direct.players.online, max: direct.players.max },
-            motd: { clean: direct.motd.clean },
-            icon: direct.favicon
-        };
-    }
+    const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`, {
+        signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
+    return await response.json() as McStatusApiResponse;
 }
 
 async function renderMinecraftStatusCard(input: ServerAdInput, result: McStatusApiResponse): Promise<AttachmentBuilder> {

@@ -7,9 +7,10 @@ import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
 import { guardEveryoneMention } from '../systems/antiRaidManager';
-import { adjustScoin, levelScoinReward } from '../systems/scoinManager';
+import { levelScoinReward } from '../systems/scoinManager';
 import { handleMusicPrefix } from '../systems/musicManager';
 import { createCommunityRequest } from '../systems/requestManager';
+import { isSkillKey } from '../systems/skillRoleManager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -18,11 +19,25 @@ const getPart = (text: string, kw: string) => {
     return match ? match[1].trim() : '';
 };
 
+// Optional [Skill] tag in the text form → normalized skill key for match-ping.
+// Free text, so lowercase and accept only a known key; anything else → null.
+const getSkill = (text: string): string | null => {
+    const raw = getPart(text, 'Skill').toLowerCase();
+    return isSkillKey(raw) ? raw : null;
+};
+
+async function warnInvalidRequestForm(message: Message, missing: string[]) {
+    const warning = await message.reply({
+        content: `${config.ui.emojis.error} Vui lòng điền nội dung cho: ${missing.map(name => `\`${name}\``).join(', ')}. Tin nhắn của bạn chưa bị xóa để có thể sửa lại.`
+    }).catch(() => null);
+    if (warning) setTimeout(() => warning.delete().catch(() => {}), 10_000);
+}
+
 export default {
     name: Events.MessageCreate,
     once: false,
     async execute(message: Message) {
-        await guardEveryoneMention(message);
+        if (await guardEveryoneMention(message)) return;
         // Bỏ qua tin nhắn của bot
         if (message.author.bot) return;
 
@@ -62,7 +77,6 @@ export default {
             processMessageXp(message.author.id, message.content, message.guild, message.member).then(async result => {
                 if (result?.leveledUp) {
                     const scoinReward = levelScoinReward(result.newLevel);
-                    await adjustScoin(message.author.id, scoinReward, `Level ${result.newLevel} reward`, 'level').catch(() => null);
                     const emojis = config.ui.emojis;
                     const logChannel = message.client.channels.cache.get(config.channels.levelUp) as any;
                     if (logChannel) {
@@ -152,65 +166,77 @@ export default {
         if (message.channelId === managedChannels.serverAds) {
             const parsed = parseServerAd(content);
             if (!parsed) {
-                await message.delete().catch(() => {});
                 const embed = new EmbedBuilder()
                     .setColor('Red')
-                    .setDescription('❌ Bài quảng cáo cần có `[NAME]` và `[Link]`. `[Description]`, `[IP]` là optional.');
-                const warningMsg = await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed] });
-                setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
+                    .setDescription('❌ Bài quảng cáo cần có `[NAME]` và `[Link]`. `[Description]`, `[IP]` là optional. Tin nhắn được giữ lại để bạn sửa.');
+                const warningMsg = await message.reply({ embeds: [embed] }).catch(() => null);
+                if (warningMsg) setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
             } else {
-                await message.delete().catch(() => {});
-                await publishServerAd(message.channel as any, message.author, parsed);
+                try {
+                    await publishServerAd(message.channel as any, message.author, parsed);
+                    await message.delete().catch(() => {});
+                } catch (error) {
+                    console.error('Failed to publish server ad:', error);
+                    await message.reply(`${config.ui.emojis.error} Không thể đăng quảng cáo lúc này. Nội dung của bạn vẫn được giữ nguyên.`).catch(() => {});
+                }
             }
         }
         else if (message.channelId === managedChannels.requestPaid) {
-            const requiredKeywords = ['[Service]', '[Request]', '[Budget]'];
-            const isValid = requiredKeywords.every(kw => content.includes(kw));
-
-            if (!isValid) {
-                await message.delete().catch(() => {});
+            const service = getPart(content, 'Service');
+            const requestDesc = getPart(content, 'Request');
+            const budget = getPart(content, 'Budget');
+            const other = getPart(content, 'Other');
+            const missing = [
+                !service ? 'Service' : null,
+                !requestDesc ? 'Request' : null,
+                !budget ? 'Budget' : null
+            ].filter(Boolean) as string[];
+            if (missing.length) {
+                await warnInvalidRequestForm(message, missing);
             } else {
-                // Transform to Embed
-                await message.delete().catch(() => {});
-                const service = getPart(content, 'Service');
-                const requestDesc = getPart(content, 'Request');
-                const budget = getPart(content, 'Budget');
-                const other = getPart(content, 'Other');
-
-                await createCommunityRequest({
-                    client: message.client,
-                    channel: message.channel as any,
-                    requester: message.author,
-                    kind: 'PAID',
-                    service,
-                    description: requestDesc,
-                    budget,
-                    other
-                });
+                try {
+                    await createCommunityRequest({
+                        client: message.client,
+                        channel: message.channel as any,
+                        requester: message.author,
+                        kind: 'PAID',
+                        service,
+                        description: requestDesc,
+                        budget,
+                        other,
+                        skill: getSkill(content)
+                    });
+                    await message.delete().catch(() => {});
+                } catch (error) {
+                    console.error('Failed to create paid request:', error);
+                    await message.reply(`${config.ui.emojis.error} Không thể tạo request lúc này. Nội dung của bạn vẫn được giữ nguyên, vui lòng thử lại.`).catch(() => {});
+                }
             }
         } 
         else if (message.channelId === managedChannels.requestFree) {
-            const requiredKeywords = ['[Service]', '[Request]'];
-            const isValid = requiredKeywords.every(kw => content.includes(kw));
-
-            if (!isValid) {
-                await message.delete().catch(() => {});
+            const service = getPart(content, 'Service');
+            const requestDesc = getPart(content, 'Request');
+            const other = getPart(content, 'Other');
+            const missing = [!service ? 'Service' : null, !requestDesc ? 'Request' : null].filter(Boolean) as string[];
+            if (missing.length) {
+                await warnInvalidRequestForm(message, missing);
             } else {
-                // Transform to Embed
-                await message.delete().catch(() => {});
-                const service = getPart(content, 'Service');
-                const requestDesc = getPart(content, 'Request');
-                const other = getPart(content, 'Other');
-
-                await createCommunityRequest({
-                    client: message.client,
-                    channel: message.channel as any,
-                    requester: message.author,
-                    kind: 'FREE',
-                    service,
-                    description: requestDesc,
-                    other
-                });
+                try {
+                    await createCommunityRequest({
+                        client: message.client,
+                        channel: message.channel as any,
+                        requester: message.author,
+                        kind: 'FREE',
+                        service,
+                        description: requestDesc,
+                        other,
+                        skill: getSkill(content)
+                    });
+                    await message.delete().catch(() => {});
+                } catch (error) {
+                    console.error('Failed to create free request:', error);
+                    await message.reply(`${config.ui.emojis.error} Không thể tạo request lúc này. Nội dung của bạn vẫn được giữ nguyên, vui lòng thử lại.`).catch(() => {});
+                }
             }
         }
         else if ([

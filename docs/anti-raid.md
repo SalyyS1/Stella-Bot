@@ -22,6 +22,10 @@ Discord bots cannot prevent an action before Discord accepts it. Stella detects 
 - Stella bot self-pings: disabled globally with `allowedMentions` so Stella cannot ping `@everyone/@here`.
 - Stella self-actions are only trusted when source code marks a short internal operation, such as maintenance channel recreation or auto level-role creation. Any other audit-log action by Stella is treated as suspicious token use.
 
+## Kiểm tra vận hành
+
+Admin dùng `/maintenance status` để xem anti-raid đang bật hay tắt, số nhóm strike đang hoạt động, internal action đang chờ, số giveaway/request active và các managed channel hiện tại.
+
 ## Important remaining risks
 
 - If an attacker has a role above Stella, Stella can log but cannot ban/kick/timeout them.

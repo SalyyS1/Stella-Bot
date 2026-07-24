@@ -14,6 +14,8 @@ import {
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
+import { adjustScoin } from './scoinManager';
+import { queueCrossPostCandidate } from './facebookCrossPostManager';
 
 export function isAllowedShowcaseMessage(message: Message): boolean {
     const hasAttachment = message.attachments.some(att =>
@@ -42,6 +44,11 @@ function buildShowcaseControlEmbed(user: User, post: { title: string; tagName: s
         .addFields({ name: 'Bài gốc', value: `[Mở bài showcase](${messageLink(guildId, post.channelId, post.messageId)})` })
         .setFooter({ text: 'Stella Studio - Showcase nổi bật' })
         .setTimestamp();
+}
+
+async function sourceGuildId(client: Client, channelId: string): Promise<string | null> {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    return channel && 'guildId' in channel ? String(channel.guildId) : null;
 }
 
 function buildShowcaseControls(messageId: string, disabled = false) {
@@ -129,10 +136,13 @@ export async function updateShowcaseTitle(client: Client, messageId: string, use
     });
 
     if (updated.dmMessageId) {
-        const dm = await user.createDM().catch(() => null);
+        const [dm, guildId] = await Promise.all([
+            user.createDM().catch(() => null),
+            sourceGuildId(client, updated.channelId)
+        ]);
         const dmMessage = await dm?.messages.fetch(updated.dmMessageId).catch(() => null);
         await dmMessage?.edit({
-            embeds: [buildShowcaseControlEmbed(user, updated)],
+            embeds: [buildShowcaseControlEmbed(user, updated, guildId)],
             components: buildShowcaseControls(messageId)
         }).catch(() => {});
     }
@@ -180,17 +190,39 @@ export async function renderShowcaseControl(client: Client, messageId: string, u
     const post = await prisma.showcasePost.findUnique({ where: { messageId } });
     if (!post) return null;
     const disabled = post.status !== 'VOTING';
+    const guildId = await sourceGuildId(client, post.channelId);
     return {
-        embeds: [buildShowcaseControlEmbed(user, post)],
+        embeds: [buildShowcaseControlEmbed(user, post, guildId)],
         components: buildShowcaseControls(messageId, disabled)
     };
 }
 
-export async function maybePublishShowcase(client: Client, message: Message): Promise<void> {
+const SHOWCASE_PUBLISH_LEASE_MS = 5 * 60_000;
+
+function showcasePublicationMarker(messageId: string) {
+    return `stella-showcase:${messageId}`;
+}
+
+async function findPublishedShowcaseThread(forum: ForumChannel, messageId: string) {
+    const active = await (forum.threads as any).fetchActive().catch(() => null);
+    const archived = await (forum.threads as any).fetchArchived({ type: 'public', fetchAll: true }).catch(() => null);
+    if (!active?.threads || !archived?.threads) return { thread: null, certain: false };
+    const marker = showcasePublicationMarker(messageId);
+    const threads = [...active.threads.values(), ...archived.threads.values()];
+    for (const thread of threads) {
+        const starter = await thread.fetchStarterMessage().catch(() => null);
+        if (starter?.embeds?.some((embed: any) => embed.footer?.text === marker)) return { thread, certain: true };
+    }
+    return { thread: null, certain: true };
+}
+
+export async function maybePublishShowcase(client: Client, message: Message): Promise<boolean> {
     let post = await prisma.showcasePost.findUnique({ where: { messageId: message.id } });
     if (!post && message.author && message.channelId === config.channels.showcase && isAllowedShowcaseMessage(message)) {
-        post = await prisma.showcasePost.create({
-            data: {
+        post = await prisma.showcasePost.upsert({
+            where: { messageId: message.id },
+            update: {},
+            create: {
                 messageId: message.id,
                 channelId: message.channelId,
                 authorId: message.author.id,
@@ -199,7 +231,12 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
             }
         });
     }
-    if (!post || post.status !== 'VOTING') return;
+    const staleBefore = new Date(Date.now() - SHOWCASE_PUBLISH_LEASE_MS);
+    const retryingStalePublish = !!post
+        && post.status === 'PUBLISHING'
+        && !post.forumThreadId
+        && post.updatedAt <= staleBefore;
+    if (!post || (post.status !== 'VOTING' && !retryingStalePublish)) return false;
 
     const plusCount = await prisma.vote.count({
         where: {
@@ -210,7 +247,20 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
         }
     });
 
-    if (plusCount < config.showcase.threshold) return;
+    if (plusCount < config.showcase.threshold) return false;
+
+    // Claim the one-way publish side effect before creating the forum thread.
+    // A stale PUBLISHING lease is safely retried only after reconciliation below.
+    const claimed = retryingStalePublish
+        ? await prisma.showcasePost.updateMany({
+            where: { messageId: message.id, status: 'PUBLISHING', forumThreadId: null, updatedAt: { lte: staleBefore } },
+            data: { updatedAt: new Date() }
+        })
+        : await prisma.showcasePost.updateMany({
+            where: { messageId: message.id, status: 'VOTING' },
+            data: { status: 'PUBLISHING' }
+        });
+    if (claimed.count === 0) return false;
 
     const forum = await client.channels.fetch(config.channels.betterShowcase).catch(() => null);
     if (!forum || forum.type !== 15) {
@@ -219,10 +269,27 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
             color: '#e74c3c',
             description: `Không tìm thấy forum <#${config.channels.betterShowcase}>.`
         });
-        return;
+        return false;
     }
 
     const forumChannel = forum as ForumChannel;
+    const discovery = await findPublishedShowcaseThread(forumChannel, message.id);
+    if (!discovery.certain) {
+        await sendAdminLog(client, {
+            title: 'Showcase publish reconciliation deferred',
+            color: '#e67e22',
+            fields: [{ name: 'Original', value: messageLink(message.guildId, message.channelId, message.id) }]
+        }).catch(() => {});
+        return false;
+    }
+    if (discovery.thread) {
+        const reconciled = await prisma.showcasePost.updateMany({
+            where: { messageId: message.id, status: 'PUBLISHING' },
+            data: { status: 'PUBLISHED', forumThreadId: discovery.thread.id, publishedAt: new Date() }
+        });
+        return reconciled.count === 1;
+    }
+
     const tag = forumChannel.availableTags.find(t => t.name.toLowerCase() === post.tagName.toLowerCase())
         || forumChannel.availableTags.find(t => t.name.toLowerCase() === 'nothing');
 
@@ -241,7 +308,9 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
             name: post.title.slice(0, 100),
             appliedTags: tag ? [tag.id] : [],
             message: {
-                content
+                content,
+                embeds: [new EmbedBuilder().setFooter({ text: showcasePublicationMarker(message.id) })],
+                allowedMentions: { users: [post.authorId], roles: [], parse: [] }
             }
         });
     } catch (error: any) {
@@ -255,17 +324,51 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
                 { name: 'Original', value: messageLink(message.guildId, message.channelId, message.id) }
             ]
         });
-        return;
+        return false;
     }
 
-    await prisma.showcasePost.update({
-        where: { messageId: message.id },
+    const threadRecorded = await prisma.showcasePost.updateMany({
+        where: { messageId: message.id, status: 'PUBLISHING' },
+        data: { forumThreadId: thread.id }
+    });
+    if (threadRecorded.count === 0) {
+        await sendAdminLog(client, {
+            title: 'Showcase forum thread not checkpointed',
+            color: '#e74c3c',
+            fields: [{ name: 'Original', value: messageLink(message.guildId, message.channelId, message.id) }, { name: 'Forum', value: `<#${thread.id}>` }]
+        }).catch(() => {});
+        return false;
+    }
+
+    const finalized = await prisma.showcasePost.updateMany({
+        where: { messageId: message.id, status: 'PUBLISHING' },
         data: {
             status: 'PUBLISHED',
             forumThreadId: thread.id,
             publishedAt: new Date()
         }
     });
+    if (finalized.count === 0) {
+        await sendAdminLog(client, {
+            title: 'Showcase publish state mismatch',
+            color: '#e74c3c',
+            fields: [{ name: 'Original', value: messageLink(message.guildId, message.channelId, message.id) }, { name: 'Forum', value: `<#${thread.id}>` }]
+        }).catch(() => {});
+        return false;
+    }
+
+    // Service-action reward: showcase reaching the vote threshold and publishing
+    // pays the author once. Gated by the finalized.count===1 atomic transition
+    // above, so a re-publish attempt can't double-credit. Ledgered via adjustScoin.
+    if (config.rewards.showcasePublished > 0) {
+        await adjustScoin(
+            post.authorId,
+            config.rewards.showcasePublished,
+            `Showcase published #${message.id}`,
+            'showcase:publish',
+            `messageId:${message.id}`
+        ).catch(() => {});
+    }
 
     await sendAdminLog(client, {
         title: 'Showcase published',
@@ -279,6 +382,15 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
         ]
     });
 
+    // Queue an admin-approval Facebook cross-post candidate. No-op (fail-closed)
+    // when the feature is disabled or the token/page env vars are unset.
+    await queueCrossPostCandidate(client, {
+        sourceChannelId: message.channelId,
+        sourceMessageId: message.id,
+        authorId: post.authorId,
+        caption: post.title
+    }).catch(() => {});
+
     const author = await client.users.fetch(post.authorId).catch(() => null);
     await author?.send({
         embeds: [
@@ -289,11 +401,25 @@ export async function maybePublishShowcase(client: Client, message: Message): Pr
                 .setTimestamp()
         ]
     }).catch(() => {});
+    return true;
 }
 
 export async function publishEligibleShowcases(client: Client, limit = 25): Promise<number> {
+    const staleBefore = new Date(Date.now() - SHOWCASE_PUBLISH_LEASE_MS);
+    // A stored thread ID means Discord creation succeeded; finish the durable
+    // transition. Without an ID, retry the publish after the stale lease expires.
+    await prisma.showcasePost.updateMany({
+        where: { status: 'PUBLISHING', forumThreadId: { not: null }, updatedAt: { lte: staleBefore } },
+        data: { status: 'PUBLISHED', publishedAt: new Date() }
+    }).catch(() => {});
     const posts = await prisma.showcasePost.findMany({
-        where: { status: 'VOTING', channelId: config.channels.showcase },
+        where: {
+            channelId: config.channels.showcase,
+            OR: [
+                { status: 'VOTING' },
+                { status: 'PUBLISHING', forumThreadId: null, updatedAt: { lte: staleBefore } }
+            ]
+        },
         orderBy: { createdAt: 'desc' },
         take: limit
     });
@@ -316,10 +442,7 @@ export async function publishEligibleShowcases(client: Client, limit = 25): Prom
         const message = await (channel as TextChannel).messages.fetch(post.messageId).catch(() => null);
         if (!message) continue;
 
-        const before = post.status;
-        await maybePublishShowcase(client, message as Message);
-        const after = await prisma.showcasePost.findUnique({ where: { messageId: post.messageId } });
-        if (before === 'VOTING' && after?.status === 'PUBLISHED') published++;
+        if (await maybePublishShowcase(client, message as Message)) published++;
     }
 
     if (published > 0) {

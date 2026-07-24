@@ -18,7 +18,8 @@ import {
     createGiveaway,
     endGiveaway,
     GIVEAWAY_BANNER,
-    parseDuration
+    parseDuration,
+    retryGiveawayRewards
 } from '../systems/giveawayManager';
 import { saveGiveawayDraft } from '../systems/giveawayDraftManager';
 
@@ -117,12 +118,16 @@ export default {
                 .setDescription('Hủy giveaway và hoàn phí')
                 .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
         .addSubcommand(sub =>
+            sub.setName('retry-rewards')
+                .setDescription('Gửi lại DM phần thưởng bị lỗi cho winner')
+                .addIntegerOption(option => option.setName('id').setDescription('ID giveaway').setRequired(true)))
+        .addSubcommand(sub =>
             sub.setName('list')
                 .setDescription('Xem giveaway đang active')),
 
     async execute(interaction: ChatInputCommandInteraction) {
         const sub = interaction.options.getSubcommand();
-        const adminOnly = ['create', 'panel', 'end', 'reroll', 'cancel'].includes(sub);
+        const adminOnly = ['create', 'panel', 'end', 'reroll', 'cancel', 'retry-rewards'].includes(sub);
         if (adminOnly && !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({ content: 'Bạn cần quyền Administrator để dùng lệnh này.', flags: MessageFlags.Ephemeral });
         }
@@ -197,9 +202,20 @@ export default {
 
             if (sub === 'participants') {
                 const id = interaction.options.getInteger('id', true);
-                const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId: id }, orderBy: { joinedAt: 'asc' }, take: 50 });
+                const [giveaway, entries, total] = await Promise.all([
+                    prisma.giveaway.findUnique({ where: { id }, select: { title: true } }),
+                    prisma.giveawayEntry.findMany({ where: { giveawayId: id }, orderBy: { joinedAt: 'asc' }, take: 50 }),
+                    prisma.giveawayEntry.count({ where: { giveawayId: id } })
+                ]);
+                if (!giveaway) throw new Error('Không tìm thấy giveaway.');
                 const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
-                return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#f1c40f').setTitle(`Participants #${id}`).setDescription(lines)] });
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#f1c40f')
+                        .setTitle(`Người tham gia • ${giveaway.title}`)
+                        .setDescription(lines)
+                        .setFooter({ text: `Giveaway #${id} • Hiển thị ${entries.length}/${total} người` })]
+                });
             }
 
             if (sub === 'list') {
@@ -216,6 +232,10 @@ export default {
             if (sub === 'reroll') {
                 const winners = await endGiveaway(interaction.client, id, true);
                 return interaction.editReply(`Đã reroll giveaway #${id}. Winner mới: ${winners.length ? winners.map(w => `<@${w}>`).join(', ') : 'không có'}.`);
+            }
+            if (sub === 'retry-rewards') {
+                const result = await retryGiveawayRewards(interaction.client, id);
+                return interaction.editReply(`Đã xử lý lại phần thưởng giveaway #${id}: gửi **${result.sent}**, đã gửi trước đó **${result.skipped}**, còn lỗi **${result.failed}**.`);
             }
             const result = await cancelGiveaway(interaction.client, id);
             if (!result.cancelled) return interaction.editReply(result.reason || `Giveaway #${id} không thể hủy.`);

@@ -9,6 +9,12 @@ const tables = [
         dateFields: ['lastDaily', 'createdAt']
     },
     {
+        name: 'GuildSettings',
+        client: 'guildSettings',
+        key: row => ({ guildId: row.guildId }),
+        dateFields: ['createdAt', 'updatedAt']
+    },
+    {
         name: 'Blacklist',
         client: 'blacklist',
         key: row => ({ id: row.id }),
@@ -61,6 +67,13 @@ const tables = [
         dateFields: ['lastHuntAt', 'updatedAt']
     },
     {
+        name: 'StarItemStack',
+        client: 'starItemStack',
+        key: row => ({ userId_key: { userId: row.userId, key: row.key } }),
+        dateFields: ['updatedAt'],
+        sequence: '"StarItemStack_id_seq"'
+    },
+    {
         name: 'StarTool',
         client: 'starTool',
         key: row => ({ userId_key: { userId: row.userId, key: row.key } }),
@@ -101,6 +114,27 @@ const tables = [
         key: row => ({ id: row.id }),
         dateFields: ['createdAt'],
         sequence: '"GiveawayRewardDelivery_id_seq"'
+    },
+    {
+        name: 'RequestPost',
+        client: 'requestPost',
+        key: row => ({ id: row.id }),
+        dateFields: ['completedAt', 'closedAt', 'createdAt', 'updatedAt'],
+        sequence: '"RequestPost_id_seq"'
+    },
+    {
+        name: 'RequestClaim',
+        client: 'requestClaim',
+        key: row => ({ requestId_claimerId: { requestId: row.requestId, claimerId: row.claimerId } }),
+        dateFields: ['createdAt', 'updatedAt'],
+        sequence: '"RequestClaim_id_seq"'
+    },
+    {
+        name: 'RequestReview',
+        client: 'requestReview',
+        key: row => ({ requestId_reviewerId: { requestId: row.requestId, reviewerId: row.reviewerId } }),
+        dateFields: ['createdAt'],
+        sequence: '"RequestReview_id_seq"'
     }
 ];
 

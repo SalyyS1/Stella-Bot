@@ -14,6 +14,7 @@ export const translations = {
         'request.rateThanks': 'Đã gửi đánh giá {rating}/5 cho <@{targetId}>. Cảm ơn bạn.',
         'request.rateNotAllowed': 'Chỉ chủ request mới được rate request này.',
         'request.rateNoTarget': 'Request này chưa có người nhận để rate.',
+        'request.alreadyRated': 'Request này đã được đánh giá rồi.',
         'showcase.reconcileDone': 'Reconcile showcase xong: quét {scanned}, tạo DB {created}, thêm reaction {reacted}, sync vote {votes}, publish {published}.'
     },
     en: {
@@ -29,6 +30,7 @@ export const translations = {
         'request.rateThanks': 'Submitted {rating}/5 rating for <@{targetId}>. Thank you.',
         'request.rateNotAllowed': 'Only the request owner can rate this request.',
         'request.rateNoTarget': 'This request has no claimed worker to rate.',
+        'request.alreadyRated': 'This request has already been rated.',
         'showcase.reconcileDone': 'Showcase reconcile done: scanned {scanned}, DB created {created}, reacted {reacted}, votes synced {votes}, published {published}.'
     }
 } as const;

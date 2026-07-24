@@ -1,6 +1,7 @@
-import { EmbedBuilder, Events, GuildMember, TextChannel } from 'discord.js';
+import { EmbedBuilder, Events, GuildMember, TextChannel, ActionRowBuilder, StringSelectMenuBuilder } from 'discord.js';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
+import { recordJoin } from '../systems/freelancerManager';
 
 export default {
     name: Events.GuildMemberAdd,
@@ -34,7 +35,20 @@ export default {
             .setFooter({ text: 'Stella Studio' })
             .setTimestamp();
 
-        await (channel as TextChannel).send({ content: `${member}`, embeds: [embed] });
+        // Persist join time so the 7-day retention metric is computable.
+        await recordJoin(member.id).catch(() => {});
+
+        // Onboarding: let new members self-assign skill roles right away so
+        // match-ping can reach them. A single ephemeral-style prompt in welcome.
+        const skillMenu = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('skillrole_toggle')
+                .setPlaceholder('Chọn lĩnh vực của bạn để nhận yêu cầu phù hợp...')
+                .setMinValues(0)
+                .setMaxValues(config.skills.length)
+                .addOptions(config.skills.map(s => ({ label: s.label, value: s.key })))
+        );
+        await (channel as TextChannel).send({ content: `${member}`, embeds: [embed], components: [skillMenu] });
         await sendAdminLog(member.client, {
             title: 'Member joined',
             color: '#2ecc71',

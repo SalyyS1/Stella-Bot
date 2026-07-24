@@ -9,6 +9,18 @@ export const config = {
             stella: ""      // Lv.69-100 — Bot tự tạo
         }
     },
+    // Verified Freelancer role. Bot tự tạo khi ready, ID lưu ở ManagedChannel
+    // (key "verifiedrole"). Cấp qua mod duyệt (không auto khi đăng portfolio).
+    verifiedFreelancer: { roleName: "✅ Verified Freelancer", color: "#57f287" as any },
+    // Kỹ năng để định tuyến request tới đúng freelancer. Bot tự tạo role khi ready,
+    // ID được lưu vào bảng ManagedChannel (key "skillrole:<key>"), không hardcode ở đây.
+    skills: [
+        { key: "design", label: "Design / Art", roleName: "🎨 Designer", color: "#e91e63" as any },
+        { key: "dev", label: "Development / Plugin", roleName: "💻 Developer", color: "#3498db" as any },
+        { key: "video", label: "Video / Motion", roleName: "🎬 Video Editor", color: "#e67e22" as any },
+        { key: "writing", label: "Writing / Content", roleName: "✍️ Writer", color: "#1abc9c" as any },
+        { key: "other", label: "Khác", roleName: "🌐 Other Skills", color: "#95a5a6" as any }
+    ] as const,
     channels: {
         requestFree: "1490702155898687528",
         requestPaid: "1490685483892867163",
@@ -23,6 +35,14 @@ export const config = {
         chat: "943893730123980881",
         botLog: "1214596264617050173",
         rate: "1512109752895930460",
+        // Kênh đăng digest định kỳ (mặc định dùng kênh chat; đổi sang kênh highlight riêng nếu muốn).
+        digest: "943893730123980881",
+    },
+    // Digest định kỳ: gom request đang mở + showcase mới, đăng 1 embed. Bỏ qua khi rỗng.
+    digest: {
+        // "weekly" (khuyến nghị cho server 50-300) hoặc "daily".
+        cadence: "weekly" as "weekly" | "daily",
+        maxItems: 10
     },
     ui: {
         emojis: {
@@ -70,6 +90,19 @@ export const config = {
             { minLevel: 69, maxLevel: 100, roleName: "✨ Stella [Lv.69-100]",     color: "#9b59b6" as any, configKey: "stella" as const }
         ]
     },
+    // Phần thưởng Scoin cho hành động dịch vụ (tập trung ở đây để dễ tinh chỉnh).
+    // Payout của request giữ nguyên tại rateRequest (rating*10) — KHÔNG thêm reward
+    // ở completeRequest để tránh farm/double-pay. Chỉ thêm thưởng showcase publish.
+    rewards: {
+        showcasePublished: 30 // Scoin cho tác giả khi showcase được duyệt lên better-showcase
+    },
+    facebook: {
+        // Cross-post gated behind admin approval. Enabled only when env vars set.
+        enabled: process.env.FB_CROSSPOST_ENABLED === 'true',
+        pageId: process.env.FB_PAGE_ID || '',
+        // Token read at call time from env; NEVER hardcoded, NEVER logged.
+        graphVersion: 'v21.0'
+    },
     showcase: {
         threshold: 5,
         controlGif: "https://i.pinimg.com/originals/ae/52/d9/ae52d968e7d8117170d2eeff6245ca5c.gif",
@@ -99,7 +132,9 @@ export const config = {
             roleCreate: 3,
             roleDelete: 2,
             roleUpdate: 4,
-            webhookCreate: 2
+            webhookCreate: 2,
+            webhookUpdate: 2,
+            webhookDelete: 2
         }
     }
 };

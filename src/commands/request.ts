@@ -4,7 +4,23 @@ import { config } from '../config';
 
 function requestLine(request: { id: number; kind: string; status: string; service: string; requesterId: string; claimedById: string | null }) {
     const claimed = request.claimedById ? ` -> <@${request.claimedById}>` : '';
-    return `**#${request.id}** [${request.kind}/${request.status}] ${request.service} - <@${request.requesterId}>${claimed}`;
+    const normalized = request.service.replace(/\s+/g, ' ').trim();
+    const service = normalized.length > 160 ? `${normalized.slice(0, 159)}…` : normalized;
+    return `**#${request.id}** [${request.kind}/${request.status}] ${service} - <@${request.requesterId}>${claimed}`;
+}
+
+function requestDescription(requests: Parameters<typeof requestLine>[0][]) {
+    if (!requests.length) return 'Không có request phù hợp.';
+    const lines: string[] = [];
+    let length = 0;
+    for (const request of requests) {
+        const line = requestLine(request);
+        if (length + line.length + 1 > 3800) break;
+        lines.push(line);
+        length += line.length + 1;
+    }
+    const omitted = requests.length - lines.length;
+    return `${lines.join('\n')}${omitted ? `\n… và ${omitted} request khác.` : ''}`;
 }
 
 export default {
@@ -64,7 +80,7 @@ export default {
             embeds: [new EmbedBuilder()
                 .setColor('#ff66cc')
                 .setTitle(sub === 'mine' ? `${config.ui.emojis.customer} Request của bạn` : `${config.ui.emojis.note} Request Board`)
-                .setDescription(requests.map(requestLine).join('\n') || 'Không có request phù hợp.')]
+                .setDescription(requestDescription(requests))]
         });
     }
 };

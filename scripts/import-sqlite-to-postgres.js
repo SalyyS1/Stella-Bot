@@ -23,11 +23,11 @@ function readRows(db, table) {
 
 async function importTable(table, rows) {
     if (rows.length === 0) return 0;
-    await prisma[table.client].createMany({
+    const result = await prisma[table.client].createMany({
         data: rows,
         skipDuplicates: true
     });
-    return rows.length;
+    return result.count;
 }
 
 async function main() {

@@ -3,7 +3,7 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import fs from 'fs';
 import path from 'path';
 import prisma from '../lib/prisma';
-import { adjustScoinTx, getScoinBalance } from '../systems/scoinManager';
+import { adjustScoinTx } from '../systems/scoinManager';
 import { config } from '../config';
 
 const LEGACY_STAR_VALUES = { dust: 2, small: 8, bright: 25, comet: 75, galaxy: 220 } as const;
@@ -27,7 +27,7 @@ const TOOL_SHOP = [
     { key: 'silver_net', name: 'Silver Net', price: 250, note: 'Tăng cơ hội sao hiếm.' },
     { key: 'galaxy_harvester', name: 'Galaxy Harvester', price: 900, note: 'Tăng sản lượng mỗi lần hái.' },
     { key: 'comet_magnet', name: 'Comet Magnet', price: 650, note: 'Tăng cơ hội comet/galaxy.' },
-    { key: 'rocket_drill', name: 'Rocket Drill', price: 1400, note: 'Mở khu vực Black Hole Gate.' }
+    { key: 'rocket_drill', name: 'Rocket Drill', price: 1400, note: 'Cần nâng lên Lv.6 để vào Black Hole Gate.' }
 ];
 
 const BUFF_SHOP = [
@@ -40,11 +40,12 @@ const AREAS = {
     stella_sky: { name: 'Stella Sky', minToolLevel: 1, rareBoost: 0, note: 'Khu vực ổn định, dễ farm.' },
     meteor_field: { name: 'Meteor Field', minToolLevel: 2, rareBoost: 0.07, note: 'Nhiều comet hơn.' },
     moon_garden: { name: 'Moon Garden', minToolLevel: 4, rareBoost: 0.12, note: 'Tăng chance gem/pet fragment.' },
-    black_hole_gate: { name: 'Black Hole Gate', minToolLevel: 6, rareBoost: 0.18, note: 'Risk cao, loot rất ngon.' }
+    black_hole_gate: { name: 'Black Hole Gate', minToolLevel: 6, requiredToolKey: 'rocket_drill', rareBoost: 0.18, note: 'Cần Rocket Drill Lv.6, risk cao, loot rất ngon.' }
 } as const;
 
 const TOOL_PRIORITY = ['rocket_drill', 'galaxy_harvester', 'comet_magnet', 'silver_net', 'wooden_net'];
 const huntLocks = new Map<string, number>();
+class StarGameError extends Error {}
 
 function wait(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -71,15 +72,24 @@ function currentEvent() {
     return { key: 'normal', name: 'Normal Sky', boost: 0, note: 'Bầu trời Stella đang ổn định.' };
 }
 
-async function getState(userId: string) {
+function toolName(key: string) {
+    return key === 'wooden_net' ? 'Wooden Net' : TOOL_SHOP.find(tool => tool.key === key)?.name || key;
+}
+
+async function ensureStarState(userId: string) {
     await prisma.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
     await prisma.starTool.upsert({
         where: { userId_key: { userId, key: 'wooden_net' } },
         update: {},
         create: { userId, key: 'wooden_net' }
     });
+    await prisma.starInventory.upsert({ where: { userId }, update: {}, create: { userId } });
+}
+
+async function getState(userId: string) {
+    await ensureStarState(userId);
     const [inventory, tools, buffs, items] = await Promise.all([
-        prisma.starInventory.upsert({ where: { userId }, update: {}, create: { userId } }),
+        prisma.starInventory.findUniqueOrThrow({ where: { userId } }),
         prisma.starTool.findMany({ where: { userId } }),
         prisma.starBuff.findMany({ where: { userId, expiresAt: { gt: new Date() } } }),
         prisma.starItemStack.findMany({ where: { userId, quantity: { gt: 0 } } })
@@ -89,10 +99,25 @@ async function getState(userId: string) {
 
 function bestTool(tools: { key: string; level: number }[]) {
     return [...tools].sort((a, b) => {
-        const priority = TOOL_PRIORITY.indexOf(a.key) - TOOL_PRIORITY.indexOf(b.key);
-        if (priority !== 0) return priority;
-        return b.level - a.level;
+        const level = b.level - a.level;
+        if (level !== 0) return level;
+        return TOOL_PRIORITY.indexOf(a.key) - TOOL_PRIORITY.indexOf(b.key);
     })[0] || { key: 'wooden_net', level: 1 };
+}
+
+async function lockStarUser(tx: any, userId: string) {
+    await tx.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
+    // A zero increment acquires a database row lock without changing the balance.
+    await tx.user.update({ where: { id: userId }, data: { scoinBalance: { increment: 0 } } });
+}
+
+async function debitScoinIfEnough(tx: any, userId: string, amount: number, reason: string, source: string, metadata?: string) {
+    const charged = await tx.user.updateMany({
+        where: { id: userId, scoinBalance: { gte: amount } },
+        data: { scoinBalance: { decrement: amount } }
+    });
+    if (charged.count === 0) throw new StarGameError(`Không đủ Scoin. Cần ${amount.toLocaleString('vi-VN')} Scoin.`);
+    await tx.scoinTransaction.create({ data: { userId, amount: -amount, reason, source, metadata } });
 }
 
 function pickLoot(tool: { key: string; level: number }, buffKeys: Set<string>, areaKey: keyof typeof AREAS) {
@@ -211,7 +236,15 @@ export default {
                             { name: 'Stella Sky', value: 'stella_sky' },
                             { name: 'Meteor Field', value: 'meteor_field' },
                             { name: 'Moon Garden', value: 'moon_garden' },
-                            { name: 'Black Hole Gate', value: 'black_hole_gate' }
+                            { name: 'Black Hole Gate (Rocket Drill Lv.6)', value: 'black_hole_gate' }
+                        ))
+                .addStringOption(option =>
+                    option.setName('tool')
+                        .setDescription('Tool dùng để hái (mặc định: tool level cao nhất)')
+                        .setRequired(false)
+                        .addChoices(
+                            { name: 'Wooden Net', value: 'wooden_net' },
+                            ...TOOL_SHOP.map(item => ({ name: item.name, value: item.key }))
                         )))
         .addSubcommand(sub => sub.setName('bag').setDescription('Xem túi sao'))
         .addSubcommand(sub => sub.setName('sell').setDescription('Bán toàn bộ sao trong túi'))
@@ -257,8 +290,10 @@ export default {
                 });
             }
 
+            await ensureStarState(userId);
+
             if (sub === 'bag' || sub === 'collection') {
-                const { inventory, items } = await getState(userId);
+                const { inventory, items, tools, buffs } = await getState(userId);
                 const legacyLines = Object.keys(LEGACY_STAR_VALUES).map(key => {
                     const item = ITEM_CATALOG[key];
                     return `**${item.label}:** ${(inventory as any)[key] || 0}`;
@@ -269,14 +304,28 @@ export default {
                     return !items.some(item => item.key === key && item.quantity > 0);
                 });
                 const total = inventoryValue(inventory, items);
+                const fields = [
+                    {
+                        name: 'Tools đang sở hữu',
+                        value: tools
+                            .sort((a, b) => b.level - a.level || TOOL_PRIORITY.indexOf(a.key) - TOOL_PRIORITY.indexOf(b.key))
+                            .map(tool => `**${toolName(tool.key)}** Lv.${tool.level}`)
+                            .join('\n') || 'Wooden Net Lv.1'
+                    },
+                    {
+                        name: 'Buff đang hoạt động',
+                        value: buffs.map(buff => `**${BUFF_SHOP.find(item => item.key === buff.key)?.name || buff.key}** đến <t:${Math.floor(buff.expiresAt.getTime() / 1000)}:R>`).join('\n') || 'Không có buff nào.'
+                    }
+                ];
+                if (sub === 'collection') {
+                    fields.unshift({ name: 'Còn thiếu', value: missing.map(key => ITEM_CATALOG[key].label).join(', ') || 'Đã có đủ set hiện tại!' });
+                }
                 return interaction.editReply({
                     embeds: [new EmbedBuilder()
                         .setColor('#8e44ad')
                         .setTitle(sub === 'bag' ? `${starEmoji} Túi sao của bạn` : `${starEmoji} Star Collection`)
                         .setDescription([...legacyLines, ...itemLines, '', `Giá trị nếu bán: **${total.toLocaleString('vi-VN')}** Scoin`].join('\n'))
-                        .addFields(sub === 'collection'
-                            ? [{ name: 'Còn thiếu', value: missing.map(key => ITEM_CATALOG[key].label).join(', ') || 'Đã có đủ set hiện tại!' }]
-                            : [])]
+                        .addFields(fields)]
                 });
             }
 
@@ -287,6 +336,9 @@ export default {
                         '**Tool vĩnh viễn**',
                         '`wooden_net` - mặc định - có thể upgrade',
                         ...TOOL_SHOP.map(item => `\`${item.key}\` - **${item.price}** Scoin - ${item.note}`),
+                        '',
+                        '**Yêu cầu khu vực**',
+                        ...Object.values(AREAS).map(area => `**${area.name}:** ${area.note}`),
                         '',
                         '**Buff 30 phút**',
                         ...BUFF_SHOP.map(item => `\`${item.key}\` - **${item.price}** Scoin - ${item.note}`)
@@ -299,54 +351,93 @@ export default {
                 const item = tool || buff;
                 if (!item) return interaction.editReply('Không tìm thấy vật phẩm.');
 
-                const balance = await getScoinBalance(userId);
-                if (balance < item.price) return interaction.editReply('Không đủ Scoin để mua vật phẩm này.');
+                const purchase = await prisma.$transaction(async tx => {
+                    await lockStarUser(tx, userId);
+                    if (tool) {
+                        const owned = await tx.starTool.findUnique({ where: { userId_key: { userId, key: tool.key } } });
+                        if (owned) throw new StarGameError('Bạn đã có tool này rồi. Dùng `/star upgrade` để nâng cấp.');
+                        await debitScoinIfEnough(tx, userId, tool.price, `Buy ${tool.name}`, 'star:shop', tool.key);
+                        await tx.starTool.create({ data: { userId, key: tool.key } });
+                        return { name: tool.name, extended: false };
+                    }
 
-                if (tool) {
-                    const owned = await prisma.starTool.findUnique({ where: { userId_key: { userId, key: tool.key } } });
-                    if (owned) return interaction.editReply('Bạn đã có tool này rồi. Dùng `/star upgrade` để nâng cấp.');
-                }
-
-                await prisma.$transaction(async tx => {
-                    await tx.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
-                    await adjustScoinTx(tx, userId, -item.price, `Buy ${item.name}`, 'star:shop', item.key);
-                    if (tool) await tx.starTool.create({ data: { userId, key: tool.key } });
-                    else if (buff) await tx.starBuff.create({ data: { userId, key: buff.key, expiresAt: new Date(Date.now() + 30 * 60_000) } });
+                    const now = new Date();
+                    const activeBuff = await tx.starBuff.findFirst({
+                        where: { userId, key: buff!.key, expiresAt: { gt: now } },
+                        orderBy: { expiresAt: 'desc' }
+                    });
+                    await debitScoinIfEnough(tx, userId, buff!.price, `Buy ${buff!.name}`, 'star:shop', buff!.key);
+                    const expiresAt = new Date(Math.max(activeBuff?.expiresAt.getTime() || now.getTime(), now.getTime()) + 30 * 60_000);
+                    if (activeBuff) {
+                        await tx.starBuff.update({ where: { id: activeBuff.id }, data: { expiresAt } });
+                        return { name: buff!.name, extended: true };
+                    }
+                    await tx.starBuff.create({ data: { userId, key: buff!.key, expiresAt } });
+                    return { name: buff!.name, extended: false };
                 });
 
-                return interaction.editReply(`${starEmoji} Đã mua **${item.name}** thành công.`);
+                return interaction.editReply(`${starEmoji} ${purchase.extended ? 'Đã gia hạn' : 'Đã mua'} **${purchase.name}** thành công.`);
             }
 
             if (sub === 'upgrade') {
                 const key = interaction.options.getString('tool', true);
-                const tool = await prisma.starTool.findUnique({ where: { userId_key: { userId, key } } });
-                if (!tool) return interaction.editReply('Bạn chưa sở hữu tool này.');
-                if (tool.level >= 10) return interaction.editReply('Tool này đã đạt level tối đa.');
-                const cost = 180 + tool.level * tool.level * 120;
-                const balance = await getScoinBalance(userId);
-                if (balance < cost) return interaction.editReply(`Cần **${cost.toLocaleString('vi-VN')}** Scoin để nâng cấp.`);
-
-                await prisma.$transaction(async tx => {
-                    await adjustScoinTx(tx, userId, -cost, `Upgrade ${key}`, 'star:upgrade', `tool:${key};level:${tool.level + 1}`);
-                    await tx.starTool.update({ where: { id: tool.id }, data: { level: { increment: 1 } } });
+                const upgrade = await prisma.$transaction(async tx => {
+                    await lockStarUser(tx, userId);
+                    const tool = await tx.starTool.findUnique({ where: { userId_key: { userId, key } } });
+                    if (!tool) throw new StarGameError('Bạn chưa sở hữu tool này.');
+                    if (tool.level >= 10) throw new StarGameError('Tool này đã đạt level tối đa.');
+                    const cost = 180 + tool.level * tool.level * 120;
+                    await debitScoinIfEnough(tx, userId, cost, `Upgrade ${key}`, 'star:upgrade', `tool:${key};level:${tool.level + 1}`);
+                    const updated = await tx.starTool.updateMany({
+                        where: { id: tool.id, level: tool.level },
+                        data: { level: { increment: 1 } }
+                    });
+                    if (updated.count === 0) throw new StarGameError('Tool vừa thay đổi, vui lòng thử nâng cấp lại.');
+                    return { level: tool.level + 1, cost };
                 });
-                return interaction.editReply(`${starEmoji} Đã nâng **${key}** lên Lv.${tool.level + 1}.`);
+                return interaction.editReply(`${starEmoji} Đã nâng **${toolName(key)}** lên Lv.${upgrade.level}.`);
             }
 
             if (sub === 'sell') {
-                const { inventory, items } = await getState(userId);
-                const total = inventoryValue(inventory, items);
-                if (total <= 0) return interaction.editReply('Túi sao đang trống.');
+                const preview = await getState(userId);
+                if (inventoryValue(preview.inventory, preview.items) <= 0) return interaction.editReply('Túi sao đang trống.');
 
-                const user = await prisma.$transaction(async tx => {
-                    await tx.starInventory.update({
-                        where: { userId },
+                // Compute payout ONLY from rows read inside the tx, and gate the whole
+                // payout on a conditional clear that matches those exact values. A second
+                // concurrent sell matches count 0 (values already zeroed) and pays nothing.
+                const result = await prisma.$transaction(async tx => {
+                    await lockStarUser(tx, userId);
+                    const inv = await tx.starInventory.findUnique({ where: { userId } });
+                    if (!inv) return null;
+                    const items = await tx.starItemStack.findMany({ where: { userId, quantity: { gt: 0 } } });
+                    const total = inventoryValue(inv, items);
+                    if (total <= 0) return null;
+
+                    const cleared = await tx.starInventory.updateMany({
+                        where: {
+                            userId,
+                            dust: inv.dust,
+                            small: inv.small,
+                            bright: inv.bright,
+                            comet: inv.comet,
+                            galaxy: inv.galaxy
+                        },
                         data: { dust: 0, small: 0, bright: 0, comet: 0, galaxy: 0 }
                     });
-                    await tx.starItemStack.deleteMany({ where: { userId } });
-                    return adjustScoinTx(tx, userId, total, 'Sell stars', 'star:sell');
+                    if (cleared.count === 0) return null; // lost the race; another sell already cleared
+
+                    // Match both id and quantity. If an external writer changed a
+                    // stack, abort the tx so no newly-earned item is deleted unpaid.
+                    for (const item of items) {
+                        const removed = await tx.starItemStack.deleteMany({ where: { id: item.id, quantity: item.quantity } });
+                        if (removed.count === 0) throw new StarGameError('Túi sao vừa thay đổi, vui lòng bán lại.');
+                    }
+                    const user = await adjustScoinTx(tx, userId, total, 'Sell stars', 'star:sell');
+                    return { user, total };
                 });
-                return interaction.editReply(`${starEmoji} Đã bán sao và nhận **${total.toLocaleString('vi-VN')}** Scoin. Số dư: **${user.scoinBalance.toLocaleString('vi-VN')}**`);
+
+                if (!result) return interaction.editReply('Túi sao đang trống.');
+                return interaction.editReply(`${starEmoji} Đã bán sao và nhận **${result.total.toLocaleString('vi-VN')}** Scoin. Số dư: **${result.user.scoinBalance.toLocaleString('vi-VN')}**`);
             }
 
             const now = Date.now();
@@ -356,12 +447,20 @@ export default {
 
             try {
                 const { inventory, tools, buffs } = await getState(userId);
-                const tool = bestTool(tools);
+                const requestedToolKey = interaction.options.getString('tool');
+                const tool = requestedToolKey ? tools.find(candidate => candidate.key === requestedToolKey) : bestTool(tools);
+                if (!tool) return interaction.editReply('Bạn chưa sở hữu tool này. Mở `/star shop` để mua tool trước.');
                 const buffKeys = new Set(buffs.map(b => b.key));
-                const areaKey = (interaction.options.getString('area') || 'stella_sky') as keyof typeof AREAS;
-                const area = AREAS[areaKey] || AREAS.stella_sky;
+                const requestedArea = interaction.options.getString('area');
+                if (requestedArea && !(requestedArea in AREAS)) return interaction.editReply('Khu vực không hợp lệ.');
+                const areaKey = (requestedArea || 'stella_sky') as keyof typeof AREAS;
+                const area = AREAS[areaKey];
+                const requiredToolKey = 'requiredToolKey' in area ? area.requiredToolKey : null;
+                if (requiredToolKey && tool.key !== requiredToolKey) {
+                    return interaction.editReply(`Khu vực **${area.name}** cần **${toolName(requiredToolKey)}** Lv.${area.minToolLevel}.`);
+                }
                 if (tool.level < area.minToolLevel) {
-                    return interaction.editReply(`Khu vực **${area.name}** cần tool Lv.${area.minToolLevel}. Tool hiện tại của bạn là Lv.${tool.level}.`);
+                    return interaction.editReply(`Khu vực **${area.name}** cần **${toolName(tool.key)}** Lv.${area.minToolLevel}. Tool bạn chọn đang Lv.${tool.level}.`);
                 }
 
                 const event = currentEvent();
@@ -371,7 +470,7 @@ export default {
                     return interaction.editReply(`Chờ thêm **${left}s** rồi hái sao tiếp nhé.`);
                 }
 
-                for (const frame of [`Đang mở bản đồ ${area.name}...`, 'Sao băng bắt đầu rơi...', `Đang dùng ${tool.key} Lv.${tool.level} để thu hoạch...`]) {
+                for (const frame of [`Đang mở bản đồ ${area.name}...`, 'Sao băng bắt đầu rơi...', `Đang dùng ${toolName(tool.key)} Lv.${tool.level} để thu hoạch...`]) {
                     await interaction.editReply({ embeds: [new EmbedBuilder().setColor('#8e44ad').setTitle(`${starEmoji} Hái Sao`).setDescription(frame)] });
                     await wait(700);
                 }
@@ -381,10 +480,23 @@ export default {
                 if (tool.key === 'galaxy_harvester') amount += 1;
                 if (buffKeys.has('double_spark') && (itemKey === 'dust' || itemKey === 'small')) amount *= 2;
 
-                await prisma.$transaction(async tx => {
-                    const updateData: any = { lastHuntAt: new Date() };
-                    if (isLegacyStar(itemKey)) updateData[itemKey] = { increment: amount };
-                    await tx.starInventory.update({ where: { userId }, data: updateData });
+                const collected = await prisma.$transaction(async tx => {
+                    await lockStarUser(tx, userId);
+                    const harvestedAt = new Date();
+                    const claimed = await tx.starInventory.updateMany({
+                        where: {
+                            userId,
+                            OR: [
+                                { lastHuntAt: null },
+                                { lastHuntAt: { lte: new Date(harvestedAt.getTime() - cooldown) } }
+                            ]
+                        },
+                        data: { lastHuntAt: harvestedAt }
+                    });
+                    if (claimed.count === 0) return false;
+                    if (isLegacyStar(itemKey)) {
+                        await tx.starInventory.update({ where: { userId }, data: { [itemKey]: { increment: amount } } });
+                    }
                     if (!isLegacyStar(itemKey)) {
                         await tx.starItemStack.upsert({
                             where: { userId_key: { userId, key: itemKey } },
@@ -395,7 +507,13 @@ export default {
                     await tx.starHarvestSession.create({
                         data: { userId, toolKey: tool.key, result: `${itemKey}:${amount}` }
                     });
+                    return true;
                 });
+                if (!collected) {
+                    const current = await prisma.starInventory.findUnique({ where: { userId }, select: { lastHuntAt: true } });
+                    const left = current?.lastHuntAt ? Math.max(1, Math.ceil((cooldown - (Date.now() - current.lastHuntAt.getTime())) / 1000)) : 1;
+                    return interaction.editReply(`Lượt hái sao khác vừa hoàn tất. Chờ thêm **${left}s** rồi thử lại nhé.`);
+                }
 
                 const item = ITEM_CATALOG[itemKey];
                 const card = await renderHuntCard({
@@ -421,7 +539,7 @@ export default {
         } catch (error) {
             console.error(error);
             huntLocks.delete(userId);
-            return interaction.editReply('Đã có lỗi khi xử lý Star Game.');
+            return interaction.editReply(error instanceof StarGameError ? error.message : 'Đã có lỗi khi xử lý Star Game.');
         }
     }
 };

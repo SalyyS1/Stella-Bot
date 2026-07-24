@@ -24,28 +24,26 @@ export async function loadCommands(client: Client) {
         }
     }
 
-    if (!process.env.BOT_TOKEN) console.log("❌ LỖI: Không tìm thấy BOT_TOKEN trong .env!");
-    if (!process.env.CLIENT_ID) console.log("❌ LỖI: Không tìm thấy CLIENT_ID trong .env!");
-    
-    if (commandsData.length > 0 && process.env.BOT_TOKEN && process.env.CLIENT_ID) {
-        const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
-        try {
-            if (process.env.GUILD_ID) {
-                console.log(`Bắt đầu đồng bộ ${commandsData.length} lệnh (/) cho Server ID: ${process.env.GUILD_ID} (CẬP NHẬT TỨC THÌ)`);
-                await rest.put(
-                    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-                    { body: commandsData },
-                );
-            } else {
-                console.log(`Bắt đầu đồng bộ ${commandsData.length} lệnh (/) Toàn Cầu. (CẢNH BÁO: Phải mất đến 1 tiếng để Discord cập nhật hiển thị). Dùng GUILD_ID trong .env để cập nhật ngay!`);
-                await rest.put(
-                    Routes.applicationCommands(process.env.CLIENT_ID),
-                    { body: commandsData },
-                );
-            }
-            console.log(`✅ Đồng bộ lệnh (/) thành công!`);
-        } catch (error) {
-            console.error(error);
+    const token = process.env.BOT_TOKEN;
+    const clientId = process.env.CLIENT_ID;
+    if (!token) throw new Error('Không tìm thấy BOT_TOKEN trong môi trường.');
+    if (!clientId) throw new Error('Không tìm thấy CLIENT_ID trong môi trường.');
+
+    if (commandsData.length > 0) {
+        const rest = new REST({ version: '10' }).setToken(token);
+        if (process.env.GUILD_ID) {
+            console.log(`Bắt đầu đồng bộ ${commandsData.length} lệnh (/) cho Server ID: ${process.env.GUILD_ID} (CẬP NHẬT TỨC THÌ)`);
+            await rest.put(
+                Routes.applicationGuildCommands(clientId, process.env.GUILD_ID),
+                { body: commandsData },
+            );
+        } else {
+            console.log(`Bắt đầu đồng bộ ${commandsData.length} lệnh (/) Toàn Cầu. (CẢNH BÁO: Phải mất đến 1 tiếng để Discord cập nhật hiển thị). Dùng GUILD_ID trong .env để cập nhật ngay!`);
+            await rest.put(
+                Routes.applicationCommands(clientId),
+                { body: commandsData },
+            );
         }
+        console.log(`✅ Đồng bộ lệnh (/) thành công!`);
     }
 }

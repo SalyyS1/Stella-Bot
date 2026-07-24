@@ -1,7 +1,13 @@
 import prisma from '../lib/prisma';
 import { Locale, TranslationKey, translations } from './translations';
 
-const cache = new Map<string, Locale>();
+const CACHE_TTL_MS = 60_000;
+const cache = new Map<string, { locale: Locale; loadedAt: number }>();
+
+function cacheLocale(guildId: string, locale: Locale) {
+    cache.set(guildId, { locale, loadedAt: Date.now() });
+    return locale;
+}
 
 export function normalizeLocale(locale: string | null | undefined): Locale {
     return locale === 'en' ? 'en' : 'vi';
@@ -14,19 +20,15 @@ export function localeName(locale: Locale): string {
 export async function getGuildLocale(guildId?: string | null): Promise<Locale> {
     if (!guildId) return 'vi';
     const cached = cache.get(guildId);
-    if (cached) return cached;
+    if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) return cached.locale;
     try {
-        const settings = await prisma.guildSettings.upsert({
-            where: { guildId },
-            update: {},
-            create: { guildId, locale: 'vi' }
-        });
-        const locale = normalizeLocale(settings.locale);
-        cache.set(guildId, locale);
-        return locale;
+        const settings = await prisma.guildSettings.findUnique({ where: { guildId } });
+        return cacheLocale(guildId, normalizeLocale(settings?.locale));
     } catch (error) {
         console.warn('Guild locale fallback to vi:', error);
-        return 'vi';
+        // Cache the fallback too; a database outage must not amplify into one
+        // failed query per localized reply.
+        return cacheLocale(guildId, 'vi');
     }
 }
 
@@ -36,7 +38,7 @@ export async function setGuildLocale(guildId: string, locale: Locale): Promise<v
         update: { locale },
         create: { guildId, locale }
     });
-    cache.set(guildId, locale);
+    cacheLocale(guildId, locale);
 }
 
 export function tr(locale: Locale, key: TranslationKey, vars: Record<string, string | number> = {}): string {

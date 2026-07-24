@@ -2,6 +2,7 @@ import { GuildMember, Guild, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { markInternalAntiRaidAction } from './antiRaidManager';
+import { adjustScoinTx, levelScoinReward } from './scoinManager';
 
 // ═══════════════════════════════════════════════
 // 🌟 STELLA SPIRAL — Công thức XP độc quyền
@@ -85,45 +86,31 @@ export async function processMessageXp(userId: string, content: string, guild: G
     // Cập nhật cooldown
     xpCooldowns.set(userId, now);
 
-    // Upsert user + cộng XP
-    const user = await prisma.user.upsert({
-        where: { id: userId },
-        update: {
-            xp: { increment: xpGained },
-            totalMessages: { increment: 1 }
-        },
-        create: {
-            id: userId,
-            xp: xpGained,
-            level: 1,
-            totalMessages: 1
-        }
-    });
+    const result = await prisma.$transaction(async tx => {
+        await tx.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
+        await tx.user.update({ where: { id: userId }, data: { scoinBalance: { increment: 0 } } });
+        const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+        const currentXp = user.xp + xpGained;
+        const xpNeeded = xpToNextLevel(user.level);
+        const leveledUp = currentXp >= xpNeeded;
+        const newLevel = leveledUp ? user.level + 1 : user.level;
 
-    const currentXp = user.xp; // XP sau khi cộng
-    const currentLevel = user.level;
-    const xpNeeded = xpToNextLevel(currentLevel);
-
-    // Check level up
-    if (currentXp >= xpNeeded) {
-        const newLevel = currentLevel + 1;
-        await prisma.user.update({
+        await tx.user.update({
             where: { id: userId },
             data: {
+                xp: leveledUp ? currentXp - xpNeeded : currentXp,
                 level: newLevel,
-                xp: currentXp - xpNeeded // Dư XP chuyển sang level mới
+                totalMessages: { increment: 1 }
             }
         });
-
-        // Auto-role
-        if (member) {
-            await updateLevelRole(guild, member, newLevel);
+        if (leveledUp) {
+            await adjustScoinTx(tx, userId, levelScoinReward(newLevel), `Level ${newLevel} reward`, 'level');
         }
+        return { leveledUp, newLevel, xpGained, oldLevel: user.level };
+    });
 
-        return { leveledUp: true, newLevel, xpGained, oldLevel: currentLevel };
-    }
-
-    return { leveledUp: false, newLevel: currentLevel, xpGained, oldLevel: currentLevel };
+    if (result.leveledUp && member) await updateLevelRole(guild, member, result.newLevel);
+    return result;
 }
 
 /**

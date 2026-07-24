@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { xpToNextLevel } from '../systems/xpManager';
 import { renderProfileCard } from '../systems/cardRenderer';
+import { getFreelancerStats } from '../systems/freelancerManager';
 
 export default {
     data: new SlashCommandBuilder()
@@ -24,6 +25,7 @@ export default {
             });
 
             const isBlacklisted = await prisma.blacklist.findUnique({ where: { id: targetUser.id } });
+            const freelancer = await getFreelancerStats(targetUser.id);
             const tiers = config.xp.levelTiers;
             const currentTier = tiers.find(t => user.level >= t.minLevel && user.level <= t.maxLevel);
             const tierName = currentTier?.roleName || 'Little Star';
@@ -71,7 +73,7 @@ export default {
                     },
                     {
                         name: 'Điểm Stella',
-                        value: `> ${config.ui.emojis.expert} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contribution} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**`,
+                        value: `> ${config.ui.emojis.expert} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contribution} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.star} Freelancer: ${freelancer.avgRating !== null ? `**${freelancer.avgRating.toFixed(1)}★** (${freelancer.jobCount} job)` : '*chưa có đánh giá*'}${freelancer.verified ? ' ✅' : ''}`,
                         inline: true
                     },
                     {

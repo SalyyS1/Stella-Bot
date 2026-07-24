@@ -26,9 +26,15 @@ function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
 }
 
 async function refreshManagedChannelCache() {
-    const rows = await prisma.managedChannel.findMany({
-        where: { key: { in: ['requestPaid', 'requestFree', 'serverAds'] } }
-    }).catch(() => []);
+    let rows;
+    try {
+        rows = await prisma.managedChannel.findMany({
+            where: { key: { in: ['requestPaid', 'requestFree', 'serverAds'] } }
+        });
+    } catch (error) {
+        console.warn('Managed channel cache refresh failed; retaining last known values:', error);
+        return channelCache;
+    }
     const next = { ...fallbackChannelIds };
     for (const row of rows) {
         if (row.key === 'requestPaid' || row.key === 'requestFree' || row.key === 'serverAds') {

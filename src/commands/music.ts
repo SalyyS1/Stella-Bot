@@ -72,8 +72,8 @@ export default {
             }
 
             if (sub === 'play') {
-                const count = await playPlaylist(interaction.client, interaction.guildId!, interaction.channelId, interaction.member as any, interaction.user.id);
-                return interaction.editReply(`Đã thêm **${count}** bài từ playlist vào queue.`);
+                const result = await playPlaylist(interaction.client, interaction.guildId!, interaction.channelId, interaction.member as any, interaction.user.id);
+                return interaction.editReply(`Đã thêm **${result.queued}** bài từ playlist vào queue${result.skipped ? `, bỏ qua **${result.skipped}** bài lỗi` : ''}.`);
             }
 
             const tracks = await getPlaylist(interaction.user.id);

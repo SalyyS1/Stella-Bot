@@ -20,10 +20,17 @@ async function main() {
     const backupDir = resolveProjectPath('backups');
     ensureDir(backupDir);
 
-    const data = {};
-    for (const table of tables) {
-        data[table.name] = await prisma[table.client].findMany();
-    }
+    const data = await prisma.$transaction(async tx => {
+        const snapshot = {};
+        for (const table of tables) {
+            snapshot[table.name] = await tx[table.client].findMany();
+        }
+        return snapshot;
+    }, {
+        isolationLevel: 'RepeatableRead',
+        maxWait: 10_000,
+        timeout: 5 * 60_000
+    });
 
     const file = resolveProjectPath('backups', `stella-backup-${timestampName()}.json`);
     fs.writeFileSync(file, serializeRows(data));

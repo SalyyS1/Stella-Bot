@@ -26,6 +26,8 @@ cd /home/container/lavalink-host && curl -L --fail -o Lavalink.jar https://githu
 
 ## 2. Env Cho Lavalink Deployment
 
+`LAVALINK_SERVER_PASSWORD` là **bắt buộc**. Lavalink sẽ không khởi động nếu thiếu biến này; không còn password mặc định trong package host.
+
 Đặt các biến này:
 
 ```env
@@ -87,6 +89,7 @@ s!play lofi minecraft
 ## Lưu Ý
 
 - Lavalink cần Java 17+.
-- Không dùng cùng password mặc định `change_me_lavalink_password`.
+- Dùng password dài, ngẫu nhiên và không tái sử dụng; bot Stella phải dùng đúng cùng giá trị trong `LAVALINK_PASSWORD` hoặc `LAVALINK_NODES`.
+- `http` source đã tắt để Lavalink không thể fetch URL nội bộ/cloud metadata. Dùng search hoặc link từ các source âm nhạc được Lavalink hỗ trợ thay vì URL `.mp3` trực tiếp.
 - Nếu `/music health` có node nhưng play lỗi, kiểm tra firewall/port public của deployment Lavalink.
 - Nếu Lavalink log báo thiếu plugin hoặc YouTube search lỗi, restart Lavalink để plugin manager tải lại.

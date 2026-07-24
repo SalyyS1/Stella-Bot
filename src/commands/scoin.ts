@@ -28,19 +28,19 @@ export default {
                         .setDescription('Cộng Scoin')
                         .addUserOption(option => option.setName('user').setDescription('Người nhận').setRequired(true))
                         .addIntegerOption(option => option.setName('amount').setDescription('Số Scoin').setRequired(true).setMinValue(1))
-                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false).setMaxLength(200)))
                 .addSubcommand(sub =>
                     sub.setName('remove')
                         .setDescription('Trừ Scoin')
                         .addUserOption(option => option.setName('user').setDescription('Người bị trừ').setRequired(true))
                         .addIntegerOption(option => option.setName('amount').setDescription('Số Scoin').setRequired(true).setMinValue(1))
-                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false).setMaxLength(200)))
                 .addSubcommand(sub =>
                     sub.setName('set')
                         .setDescription('Đặt lại số dư Scoin')
                         .addUserOption(option => option.setName('user').setDescription('Người cần set').setRequired(true))
                         .addIntegerOption(option => option.setName('amount').setDescription('Số dư mới').setRequired(true).setMinValue(0))
-                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false)))),
+                        .addStringOption(option => option.setName('reason').setDescription('Lý do').setRequired(false).setMaxLength(200)))),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: interaction.options.getSubcommandGroup(false) === 'admin' });
@@ -106,12 +106,15 @@ export default {
                 take: 10
             });
 
+            const historyText = history.map(tx => {
+                const reason = tx.reason.replace(/\s+/g, ' ').trim().slice(0, 200);
+                const source = tx.source.replace(/\s+/g, ' ').trim().slice(0, 100);
+                return `${tx.amount > 0 ? '+' : ''}${tx.amount} - ${reason} (${source})`;
+            }).join('\n').slice(0, 4000) || 'Chưa có giao dịch.';
             const embed = new EmbedBuilder()
                 .setColor('#f1c40f')
                 .setTitle(`${coin} Lịch sử Scoin`)
-                .setDescription(history.map(tx =>
-                    `${tx.amount > 0 ? '+' : ''}${tx.amount} - ${tx.reason} (${tx.source})`
-                ).join('\n') || 'Chưa có giao dịch.')
+                .setDescription(historyText)
                 .setFooter({ text: target.username })
                 .setTimestamp();
             return interaction.editReply({ embeds: [embed] });

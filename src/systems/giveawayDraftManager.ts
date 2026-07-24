@@ -14,7 +14,14 @@ export type GiveawayDraft = {
 
 const drafts = new Map<string, GiveawayDraft & { expiresAt: number }>();
 
+function removeExpiredDrafts(now = Date.now()) {
+    for (const [id, draft] of drafts) {
+        if (draft.expiresAt < now) drafts.delete(id);
+    }
+}
+
 export function saveGiveawayDraft(draft: GiveawayDraft) {
+    removeExpiredDrafts();
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     drafts.set(id, { ...draft, expiresAt: Date.now() + 15 * 60_000 });
     return id;

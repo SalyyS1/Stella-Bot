@@ -4,6 +4,7 @@ import { config } from '../config';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { maybePublishShowcase } from './showcaseManager';
 import { adjustScoinTx, SCOIN_REWARDS } from './scoinManager';
+import { lockVoteScores } from './voteScoreLock';
 
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
@@ -90,15 +91,15 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
 
     await removeOppositeReaction(message, user.id, value);
 
-    const existing = await prisma.vote.findUnique({
-        where: { messageId_voterId: { messageId: message.id, voterId: user.id } }
-    });
-    if (existing?.value === value) return;
+    const result = await prisma.$transaction(async tx => {
+        await lockVoteScores(tx);
+        const existing = await tx.vote.findUnique({
+            where: { messageId_voterId: { messageId: message.id, voterId: user.id } }
+        });
+        if (existing?.value === value) return { changed: false, previousValue: existing.value };
 
-    const delta = scoreDelta(message.channelId, existing?.value ?? null, value);
-    const scoin = scoinDelta(message.channelId, existing?.value ?? null, value);
-
-    await prisma.$transaction(async tx => {
+        const delta = scoreDelta(message.channelId, existing?.value ?? null, value);
+        const scoin = scoinDelta(message.channelId, existing?.value ?? null, value);
         await tx.user.upsert({
             where: { id: message.author!.id },
             update: {
@@ -135,14 +136,16 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
                 true
             );
         }
+        return { changed: true, previousValue: existing?.value ?? null };
     });
+    if (!result.changed) return;
 
-    if (existing && existing.value !== value) {
+    if (result.previousValue !== null) {
         await sendAdminLog(client, {
             title: 'Vote changed',
             fields: [
                 { name: 'User', value: `<@${user.id}>`, inline: true },
-                { name: 'From/To', value: `${existing.value} -> ${value}`, inline: true },
+                { name: 'From/To', value: `${result.previousValue} -> ${value}`, inline: true },
                 { name: 'Message', value: messageLink(message.guildId, message.channelId, message.id) }
             ]
         });
@@ -164,14 +167,15 @@ export async function handleVoteRemove(reaction: MessageReaction | PartialMessag
     if (message.channelId !== config.channels.share && message.channelId !== config.channels.showcase) return;
     if (!message.author || message.author.id === user.id) return;
 
-    const existing = await prisma.vote.findUnique({
-        where: { messageId_voterId: { messageId: message.id, voterId: user.id } }
-    });
-    if (!existing || existing.value !== value) return;
-
-    const delta = scoreDelta(message.channelId, existing.value, null);
-    const scoin = scoinDelta(message.channelId, existing.value, null);
     await prisma.$transaction(async tx => {
+        await lockVoteScores(tx);
+        const existing = await tx.vote.findUnique({
+            where: { messageId_voterId: { messageId: message.id, voterId: user.id } }
+        });
+        if (!existing || existing.value !== value) return;
+
+        const delta = scoreDelta(message.channelId, existing.value, null);
+        const scoin = scoinDelta(message.channelId, existing.value, null);
         await tx.vote.delete({ where: { id: existing.id } });
         await tx.user.upsert({
             where: { id: message.author!.id },

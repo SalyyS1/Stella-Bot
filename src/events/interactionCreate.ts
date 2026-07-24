@@ -1,4 +1,4 @@
-import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, GuildMember, StringSelectMenuBuilder } from 'discord.js';
 import { config } from '../config';
 import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
@@ -10,7 +10,10 @@ import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { controlMusic, musicPanel } from '../systems/musicManager';
-import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest } from '../systems/requestManager';
+import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
+import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
+import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerManager';
+import { approveCrossPost, rejectCrossPost } from '../systems/facebookCrossPostManager';
 
 async function safeInteractionReply(interaction: any, payload: any) {
     try {
@@ -33,6 +36,52 @@ async function safeDeferEphemeral(interaction: any) {
     }
 }
 
+async function safeDeferUpdate(interaction: any) {
+    if (interaction.deferred || interaction.replied) return true;
+    try {
+        await interaction.deferUpdate();
+        return true;
+    } catch (error: any) {
+        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
+        return false;
+    }
+}
+
+async function createRequestFromModal(interaction: any, client: any, kind: 'PAID' | 'FREE', skill: string | null) {
+    const acknowledged = await safeDeferEphemeral(interaction);
+    if (!acknowledged) return;
+
+    try {
+        const service = interaction.fields.getTextInputValue('service').trim();
+        const description = interaction.fields.getTextInputValue('request_desc').trim();
+        const budget = kind === 'PAID' ? interaction.fields.getTextInputValue('budget').trim() : null;
+        const other = interaction.fields.getTextInputValue('other').trim();
+        if (!service || !description || (kind === 'PAID' && !budget)) {
+            throw new Error('Vui lòng điền đầy đủ các trường bắt buộc.');
+        }
+
+        const channelKey = kind === 'PAID' ? 'requestPaid' : 'requestFree';
+        const channelId = await getManagedChannelId(channelKey);
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased()) throw new Error('Không tìm thấy kênh request đích.');
+
+        const request = await createCommunityRequest({
+            client,
+            channel: channel as TextChannel,
+            requester: interaction.user,
+            kind,
+            service,
+            description,
+            budget,
+            other,
+            skill: isSkillKey(skill) ? skill : null
+        });
+        await interaction.editReply(`${config.ui.emojis.success} Đã tạo request #${request.id} tại <#${channelId}>.`).catch(() => {});
+    } catch (error: any) {
+        await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể tạo request. Vui lòng thử lại.'}`).catch(() => {});
+    }
+}
+
 async function showModalSafely(interaction: any, modal: ModalBuilder, client: any, context: string) {
     try {
         await interaction.showModal(modal);
@@ -52,6 +101,39 @@ async function showModalSafely(interaction: any, modal: ModalBuilder, client: an
             flags: MessageFlags.Ephemeral
         });
     }
+}
+
+// Skill picker shown before the request modal (modals cannot hold select menus).
+// customId carries the request kind so the follow-up select knows which modal to open.
+function skillSelectRow(kind: 'paid' | 'free') {
+    return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId(`skill_select_${kind}`)
+            .setPlaceholder('Chọn lĩnh vực kỹ năng để định tuyến...')
+            .addOptions(config.skills.map(s => ({ label: s.label, value: s.key })))
+    );
+}
+
+function buildRequestModal(kind: 'PAID' | 'FREE', skill: string) {
+    // skill is embedded in the modal customId so the submit handler can read it
+    // (modal fields can't carry a hidden value).
+    const modal = new ModalBuilder()
+        .setCustomId(`request${kind === 'PAID' ? 'paid' : 'free'}_modal_${skill}`)
+        .setTitle(kind === 'PAID' ? 'Yêu Cầu Có Phí (Paid)' : 'Yêu Cầu Giúp Đỡ (Free)');
+    const s = new TextInputBuilder().setCustomId('service').setLabel(kind === 'PAID' ? 'Dịch vụ cần?' : 'Việc cần giúp?').setStyle(TextInputStyle.Short).setRequired(true);
+    const r = new TextInputBuilder().setCustomId('request_desc').setLabel('Chi tiết yêu cầu').setStyle(TextInputStyle.Paragraph).setRequired(true);
+    const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ/Khác').setStyle(TextInputStyle.Paragraph).setRequired(false);
+    const rows = [
+        new ActionRowBuilder<TextInputBuilder>().addComponents(s),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(r)
+    ];
+    if (kind === 'PAID') {
+        const b = new TextInputBuilder().setCustomId('budget').setLabel('Ngân sách (Ví dụ: 1M)').setStyle(TextInputStyle.Short).setRequired(true);
+        rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(b));
+    }
+    rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(o));
+    modal.addComponents(...rows);
+    return modal;
 }
 
 export default {
@@ -103,7 +185,7 @@ export default {
                 managedChannels.serverAds
             ];
 
-            if (!expectedChannel && restrictedChannels.includes(interaction.channelId)) {
+            if (!expectedChannel && cmdName !== 'panel' && restrictedChannels.includes(interaction.channelId)) {
                 return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không được phép dùng lệnh \`/${cmdName}\` ở kênh này để tránh trôi tin nhắn giao dịch!`, flags: MessageFlags.Ephemeral });
             }
 
@@ -136,36 +218,45 @@ export default {
                 const id = part[2];
                 const pending = getPendingAnnouncement(id);
                 if (!pending || pending.creatorId !== interaction.user.id) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} Preview này đã hết hạn hoặc không phải của bạn.`, flags: MessageFlags.Ephemeral });
+                    await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Preview này đã hết hạn hoặc không phải của bạn.`, flags: MessageFlags.Ephemeral });
+                    return;
                 }
 
                 if (type === 'cancel') {
                     takePendingAnnouncement(id);
-                    return interaction.update({ content: 'Đã hủy thông báo.', embeds: [], components: [] });
+                    return await interaction.update({ content: 'Đã hủy thông báo.', embeds: [], components: [] }).catch(() => {});
                 }
 
                 try {
-                    const data = takePendingAnnouncement(id);
+                    const data = getPendingAnnouncement(id);
                     if (!data) throw new Error('Preview expired.');
                     const message = await sendAnnouncement(client, data);
-                    return interaction.update({
+                    takePendingAnnouncement(id);
+                    return await interaction.update({
                         content: `${config.ui.emojis.success} Đã gửi thông báo tại <#${message.channelId}>.`,
                         embeds: [],
                         components: []
-                    });
+                    }).catch(() => {});
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Không gửi được thông báo.'}`, flags: MessageFlags.Ephemeral });
+                    await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} ${error?.message || 'Không gửi được thông báo.'}`, flags: MessageFlags.Ephemeral });
+                    return;
                 }
             }
 
             if (action === 'music') {
-                if (!interaction.guildId) return interaction.reply({ content: 'Chỉ dùng music trong server.', flags: MessageFlags.Ephemeral });
+                if (!interaction.guildId) {
+                    await safeInteractionReply(interaction, { content: 'Chỉ dùng music trong server.', flags: MessageFlags.Ephemeral });
+                    return;
+                }
                 const type = part[1];
+                const acknowledged = await safeDeferUpdate(interaction);
+                if (!acknowledged) return;
                 try {
-                    await controlMusic(interaction.client, interaction.guildId, type);
-                    return interaction.update(musicPanel(interaction.client, interaction.guildId));
+                    await controlMusic(interaction.client, interaction.guildId, interaction.member as GuildMember, type);
+                    return await interaction.editReply(musicPanel(interaction.client, interaction.guildId)).catch(() => {});
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Music error.'}`, flags: MessageFlags.Ephemeral });
+                    await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} ${error?.message || 'Music error.'}`, flags: MessageFlags.Ephemeral });
+                    return;
                 }
             }
 
@@ -214,14 +305,17 @@ export default {
                         }).catch(() => {});
                     }
                     if (type === 'participants') {
-                        const entries = await prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 });
+                        const [entries, total] = await Promise.all([
+                            prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 }),
+                            prisma.giveawayEntry.count({ where: { giveawayId } })
+                        ]);
                         const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
                         return interaction.editReply({
                             embeds: [new EmbedBuilder()
                                 .setColor('#f1c40f')
                                 .setTitle(`Danh sách tham gia #${giveawayId}`)
                                 .setDescription(lines)
-                                .setFooter({ text: 'Hiển thị tối đa 50 người đầu tiên.' })]
+                                .setFooter({ text: `Hiển thị ${entries.length}/${total} người tham gia.` })]
                         }).catch(() => {});
                     }
                 } catch (error: any) {
@@ -269,10 +363,29 @@ export default {
                 const requestId = Number(part[2]);
                 if (!Number.isFinite(requestId)) return;
 
+                if (type === 'rate') {
+                    const acknowledged = await safeDeferUpdate(interaction);
+                    if (!acknowledged) return;
+                    const rating = Math.max(1, Math.min(5, Number(part[3]) || 1));
+                    try {
+                        const text = await rateRequest(interaction.client, interaction.guildId, requestId, interaction.user.id, rating);
+                        return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}`, embeds: [], components: [] }).catch(() => {});
+                    } catch (error: any) {
+                        if (error?.code === REQUEST_ALREADY_RATED) {
+                            await interaction.editReply({ components: [] }).catch(() => {});
+                        }
+                        await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} ${error?.message || 'Request error.'}`, flags: MessageFlags.Ephemeral });
+                        return;
+                    }
+                }
+
+                if (!['claim', 'complete', 'close'].includes(type)) return;
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
                 try {
                     if (type === 'claim') {
                         const text = await claimRequest(interaction.client, interaction.guildId, requestId, interaction.user);
-                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
+                        return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}` }).catch(() => {});
                     }
                     if (type === 'complete') {
                         const text = await completeRequest(
@@ -282,7 +395,7 @@ export default {
                             interaction.user.id,
                             interaction.memberPermissions?.has('Administrator') ?? false
                         );
-                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
+                        return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}` }).catch(() => {});
                     }
                     if (type === 'close') {
                         const text = await closeRequest(
@@ -292,15 +405,10 @@ export default {
                             interaction.user.id,
                             interaction.memberPermissions?.has('Administrator') ?? false
                         );
-                        return interaction.reply({ content: `${config.ui.emojis.success} ${text}`, flags: MessageFlags.Ephemeral });
-                    }
-                    if (type === 'rate') {
-                        const rating = Math.max(1, Math.min(5, Number(part[3]) || 1));
-                        const text = await rateRequest(interaction.client, interaction.guildId, requestId, interaction.user.id, rating);
-                        return interaction.update({ content: `${config.ui.emojis.success} ${text}`, embeds: [], components: [] });
+                        return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}` }).catch(() => {});
                     }
                 } catch (error: any) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} ${error?.message || 'Request error.'}`, flags: MessageFlags.Ephemeral });
+                    return await interaction.editReply({ content: `${config.ui.emojis.error} ${error?.message || 'Request error.'}` }).catch(() => {});
                 }
                 return;
             }
@@ -308,30 +416,22 @@ export default {
             if (action === 'panel') {
                 const type = part[1];
 
-                if (type === 'paid') {
-                    const modal = new ModalBuilder().setCustomId('requestpaid_modal').setTitle('Yêu Cầu Có Phí (Paid)');
-                    const s = new TextInputBuilder().setCustomId('service').setLabel('Dịch vụ cần?').setStyle(TextInputStyle.Short).setRequired(true);
-                    const r = new TextInputBuilder().setCustomId('request_desc').setLabel('Chi tiết yêu cầu').setStyle(TextInputStyle.Paragraph).setRequired(true);
-                    const b = new TextInputBuilder().setCustomId('budget').setLabel('Ngân sách (Ví dụ: 1M)').setStyle(TextInputStyle.Short).setRequired(true);
-                    const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ/Khác').setStyle(TextInputStyle.Paragraph).setRequired(false);
-                    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(r), new ActionRowBuilder<TextInputBuilder>().addComponents(b), new ActionRowBuilder<TextInputBuilder>().addComponents(o));
-                    await showModalSafely(interaction, modal, client, 'panel_paid');
-                } 
-                else if (type === 'free') {
-                    const modal = new ModalBuilder().setCustomId('requestfree_modal').setTitle('Yêu Cầu Giúp Đỡ (Free)');
-                    const s = new TextInputBuilder().setCustomId('service').setLabel('Việc cần giúp?').setStyle(TextInputStyle.Short).setRequired(true);
-                    const r = new TextInputBuilder().setCustomId('request_desc').setLabel('Chi tiết').setStyle(TextInputStyle.Paragraph).setRequired(true);
-                    const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ').setStyle(TextInputStyle.Paragraph).setRequired(false);
-                    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(r), new ActionRowBuilder<TextInputBuilder>().addComponents(o));
-                    await showModalSafely(interaction, modal, client, 'panel_free');
+                if (type === 'paid' || type === 'free') {
+                    // Modals cannot contain select menus, so pick the skill FIRST via an
+                    // ephemeral string-select; the modal opens after choosing (skill_select_<kind>).
+                    await safeInteractionReply(interaction, {
+                        content: `${config.ui.emojis.service} Chọn nhóm kỹ năng cho yêu cầu này để Stella ping đúng freelancer:`,
+                        components: [skillSelectRow(type)],
+                        flags: MessageFlags.Ephemeral
+                    });
                 }
                 else if (type === 'port') {
                     const modal = new ModalBuilder().setCustomId('portfolio_modal').setTitle('Quảng Bá Bản Thân');
-                    const n = new TextInputBuilder().setCustomId('name').setLabel('Tên/Tuổi').setStyle(TextInputStyle.Short).setRequired(true);
-                    const e = new TextInputBuilder().setCustomId('experience').setLabel('Kinh nghiệm').setStyle(TextInputStyle.Short).setRequired(true);
-                    const s = new TextInputBuilder().setCustomId('service').setLabel('Dịch vụ').setStyle(TextInputStyle.Short).setRequired(true);
-                    const p = new TextInputBuilder().setCustomId('portfolio_link').setLabel('Link Sản Phẩm').setStyle(TextInputStyle.Short).setRequired(true);
-                    const c = new TextInputBuilder().setCustomId('contact').setLabel('Liên hệ').setStyle(TextInputStyle.Short).setRequired(true);
+                    const n = new TextInputBuilder().setCustomId('name').setLabel('Tên/Tuổi').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
+                    const e = new TextInputBuilder().setCustomId('experience').setLabel('Kinh nghiệm').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
+                    const s = new TextInputBuilder().setCustomId('service').setLabel('Dịch vụ').setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(true);
+                    const p = new TextInputBuilder().setCustomId('portfolio_link').setLabel('Link Sản Phẩm').setStyle(TextInputStyle.Short).setMaxLength(1000).setRequired(true);
+                    const c = new TextInputBuilder().setCustomId('contact').setLabel('Liên hệ').setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(true);
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(n), new ActionRowBuilder<TextInputBuilder>().addComponents(e), new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(p), new ActionRowBuilder<TextInputBuilder>().addComponents(c));
                     await showModalSafely(interaction, modal, client, 'panel_portfolio');
                 }
@@ -339,8 +439,8 @@ export default {
                     const modal = new ModalBuilder().setCustomId('serverads_modal').setTitle('Đăng Server Ads');
                     const name = new TextInputBuilder().setCustomId('name').setLabel('Tên server').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
                     const desc = new TextInputBuilder().setCustomId('description').setLabel('Mô tả ngắn').setStyle(TextInputStyle.Paragraph).setMaxLength(800).setRequired(false);
-                    const link = new TextInputBuilder().setCustomId('link').setLabel('Link Discord').setStyle(TextInputStyle.Short).setRequired(true);
-                    const ip = new TextInputBuilder().setCustomId('ip').setLabel('IP Minecraft (optional)').setStyle(TextInputStyle.Short).setRequired(false);
+                    const link = new TextInputBuilder().setCustomId('link').setLabel('Link Discord').setStyle(TextInputStyle.Short).setMaxLength(1000).setRequired(true);
+                    const ip = new TextInputBuilder().setCustomId('ip').setLabel('IP Minecraft (optional)').setStyle(TextInputStyle.Short).setMaxLength(120).setRequired(false);
                     modal.addComponents(
                         new ActionRowBuilder<TextInputBuilder>().addComponents(name),
                         new ActionRowBuilder<TextInputBuilder>().addComponents(desc),
@@ -352,9 +452,73 @@ export default {
                 return;
             }
 
+            // Verified-freelancer approval buttons (admin-gated). customId:
+            // verify_approve_<userId> / verify_reject_<userId>. The permission
+            // check is the FIRST line here (fail-closed), not channel visibility.
+            if (action === 'verify') {
+                if (!interaction.memberPermissions?.has('Administrator')) {
+                    await interaction.reply({ content: `${config.ui.emojis.error} Chỉ admin mới duyệt Verified Freelancer.`, flags: MessageFlags.Ephemeral });
+                    return;
+                }
+                const decision = part[1]; // 'approve' | 'reject'
+                const targetId = part[2];
+                // Ack first: grantVerifiedRole does a member fetch + role add that can
+                // exceed the 3s window on a slow gateway.
+                await safeDeferUpdate(interaction);
+                if (decision === 'approve' && interaction.guild) {
+                    const ok = await grantVerifiedRole(interaction.guild, targetId);
+                    await interaction.editReply({
+                        content: ok ? `${config.ui.emojis.success} Đã cấp Verified Freelancer cho <@${targetId}> (duyệt bởi <@${interaction.user.id}>).` : `${config.ui.emojis.error} Không cấp được role (thiếu role hoặc thành viên đã rời).`,
+                        components: []
+                    }).catch(() => {});
+                } else {
+                    await interaction.editReply({
+                        content: `${config.ui.emojis.close} Đã từ chối Verified Freelancer cho <@${targetId}> (bởi <@${interaction.user.id}>).`,
+                        components: []
+                    }).catch(() => {});
+                }
+                return;
+            }
+
+            // Facebook cross-post approval (admin-gated). customId:
+            // fbpost_approve_<candidateId> / fbpost_reject_<candidateId>. The
+            // permission check is the FIRST line (fail-closed), not channel visibility.
+            if (action === 'fbpost') {
+                if (!interaction.memberPermissions?.has('Administrator')) {
+                    await interaction.reply({ content: `${config.ui.emojis.error} Chỉ admin mới duyệt cross-post.`, flags: MessageFlags.Ephemeral });
+                    return;
+                }
+                const decision = part[1]; // 'approve' | 'reject'
+                const candidateId = Number(part[2]);
+                if (!Number.isInteger(candidateId)) return;
+                // Ack FIRST: publishing round-trips to the FB Graph API (image fetch
+                // is routinely multiple seconds) and would blow the 3s interaction
+                // window, dropping the mod's feedback. Defer, then edit.
+                await safeDeferUpdate(interaction);
+                if (decision === 'approve') {
+                    const result = await approveCrossPost(client, candidateId);
+                    const msg = result === 'published' ? `${config.ui.emojis.success} Đã đăng lên Facebook.`
+                        : result === 'already' ? `${config.ui.emojis.close} Bài này đã xử lý rồi.`
+                        : result === 'disabled' ? `${config.ui.emojis.error} Cross-post đang tắt (thiếu token/cấu hình).`
+                        : `${config.ui.emojis.error} Đăng thất bại — xem admin log (đã trả về PENDING để thử lại).`;
+                    // Keep Approve/Reject buttons ONLY when the row is retryable (failed
+                    // → restored to PENDING); strip them on terminal outcomes.
+                    const keepButtons = result === 'failed';
+                    await interaction.editReply({
+                        content: msg,
+                        embeds: interaction.message.embeds,
+                        components: keepButtons ? interaction.message.components : []
+                    }).catch(() => {});
+                } else {
+                    await rejectCrossPost(candidateId);
+                    await interaction.editReply({ content: `${config.ui.emojis.close} Đã bỏ qua cross-post (bởi <@${interaction.user.id}>).`, embeds: interaction.message.embeds, components: [] }).catch(() => {});
+                }
+                return;
+            }
+
             // Handling traditional buttons
             const authorId = part[1];
-            
+
             if (action === 'close' || action === 'bump') {
                 if (interaction.user.id !== authorId && !interaction.memberPermissions?.has('Administrator')) {
                     await interaction.reply({ content: `${config.ui.emojis.error} Bạn không phải là tác giả của bài đăng này!`, flags: MessageFlags.Ephemeral });
@@ -411,65 +575,80 @@ export default {
                 if (rendered) await interaction.update(rendered);
                 else await interaction.reply({ content: `${config.ui.emojis.success} Đã đổi tag thành ${tagName}.`, flags: MessageFlags.Ephemeral });
             }
+            // Skill picked for a new request → open the create modal carrying the skill.
+            else if (interaction.customId.startsWith('skill_select_')) {
+                const kind = interaction.customId === 'skill_select_paid' ? 'PAID' : 'FREE';
+                const skill = interaction.values[0];
+                await showModalSafely(interaction, buildRequestModal(kind, skill), client, `skill_select_${kind}`);
+            }
+            // Self-serve skill-role toggle (multi-select). Add/remove each chosen role.
+            else if (interaction.customId === 'skillrole_toggle') {
+                if (!interaction.guild) return;
+                const results: string[] = [];
+                for (const key of interaction.values) {
+                    const state = await toggleSkillRole(interaction.guild, interaction.user.id, key);
+                    const meta = getSkillMeta(key);
+                    if (state) results.push(`${state === 'added' ? '✅' : '❌'} ${meta?.label || key}`);
+                }
+                await safeInteractionReply(interaction, {
+                    content: results.length ? results.join('\n') : `${config.ui.emojis.error} Không cập nhật được role kỹ năng.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
         }
         else if (interaction.isModalSubmit()) {
-            if (interaction.customId === 'requestpaid_modal') {
-                const s = interaction.fields.getTextInputValue('service');
-                const r = interaction.fields.getTextInputValue('request_desc');
-                const b = interaction.fields.getTextInputValue('budget');
-                const o = interaction.fields.getTextInputValue('other');
+            if (interaction.customId.startsWith('requestpaid_modal')) {
+                const skill = interaction.customId.replace('requestpaid_modal_', '').replace('requestpaid_modal', '') || null;
+                await createRequestFromModal(interaction, interaction.client, 'PAID', skill);
 
-                const requestPaidChannelId = await getManagedChannelId('requestPaid');
-                const targetChan = await interaction.client.channels.fetch(requestPaidChannelId).catch(() => null) as any;
-                if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
-
-                const request = await createCommunityRequest({
-                    client: interaction.client,
-                    channel: targetChan,
-                    requester: interaction.user,
-                    kind: 'PAID',
-                    service: s,
-                    description: r,
-                    budget: b,
-                    other: o
-                });
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo request #${request.id} tại <#${requestPaidChannelId}>!`, flags: MessageFlags.Ephemeral });
-
-            } else if (interaction.customId === 'requestfree_modal') {
-                const s = interaction.fields.getTextInputValue('service');
-                const r = interaction.fields.getTextInputValue('request_desc');
-                const o = interaction.fields.getTextInputValue('other');
-
-                const requestFreeChannelId = await getManagedChannelId('requestFree');
-                const targetChan = await interaction.client.channels.fetch(requestFreeChannelId).catch(() => null) as any;
-                if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
-
-                const request = await createCommunityRequest({
-                    client: interaction.client,
-                    channel: targetChan,
-                    requester: interaction.user,
-                    kind: 'FREE',
-                    service: s,
-                    description: r,
-                    other: o
-                });
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã tạo request #${request.id} tại <#${requestFreeChannelId}>!`, flags: MessageFlags.Ephemeral });
+            } else if (interaction.customId.startsWith('requestfree_modal')) {
+                const skill = interaction.customId.replace('requestfree_modal_', '').replace('requestfree_modal', '') || null;
+                await createRequestFromModal(interaction, interaction.client, 'FREE', skill);
 
             } else if (interaction.customId === 'portfolio_modal') {
-                const n = interaction.fields.getTextInputValue('name');
-                const e = interaction.fields.getTextInputValue('experience');
-                const s = interaction.fields.getTextInputValue('service');
-                const p = interaction.fields.getTextInputValue('portfolio_link');
-                const c = interaction.fields.getTextInputValue('contact');
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                try {
+                    const n = interaction.fields.getTextInputValue('name');
+                    const e = interaction.fields.getTextInputValue('experience');
+                    const s = interaction.fields.getTextInputValue('service');
+                    const p = interaction.fields.getTextInputValue('portfolio_link');
+                    const c = interaction.fields.getTextInputValue('contact');
+                    const embed = buildPortfolioEmbed(interaction.user, n, e, s, p, c);
+                    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`bump_${interaction.user.id}`).setLabel('Bump Bài').setStyle(ButtonStyle.Primary).setEmoji(config.ui.emojis.bump));
+                    const targetChan = interaction.client.channels.cache.get(config.channels.portfolio) as TextChannel | undefined;
+                    if (!targetChan?.isTextBased()) throw new Error('Không tìm thấy kênh portfolio đích.');
+                    await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+                    await interaction.editReply(`${config.ui.emojis.success} Đã đăng portfolio thành công tại <#${config.channels.portfolio}>!`).catch(() => {});
 
-                const embed = buildPortfolioEmbed(interaction.user, n, e, s, p, c);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`bump_${interaction.user.id}`).setLabel('Bump Bài').setStyle(ButtonStyle.Primary).setEmoji(config.ui.emojis.bump));
-
-                const targetChan = interaction.client.channels.cache.get(config.channels.portfolio) as any;
-                if (!targetChan) return interaction.reply({ content: 'Lỗi Kênh đích', flags: MessageFlags.Ephemeral });
-                
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã đăng portfolio thành công tại <#${config.channels.portfolio}>!`, flags: MessageFlags.Ephemeral });
-                await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+                    // First portfolio → send a mod-approval prompt for the Verified
+                    // Freelancer role. Gated by markFirstPortfolio so it fires once.
+                    if (await markFirstPortfolio(interaction.user.id)) {
+                        const approveRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                            new ButtonBuilder().setCustomId(`verify_approve_${interaction.user.id}`).setLabel('Duyệt Verified').setStyle(ButtonStyle.Success).setEmoji(config.ui.emojis.success),
+                            new ButtonBuilder().setCustomId(`verify_reject_${interaction.user.id}`).setLabel('Bỏ qua').setStyle(ButtonStyle.Secondary)
+                        );
+                        await sendAdminLog(interaction.client, {
+                            title: 'Verified Freelancer — chờ duyệt',
+                            color: '#57f287',
+                            fields: [
+                                { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                                { name: 'Dịch vụ', value: s.slice(0, 200), inline: true },
+                                { name: 'Portfolio', value: p.slice(0, 300) }
+                            ]
+                        }).catch(() => {});
+                        const botLog = await interaction.client.channels.fetch(config.channels.botLog).catch(() => null);
+                        if (botLog?.isTextBased() && 'send' in botLog) {
+                            await (botLog as TextChannel).send({
+                                content: `Duyệt cấp role Verified Freelancer cho <@${interaction.user.id}>?`,
+                                components: [approveRow],
+                                allowedMentions: { parse: [] }
+                            }).catch(() => {});
+                        }
+                    }
+                } catch (error: any) {
+                    await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể đăng portfolio. Vui lòng thử lại.'}`).catch(() => {});
+                }
             }
             else if (interaction.customId.startsWith('showcasetitle_')) {
                 const messageId = interaction.customId.replace('showcasetitle_', '');
@@ -481,74 +660,84 @@ export default {
                 await interaction.reply({ content: `${config.ui.emojis.success} Đã cập nhật title showcase.`, flags: MessageFlags.Ephemeral });
             }
             else if (interaction.customId === 'serverads_modal') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                const serverAdsChannelId = await getManagedChannelId('serverAds');
-                const channel = await interaction.client.channels.fetch(serverAdsChannelId).catch(() => null);
-                if (!channel || !channel.isTextBased()) {
-                    return interaction.editReply(`${config.ui.emojis.error} Không tìm thấy kênh server-ads.`);
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                try {
+                    const serverAdsChannelId = await getManagedChannelId('serverAds');
+                    const channel = await interaction.client.channels.fetch(serverAdsChannelId).catch(() => null);
+                    if (!channel || !channel.isTextBased()) {
+                        return await interaction.editReply(`${config.ui.emojis.error} Không tìm thấy kênh server-ads.`).catch(() => {});
+                    }
+
+                    const input = {
+                        name: interaction.fields.getTextInputValue('name'),
+                        description: interaction.fields.getTextInputValue('description'),
+                        link: interaction.fields.getTextInputValue('link'),
+                        ip: interaction.fields.getTextInputValue('ip')
+                    };
+
+                    if (!isValidServerAdInput(input)) {
+                        await sendAdminLog(interaction.client, {
+                            title: 'Server ads rejected',
+                            color: '#e74c3c',
+                            fields: [
+                                { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                                { name: 'Name', value: input.name || 'Trống', inline: true },
+                                { name: 'Link', value: input.link || 'Trống' }
+                            ]
+                        });
+                        return await interaction.editReply(`${config.ui.emojis.error} Server Ads cần có tên và link Discord/http hợp lệ.`).catch(() => {});
+                    }
+
+                    await publishServerAd(channel as TextChannel, interaction.user, input);
+                    await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${serverAdsChannelId}>.`).catch(() => {});
+                } catch (error: any) {
+                    await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể đăng server ads. Vui lòng thử lại.'}`).catch(() => {});
                 }
-
-                const input = {
-                    name: interaction.fields.getTextInputValue('name'),
-                    description: interaction.fields.getTextInputValue('description'),
-                    link: interaction.fields.getTextInputValue('link'),
-                    ip: interaction.fields.getTextInputValue('ip')
-                };
-
-                if (!isValidServerAdInput(input)) {
-                    await sendAdminLog(interaction.client, {
-                        title: 'Server ads rejected',
-                        color: '#e74c3c',
-                        fields: [
-                            { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
-                            { name: 'Name', value: input.name || 'Trống', inline: true },
-                            { name: 'Link', value: input.link || 'Trống' }
-                        ]
-                    });
-                    return interaction.editReply(`${config.ui.emojis.error} Server Ads cần có tên và link Discord/http hợp lệ.`);
-                }
-
-                await publishServerAd(channel as TextChannel, interaction.user, input);
-                await interaction.editReply(`${config.ui.emojis.success} Đã đăng quảng cáo tại <#${serverAdsChannelId}>.`);
             }
             else if (interaction.customId === 'giveaway_quick_modal' || interaction.customId.startsWith('giveaway_create_modal_')) {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                if (!interaction.memberPermissions?.has('Administrator')) {
-                    return interaction.editReply('Bạn cần quyền Administrator để tạo giveaway.');
-                }
-                const draftId = interaction.customId.startsWith('giveaway_create_modal_')
-                    ? interaction.customId.replace('giveaway_create_modal_', '')
-                    : null;
-                const draft = draftId ? takeGiveawayDraft(draftId, interaction.user.id) : null;
-                if (draftId && !draft) {
-                    return interaction.editReply(`${config.ui.emojis.error} Form giveaway đã hết hạn. Vui lòng dùng lại \`/giveaway create\`.`);
-                }
-                const channel = draft?.channelId
-                    ? await interaction.client.channels.fetch(draft.channelId).catch(() => null) as TextChannel | null
-                    : interaction.channel as TextChannel;
-                if (!channel?.isTextBased()) return interaction.editReply('Kênh hiện tại không hợp lệ.');
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                try {
+                    if (!interaction.memberPermissions?.has('Administrator')) {
+                        return await interaction.editReply('Bạn cần quyền Administrator để tạo giveaway.').catch(() => {});
+                    }
+                    const draftId = interaction.customId.startsWith('giveaway_create_modal_')
+                        ? interaction.customId.replace('giveaway_create_modal_', '')
+                        : null;
+                    const draft = draftId ? takeGiveawayDraft(draftId, interaction.user.id) : null;
+                    if (draftId && !draft) {
+                        return await interaction.editReply(`${config.ui.emojis.error} Form giveaway đã hết hạn. Vui lòng dùng lại \`/giveaway create\`.`).catch(() => {});
+                    }
+                    const channel = draft?.channelId
+                        ? await interaction.client.channels.fetch(draft.channelId).catch(() => null) as TextChannel | null
+                        : interaction.channel as TextChannel;
+                    if (!channel?.isTextBased()) return await interaction.editReply('Kênh hiện tại không hợp lệ.').catch(() => {});
 
-                const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
-                const winners = Math.max(1, Math.min(20, Number(interaction.fields.getTextInputValue('winners')) || 1));
-                const giveaway = await createGiveaway(client, {
-                    channel,
-                    title: interaction.fields.getTextInputValue('title'),
-                    prize: interaction.fields.getTextInputValue('prize'),
-                    description: interaction.fields.getTextInputValue('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
-                    durationMs,
-                    winnersCount: winners,
-                    hostId: draft?.hostId || interaction.user.id,
-                    pingRoleId: draft?.pingRoleId || null,
-                    requiredRoleId: draft?.requiredRoleId || null,
-                    minLevel: draft?.minLevel || null,
-                    minScoin: draft?.minScoin || null,
-                    entryCost: draft?.entryCost || 0,
-                    rewardType: draft?.rewardType || 'contact_host',
-                    rewardSecret: draft?.rewardSecret || null,
-                    publicMediaUrl: draft?.publicMediaUrl || GIVEAWAY_BANNER,
-                    createdBy: interaction.user.id
-                });
-                await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway #${giveaway.id} tại <#${channel.id}>.`);
+                    const durationMs = parseDuration(interaction.fields.getTextInputValue('duration'));
+                    const winners = Math.max(1, Math.min(20, Number(interaction.fields.getTextInputValue('winners')) || 1));
+                    const giveaway = await createGiveaway(client, {
+                        channel,
+                        title: interaction.fields.getTextInputValue('title'),
+                        prize: interaction.fields.getTextInputValue('prize'),
+                        description: interaction.fields.getTextInputValue('description') || 'Nhấn nút bên dưới để tham gia giveaway.',
+                        durationMs,
+                        winnersCount: winners,
+                        hostId: draft?.hostId || interaction.user.id,
+                        pingRoleId: draft?.pingRoleId || null,
+                        requiredRoleId: draft?.requiredRoleId || null,
+                        minLevel: draft?.minLevel || null,
+                        minScoin: draft?.minScoin || null,
+                        entryCost: draft?.entryCost || 0,
+                        rewardType: draft?.rewardType || 'contact_host',
+                        rewardSecret: draft?.rewardSecret || null,
+                        publicMediaUrl: draft?.publicMediaUrl || GIVEAWAY_BANNER,
+                        createdBy: interaction.user.id
+                    });
+                    await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway #${giveaway.id} tại <#${channel.id}>.`).catch(() => {});
+                } catch (error: any) {
+                    await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể tạo giveaway. Vui lòng thử lại.'}`).catch(() => {});
+                }
             }
         }
     }

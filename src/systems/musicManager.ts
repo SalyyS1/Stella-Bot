@@ -6,7 +6,8 @@ import {
     Client,
     EmbedBuilder,
     GuildMember,
-    Message
+    Message,
+    PermissionFlagsBits
 } from 'discord.js';
 import { LavalinkManager } from 'lavalink-client';
 import prisma from '../lib/prisma';
@@ -28,11 +29,30 @@ function isUrl(input: string) {
 }
 
 function ensureVoice(member: GuildMember | null) {
-    if (!member?.voice?.channelId) throw new Error('Bạn cần vào voice channel trước.');
+    const channel = member?.voice?.channel;
+    if (!channel) throw new Error('Bạn cần vào voice channel trước.');
+    const me = member.guild.members.me;
+    const permissions = me ? channel.permissionsFor(me) : null;
+    if (!permissions?.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
+        throw new Error('Stella không có quyền Connect/Speak trong voice channel này.');
+    }
+}
+
+function getControllablePlayer(client: Client, guildId: string, member: GuildMember | null) {
+    const player = getPlayer(client, guildId);
+    if (!player) throw new Error('Không có player đang chạy.');
+    ensureVoice(member);
+    if (member!.voice.channelId !== player.voiceChannelId) {
+        throw new Error('Bạn cần ở cùng voice channel với Stella để điều khiển nhạc.');
+    }
+    return player;
 }
 
 function checkPlayCooldown(userId: string) {
     const now = Date.now();
+    for (const [id, expiresAt] of playCooldown) {
+        if (expiresAt <= now) playCooldown.delete(id);
+    }
     const until = playCooldown.get(userId) || 0;
     if (until > now) throw new Error(`Chờ thêm ${Math.ceil((until - now) / 1000)}s rồi play tiếp nhé.`);
     playCooldown.set(userId, now + 5000);
@@ -128,11 +148,11 @@ export function setupLavalink(client: Client) {
     });
 }
 
-export function musicHealthPanel(client: Client) {
+export function musicHealthPanel(client: Client, revealNodeAddresses = false) {
     const nodes = getLavalinkNodes();
     const lavalink = getLavalink(client);
     const nodeLines = nodes.length
-        ? nodes.map(node => `**${node.id}** - ${node.host}:${node.port}${node.secure ? ' TLS' : ''}`).join('\n')
+        ? nodes.map(node => revealNodeAddresses ? `**${node.id}** - ${node.host}:${node.port}${node.secure ? ' TLS' : ''}` : `**${node.id}** - configured`).join('\n')
         : 'Chưa cấu hình node Lavalink.';
     const playerCount = lavalink?.players?.size ?? lavalink?.playerManager?.players?.size ?? lavalink?.players?.cache?.size ?? 0;
 
@@ -193,6 +213,10 @@ export async function queueTrack(client: Client, guildId: string, textChannelId:
     ensureVoice(member);
     checkPlayCooldown(userId);
 
+    const existingPlayer = getPlayer(client, guildId);
+    if (existingPlayer && existingPlayer.voiceChannelId !== member!.voice.channelId) {
+        throw new Error('Stella đang phát nhạc ở voice channel khác. Hãy vào cùng channel để thêm bài.');
+    }
     const player = getLavalink(client).createPlayer({
         guildId,
         voiceChannelId: member!.voice.channelId!,
@@ -220,34 +244,8 @@ export async function queueTrack(client: Client, guildId: string, textChannelId:
     };
 }
 
-async function queueTrackWithoutCooldown(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string, query: string) {
-    if (!lavalinkConfigured() || !getLavalink(client)) {
-        throw new Error('Music chưa được cấu hình Lavalink. Hãy cấu hình Lavalink remote/local trong .env.');
-    }
-    ensureVoice(member);
-
-    const player = getLavalink(client).createPlayer({
-        guildId,
-        voiceChannelId: member!.voice.channelId!,
-        textChannelId,
-        selfDeaf: true,
-        selfMute: false,
-        volume: 75
-    });
-
-    await player.connect();
-    const result = await player.search(isUrl(query) ? query : { query, source: 'ytmsearch' }, { id: userId }, true);
-    const tracks = (result.tracks || []).filter((track: any) => getLavalink(client).utils.isNotBrokenTrack(track));
-    if (!tracks.length) throw new Error(`Không tìm thấy bài hợp lệ: ${query}`);
-    if (result.loadType === 'playlist') await player.queue.add(tracks);
-    else await player.queue.add(tracks[0]);
-    if (!player.playing && !player.paused) await player.play();
-    return tracks.length;
-}
-
-export async function controlMusic(client: Client, guildId: string, action: string) {
-    const player = getPlayer(client, guildId);
-    if (!player) throw new Error('Không có player đang chạy.');
+export async function controlMusic(client: Client, guildId: string, member: GuildMember | null, action: string) {
+    const player = getControllablePlayer(client, guildId, member);
 
     if (action === 'pause') {
         if (player.paused) await player.resume();
@@ -301,14 +299,49 @@ export async function getPlaylist(userId: string) {
 }
 
 export async function playPlaylist(client: Client, guildId: string, textChannelId: string, member: GuildMember | null, userId: string) {
+    if (!lavalinkConfigured() || !getLavalink(client)) {
+        throw new Error('Music chưa được cấu hình Lavalink. Hãy cấu hình Lavalink remote/local trong .env.');
+    }
     ensureVoice(member);
     const tracks = await getPlaylist(userId);
     if (!tracks.length) throw new Error('Playlist của bạn đang trống.');
     checkPlayCooldown(userId);
-    for (const track of tracks) {
-        await queueTrackWithoutCooldown(client, guildId, textChannelId, member, userId, track.uri);
+
+    const existingPlayer = getPlayer(client, guildId);
+    if (existingPlayer && existingPlayer.voiceChannelId !== member!.voice.channelId) {
+        throw new Error('Stella đang phát nhạc ở voice channel khác. Hãy vào cùng channel để thêm bài.');
     }
-    return tracks.length;
+    const player = getLavalink(client).createPlayer({
+        guildId,
+        voiceChannelId: member!.voice.channelId!,
+        textChannelId,
+        selfDeaf: true,
+        selfMute: false,
+        volume: 75
+    });
+    await player.connect();
+
+    let queued = 0;
+    let skipped = 0;
+    for (const track of tracks) {
+        try {
+            const result = await player.search(isUrl(track.uri) ? track.uri : { query: track.uri, source: 'ytmsearch' }, { id: userId }, true);
+            const playable = (result.tracks || []).filter((candidate: any) => getLavalink(client).utils.isNotBrokenTrack(candidate));
+            if (!playable.length) throw new Error('No playable track');
+            if (result.loadType === 'playlist') {
+                await player.queue.add(playable);
+                queued += playable.length;
+            } else {
+                await player.queue.add(playable[0]);
+                queued++;
+            }
+        } catch {
+            skipped++;
+        }
+    }
+    if (!queued) throw new Error('Không có bài nào trong playlist còn phát được.');
+    if (!player.playing && !player.paused) await player.play();
+    return { queued, skipped };
 }
 
 export async function handleMusicPrefix(message: Message): Promise<boolean> {
@@ -331,17 +364,16 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
             return true;
         }
         if (['health', 'status'].includes(command)) {
-            await message.reply(musicHealthPanel(message.client));
+            await message.reply(musicHealthPanel(message.client, message.member?.permissions.has('ManageGuild') ?? false));
             return true;
         }
         if (['skip', 'stop', 'pause', 'resume', 'loop', 'shuffle'].includes(command)) {
-            await controlMusic(message.client, message.guild.id, command === 'resume' ? 'pause' : command);
+            await controlMusic(message.client, message.guild.id, message.member, command === 'resume' ? 'pause' : command);
             await message.reply(musicPanel(message.client, message.guild.id));
             return true;
         }
         if (command === 'volume') {
-            const player = getPlayer(message.client, message.guild.id);
-            if (!player) throw new Error('Không có player đang chạy.');
+            const player = getControllablePlayer(message.client, message.guild.id, message.member);
             const value = Number(args[0]);
             if (!Number.isFinite(value) || value < 10 || value > 100) throw new Error('Volume từ 10 đến 100.');
             await player.setVolume(value);
@@ -368,10 +400,10 @@ export async function executeMusicSlash(interaction: ChatInputCommandInteraction
     }
 
     if (['queue', 'now'].includes(sub)) return interaction.editReply(musicPanel(interaction.client, guildId));
-    if (sub === 'health') return interaction.editReply(musicHealthPanel(interaction.client));
+    if (sub === 'health') return interaction.editReply(musicHealthPanel(interaction.client, interaction.memberPermissions?.has('ManageGuild') ?? false));
 
     if (['stop', 'skip', 'pause', 'resume', 'loop', 'shuffle'].includes(sub)) {
-        await controlMusic(interaction.client, guildId, sub === 'resume' ? 'pause' : sub);
+        await controlMusic(interaction.client, guildId, interaction.member as GuildMember, sub === 'resume' ? 'pause' : sub);
         return interaction.editReply(musicPanel(interaction.client, guildId));
     }
 

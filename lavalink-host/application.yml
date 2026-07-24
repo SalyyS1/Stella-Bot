@@ -10,14 +10,14 @@ lavalink:
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
   server:
-    password: "${LAVALINK_SERVER_PASSWORD:change_me_lavalink_password}"
+    password: "${LAVALINK_SERVER_PASSWORD}"
     sources:
       youtube: false
       bandcamp: true
       soundcloud: true
       twitch: true
       vimeo: true
-      http: true
+      http: false
       local: false
     filters:
       volume: true

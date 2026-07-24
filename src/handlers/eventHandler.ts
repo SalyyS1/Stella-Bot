@@ -14,11 +14,13 @@ export async function loadEvents(client: Client) {
         const filePath = path.join(eventsPath, file);
         const event = require(filePath).default || require(filePath);
         
-        if (event.once) {
-            client.once(event.name, (...args) => event.execute(...args, client));
-        } else {
-            client.on(event.name, (...args) => event.execute(...args, client));
-        }
+        const execute = (...args: any[]) => {
+            Promise.resolve(event.execute(...args, client)).catch(error => {
+                console.error(`[EventError] ${event.name}:`, error);
+            });
+        };
+        if (event.once) client.once(event.name, execute);
+        else client.on(event.name, execute);
         console.log(`[Loaded] Event: ${event.name}`);
     }
 }

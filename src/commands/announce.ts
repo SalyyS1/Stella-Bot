@@ -11,6 +11,16 @@ function normalizeColor(color: string | null): string | null {
     return /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 }
 
+function normalizeHttpUrl(value: string | null): string | null {
+    if (!value) return null;
+    try {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+    } catch {
+        return null;
+    }
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName('announce')
@@ -42,16 +52,34 @@ export default {
         if (!(channel as any).isTextBased?.()) {
             return interaction.reply({ content: 'Kênh gửi thông báo không hợp lệ.', flags: MessageFlags.Ephemeral });
         }
+        const permissions = interaction.guild?.members.me
+            ? (channel as any).permissionsFor?.(interaction.guild.members.me)
+            : null;
+        if (!permissions?.has([
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.EmbedLinks
+        ])) {
+            return interaction.reply({ content: 'Stella cần quyền View Channel, Send Messages và Embed Links tại kênh đích.', flags: MessageFlags.Ephemeral });
+        }
 
         const color = normalizeColor(interaction.options.getString('color'));
         if (interaction.options.getString('color') && !color) {
             return interaction.reply({ content: 'Màu hex không hợp lệ. VD: ff66cc hoặc #ff66cc.', flags: MessageFlags.Ephemeral });
         }
 
+        const imageInput = interaction.options.getString('image');
+        const thumbnailInput = interaction.options.getString('thumbnail');
         const buttonLabel = interaction.options.getString('button_label');
-        const buttonUrl = interaction.options.getString('button_url');
-        if ((buttonLabel && !buttonUrl) || (!buttonLabel && buttonUrl)) {
+        const buttonInput = interaction.options.getString('button_url');
+        if ((buttonLabel && !buttonInput) || (!buttonLabel && buttonInput)) {
             return interaction.reply({ content: 'Nút link cần có cả label và URL.', flags: MessageFlags.Ephemeral });
+        }
+        const imageUrl = normalizeHttpUrl(imageInput);
+        const thumbnailUrl = normalizeHttpUrl(thumbnailInput);
+        const buttonUrl = normalizeHttpUrl(buttonInput);
+        if ((imageInput && !imageUrl) || (thumbnailInput && !thumbnailUrl) || (buttonInput && !buttonUrl)) {
+            return interaction.reply({ content: 'URL ảnh, thumbnail và nút link phải dùng HTTP hoặc HTTPS hợp lệ.', flags: MessageFlags.Ephemeral });
         }
 
         const data = createPendingAnnouncement({
@@ -62,8 +90,8 @@ export default {
             description: interaction.options.getString('description', true),
             color,
             emoji: interaction.options.getString('emoji'),
-            imageUrl: interaction.options.getString('image'),
-            thumbnailUrl: interaction.options.getString('thumbnail'),
+            imageUrl,
+            thumbnailUrl,
             footer: interaction.options.getString('footer'),
             buttonLabel,
             buttonUrl

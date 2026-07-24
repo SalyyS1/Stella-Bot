@@ -21,6 +21,10 @@ model User {
   lastDaily     DateTime?
   dailyStreak   Int      @default(0)
   createdAt     DateTime @default(now())
+  // Onboarding / freelancer retention (Phase 5)
+  joinedAt      DateTime? // persisted on guildMemberAdd; enables 7-day retention metric
+  hasPortfolio  Boolean  @default(false) // set on first portfolio post (first-portfolio detection)
+  verifiedAt    DateTime? // set when a mod approves the Verified Freelancer role
 
   scoinTransactions ScoinTransaction[]
   musicPlaylistTracks MusicPlaylistTrack[]
@@ -258,6 +262,7 @@ model RequestPost {
   requesterId   String
   kind          String
   service       String
+  skill         String?
   description   String
   budget        String?
   other         String?
@@ -307,4 +312,20 @@ model RequestReview {
 
   @@unique([requestId, reviewerId])
   @@index([targetId])
+}
+
+model FacebookCrossPost {
+  id              Int      @id @default(autoincrement())
+  sourceChannelId String   // channel of the source Discord message (for live URL re-fetch)
+  sourceMessageId String   // source message id — re-fetch a LIVE signed URL at approval time
+  authorId        String
+  caption         String
+  status          String   @default("PENDING") // PENDING | PUBLISHING | PUBLISHED | DISCARDED | NEEDS_REVIEW
+  fbPostId        String?
+  lastError       String?
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
 }

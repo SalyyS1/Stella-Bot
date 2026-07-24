@@ -12,8 +12,17 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { getGuildLocale, tr } from '../i18n';
+import { lockVoteScores } from './voteScoreLock';
+import { pingSkillRole, isSkillKey } from './skillRoleManager';
 
 export type RequestKind = 'PAID' | 'FREE';
+export const REQUEST_ALREADY_RATED = 'REQUEST_ALREADY_RATED';
+
+function alreadyRatedError(locale: Awaited<ReturnType<typeof getGuildLocale>>) {
+    const error = new Error(tr(locale, 'request.alreadyRated'));
+    (error as Error & { code?: string }).code = REQUEST_ALREADY_RATED;
+    return error;
+}
 
 function statusLabel(status: string) {
     if (status === 'OPEN') return 'Đang mở';
@@ -92,7 +101,12 @@ export async function refreshRequestMessage(client: Client, id: number) {
     const channel = await client.channels.fetch(request.channelId).catch(() => null);
     if (!channel?.isTextBased()) return;
     const message = await (channel as TextChannel).messages.fetch(request.messageId).catch(() => null);
-    await message?.edit({ embeds: [embed], components: requestButtons(request.id, request.status) }).catch(() => {});
+    await message?.edit({
+        embeds: [embed],
+        components: request.status === 'DONE'
+            ? ratingButtons(request.id)
+            : requestButtons(request.id, request.status)
+    }).catch(() => {});
 }
 
 export async function createCommunityRequest(options: {
@@ -104,43 +118,69 @@ export async function createCommunityRequest(options: {
     description: string;
     budget?: string | null;
     other?: string | null;
+    skill?: string | null;
 }) {
+    // Discord embed fields cannot be empty. Normalize once at the service
+    // boundary so every caller (modal or text-form) is safe.
+    const service = options.service.trim().slice(0, 500) || 'Chưa ghi';
+    const description = options.description.trim().slice(0, 2000) || 'Chưa ghi';
+    const budget = options.budget?.trim().slice(0, 200) || null;
+    const other = options.other?.trim().slice(0, 1000) || null;
+    // Skill is the routing category (a fixed enum key), distinct from the
+    // free-text service description. Only accept known keys; ignore anything else.
+    const skill = isSkillKey(options.skill) ? options.skill : null;
     const request = await prisma.requestPost.create({
         data: {
             channelId: options.channel.id,
             requesterId: options.requester.id,
             kind: options.kind,
-            service: options.service.slice(0, 500),
-            description: options.description.slice(0, 2000),
-            budget: options.budget?.slice(0, 200) || null,
-            other: options.other?.slice(0, 1000) || null
+            service,
+            description,
+            budget,
+            other,
+            skill
         }
     });
 
-    const { embed } = await buildRequestEmbed(request.id);
-    const message = await options.channel.send({
-        content: `<@${options.requester.id}>`,
-        embeds: [embed],
-        components: requestButtons(request.id, request.status),
-        allowedMentions: { users: [options.requester.id] }
-    }) as Message;
+    let message: Message | null = null;
+    try {
+        const { embed } = await buildRequestEmbed(request.id);
+        message = await options.channel.send({
+            content: `<@${options.requester.id}>`,
+            embeds: [embed],
+            components: requestButtons(request.id, request.status),
+            allowedMentions: { users: [options.requester.id] }
+        }) as Message;
 
-    await prisma.requestPost.update({
-        where: { id: request.id },
-        data: { messageId: message.id }
-    });
+        await prisma.requestPost.update({
+            where: { id: request.id },
+            data: { messageId: message.id }
+        });
 
-    await sendAdminLog(options.client, {
-        title: 'Request created',
-        color: options.kind === 'PAID' ? '#2ecc71' : '#3498db',
-        fields: [
-            { name: 'Kind', value: options.kind, inline: true },
-            { name: 'Requester', value: `<@${options.requester.id}>`, inline: true },
-            { name: 'Message', value: messageLink(message.guildId, message.channelId, message.id) }
-        ]
-    }).catch(() => {});
+        await sendAdminLog(options.client, {
+            title: 'Request created',
+            color: options.kind === 'PAID' ? '#2ecc71' : '#3498db',
+            fields: [
+                { name: 'Kind', value: options.kind, inline: true },
+                { name: 'Requester', value: `<@${options.requester.id}>`, inline: true },
+                { name: 'Message', value: messageLink(message.guildId, message.channelId, message.id) }
+            ]
+        }).catch(() => {});
 
-    return { ...request, messageId: message.id };
+        // Match-ping the matching skill role ONCE, only on create. Scoped to the
+        // resolved role id (never user text, never @everyone) — see pingSkillRole.
+        if (skill) {
+            await pingSkillRole(options.client, message.guildId, options.channel.id, skill, request.id).catch(() => {});
+        }
+
+        return { ...request, messageId: message.id };
+    } catch (error) {
+        // A DB row without its board message is unusable. Best-effort rollback
+        // keeps retries possible and avoids dangling button identifiers.
+        await message?.delete().catch(() => {});
+        await prisma.requestPost.delete({ where: { id: request.id } }).catch(() => {});
+        throw error;
+    }
 }
 
 export async function claimRequest(client: Client, guildId: string | null, id: number, user: User) {
@@ -151,14 +191,15 @@ export async function claimRequest(client: Client, guildId: string | null, id: n
 
     await prisma.$transaction(async tx => {
         await tx.user.upsert({ where: { id: user.id }, update: {}, create: { id: user.id } });
+        const claimed = await tx.requestPost.updateMany({
+            where: { id, status: 'OPEN' },
+            data: { status: 'CLAIMED', claimedById: user.id }
+        });
+        if (claimed.count === 0) throw new Error(tr(locale, 'request.alreadyClaimed'));
         await tx.requestClaim.upsert({
             where: { requestId_claimerId: { requestId: id, claimerId: user.id } },
             update: { status: 'ACTIVE' },
             create: { requestId: id, claimerId: user.id, status: 'ACTIVE' }
-        });
-        await tx.requestPost.update({
-            where: { id },
-            data: { status: 'CLAIMED', claimedById: user.id }
         });
     });
 
@@ -172,10 +213,11 @@ export async function closeRequest(client: Client, guildId: string | null, id: n
     if (!request) throw new Error('Không tìm thấy request.');
     if (!isAdmin && request.requesterId !== actorId) throw new Error('Chỉ chủ request hoặc admin mới được đóng.');
 
-    await prisma.requestPost.update({
-        where: { id },
+    const closed = await prisma.requestPost.updateMany({
+        where: { id, status: { in: ['OPEN', 'CLAIMED'] } },
         data: { status: 'CLOSED', closedAt: new Date() }
     });
+    if (closed.count === 0) throw new Error('Request này không thể đóng ở trạng thái hiện tại.');
     await refreshRequestMessage(client, id);
     return tr(locale, 'request.closed', { id });
 }
@@ -202,10 +244,11 @@ export async function completeRequest(client: Client, guildId: string | null, id
         throw new Error('Chỉ chủ request, người nhận job hoặc admin mới được hoàn thành.');
     }
 
-    await prisma.requestPost.update({
-        where: { id },
+    const completed = await prisma.requestPost.updateMany({
+        where: { id, status: 'CLAIMED' },
         data: { status: 'DONE', completedAt: new Date() }
     });
+    if (completed.count === 0) throw new Error('Request này không thể hoàn thành ở trạng thái hiện tại.');
     await refreshRequestMessage(client, id);
 
     const rateChannel = await client.channels.fetch(config.channels.rate).catch(() => null);
@@ -236,8 +279,19 @@ export async function rateRequest(client: Client, guildId: string | null, id: nu
     if (!request) throw new Error('Không tìm thấy request.');
     if (request.requesterId !== reviewerId) throw new Error(tr(locale, 'request.rateNotAllowed'));
     if (!request.claimedById) throw new Error(tr(locale, 'request.rateNoTarget'));
+    if (request.status !== 'DONE') throw alreadyRatedError(locale);
 
     await prisma.$transaction(async tx => {
+        await lockVoteScores(tx);
+        // Atomic gate: only the DONE -> RATED transition pays out. A concurrent
+        // second click finds count === 0 and aborts the tx before any reward write,
+        // making the Scoin reward one-time and immutable.
+        const claimed = await tx.requestPost.updateMany({
+            where: { id, status: 'DONE' },
+            data: { status: 'RATED' }
+        });
+        if (claimed.count === 0) throw alreadyRatedError(locale);
+
         await tx.user.upsert({ where: { id: reviewerId }, update: {}, create: { id: reviewerId } });
         await tx.user.upsert({ where: { id: request.claimedById! }, update: {}, create: { id: request.claimedById! } });
         await tx.requestReview.upsert({
@@ -262,7 +316,6 @@ export async function rateRequest(client: Client, guildId: string | null, id: nu
                 metadata: `rating:${rating};reviewer:${reviewerId}`
             }
         });
-        await tx.requestPost.update({ where: { id }, data: { status: 'RATED' } });
     });
 
     await refreshRequestMessage(client, id);
