@@ -69,6 +69,19 @@ function extractCompletionText(json: any): string | null {
     return null;
 }
 
+// Some gateway models emit raw tool-call XML (e.g. <invoke name="web_search">...)
+// even when no tools are offered. We provide no tools, so strip any such block
+// before the text reaches Discord — otherwise users see junk XML instead of an answer.
+function stripToolCalls(text: string): string {
+    return text
+        .replace(/<(?:antml:)?invoke[\s\S]*?<\/(?:antml:)?invoke>/gi, '')
+        .replace(/<(?:antml:)?function_calls[\s\S]*?<\/(?:antml:)?function_calls>/gi, '')
+        .replace(/<(?:antml:)?parameter[\s\S]*?<\/(?:antml:)?parameter>/gi, '')
+        // Drop any stray unclosed tool-call opener at the tail.
+        .replace(/<(?:antml:)?(?:invoke|function_calls|parameter)\b[\s\S]*$/gi, '')
+        .trim();
+}
+
 // Describe the top-level shape of a response (keys + choice keys) for diagnostics
 // without dumping the full body.
 function describeShape(json: any): string {
@@ -108,7 +121,7 @@ export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<
             console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || JSON.stringify(json))}`);
             return null;
         }
-        const text = extractCompletionText(json);
+        const text = stripToolCalls(extractCompletionText(json) || '');
         if (!text || !text.trim()) {
             // Log the response SHAPE (keys only, redacted) so an unexpected gateway
             // format can be diagnosed without dumping secrets or full payloads.
