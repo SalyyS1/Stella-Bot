@@ -42,6 +42,43 @@ function completionsEndpoint(): string {
     return `${base}/v1/chat/completions`;
 }
 
+// Pull the answer text out of a completion response. Handles the OpenAI shape
+// plus a few gateway variants (content as an array of parts, Anthropic-style
+// content blocks, or a flat text field) so a non-standard gateway still works.
+function extractCompletionText(json: any): string | null {
+    if (!json || typeof json !== 'object') return null;
+    const choice = json.choices?.[0];
+    const msg = choice?.message;
+    // OpenAI standard: choices[0].message.content is a string.
+    if (typeof msg?.content === 'string') return msg.content;
+    // Some gateways return content as an array of parts [{type,text}] or [{text}].
+    if (Array.isArray(msg?.content)) {
+        const joined = msg.content.map((p: any) => (typeof p === 'string' ? p : p?.text || '')).join('');
+        if (joined.trim()) return joined;
+    }
+    // Legacy completions: choices[0].text
+    if (typeof choice?.text === 'string') return choice.text;
+    // Anthropic-style top-level content blocks.
+    if (Array.isArray(json.content)) {
+        const joined = json.content.map((p: any) => (typeof p === 'string' ? p : p?.text || '')).join('');
+        if (joined.trim()) return joined;
+    }
+    // Flat fallbacks.
+    if (typeof json.output_text === 'string') return json.output_text;
+    if (typeof json.text === 'string') return json.text;
+    return null;
+}
+
+// Describe the top-level shape of a response (keys + choice keys) for diagnostics
+// without dumping the full body.
+function describeShape(json: any): string {
+    if (!json || typeof json !== 'object') return typeof json;
+    const keys = Object.keys(json).join(',');
+    const choiceKeys = json.choices?.[0] ? Object.keys(json.choices[0]).join(',') : 'none';
+    const msgType = typeof json.choices?.[0]?.message?.content;
+    return `keys=[${keys}] choice0=[${choiceKeys}] message.content=${msgType}`;
+}
+
 export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<string | null> {
     if (!isAiEnabled()) {
         console.error('[aiClient] AI disabled: AI_API_KEY / base URL / model not set.');
@@ -71,9 +108,11 @@ export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<
             console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || JSON.stringify(json))}`);
             return null;
         }
-        const text = json?.choices?.[0]?.message?.content;
-        if (typeof text !== 'string' || !text.trim()) {
-            console.error('[aiClient] Empty/invalid completion response.');
+        const text = extractCompletionText(json);
+        if (!text || !text.trim()) {
+            // Log the response SHAPE (keys only, redacted) so an unexpected gateway
+            // format can be diagnosed without dumping secrets or full payloads.
+            console.error(`[aiClient] Empty/invalid completion. Shape: ${redactAi(describeShape(json))}`);
             return null;
         }
         return text.trim();
