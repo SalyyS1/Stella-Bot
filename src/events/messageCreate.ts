@@ -64,7 +64,7 @@ async function handleAiQa(message: Message): Promise<boolean> {
     // sendTyping is best-effort (.catch) so it can't throw between reserve and
     // answerQuestion — answerQuestion always runs and releases the slot in its finally.
     await (message.channel as any).sendTyping?.().catch(() => {});
-    const answer = await answerQuestion(message.author.id, question);
+    const answer = await answerQuestion(message.author.id, question, message.channelId);
     // Answers can be long (config/skill samples) → embed (4096/desc) + split.
     // First message pings the asker so their follow-up reply is attributable.
     const chunks = splitForDiscord(answer);

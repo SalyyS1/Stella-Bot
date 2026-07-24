@@ -25,7 +25,7 @@ export default {
         if (!gate.ok) {
             return interaction.editReply({ content: gateMessage(gate.reason) }).catch(() => {});
         }
-        const answer = await answerQuestion(interaction.user.id, question);
+        const answer = await answerQuestion(interaction.user.id, question, interaction.channelId);
         // Answers can be long (config/skill samples) → embed (4096/desc) + split.
         // First chunk pings the caller so a follow-up reply is attributable to them.
         const chunks = splitForDiscord(answer);
