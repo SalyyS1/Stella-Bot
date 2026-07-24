@@ -81,7 +81,7 @@ async function recomputeScoresForAuthors(authorIds: Set<string>): Promise<void> 
                 create: { id: authorId, expertScore, contributionScore }
             });
         }
-    });
+    }, { maxWait: 15_000, timeout: 60_000 });
 }
 
 async function syncVotesForMessage(message: Message, channelId: string): Promise<{ synced: number; changed: boolean; skipped: boolean }> {
