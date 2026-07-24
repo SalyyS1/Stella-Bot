@@ -116,7 +116,7 @@ async function fetchChangelog(): Promise<string | null> {
 // Build the report text via one AI call. Returns null if AI unavailable/empty.
 async function composeReport(chat: string, board: string, changelog: string | null, period: string): Promise<string | null> {
     const context = [
-        chat ? `<CHAT>\n${chat.slice(0, 12000)}\n</CHAT>` : '',
+        chat ? `<CHAT>\n${chat.slice(0, 8000)}\n</CHAT>` : '',
         board ? `<SERVICE_BOARD>\n${board}\n</SERVICE_BOARD>` : '',
         changelog ? `<MINECRAFT_CHANGELOG>\n${changelog}\n</MINECRAFT_CHANGELOG>` : ''
     ].filter(Boolean).join('\n\n');
@@ -136,7 +136,9 @@ async function composeReport(chat: string, board: string, changelog: string | nu
             { role: 'system', content: system },
             { role: 'user', content: `Bản tin ngày ${period}.\n\n${context}` }
         ],
-        { maxTokens: 1200 }
+        // Report is a nightly background job with a big prompt (a day of chat) —
+        // give the model far longer than the 30s Q&A default so it doesn't abort.
+        { maxTokens: 1200, timeoutMs: 90_000 }
     );
 }
 
