@@ -70,15 +70,21 @@ function extractCompletionText(json: any): string | null {
 }
 
 // Some gateway models emit raw tool-call XML (e.g. <invoke name="web_search">...)
-// even when no tools are offered. We provide no tools, so strip any such block
-// before the text reaches Discord — otherwise users see junk XML instead of an answer.
+// or a chain-of-thought / reasoning block (<thinking>…</thinking>) even when no
+// tools are offered and no reasoning was requested. We want neither in Discord, so
+// strip both before the text reaches the user — otherwise they see junk XML or the
+// model's internal monologue instead of the actual answer.
 function stripToolCalls(text: string): string {
     return text
+        // Reasoning / chain-of-thought blocks (various tag spellings gateways use).
+        .replace(/<(?:antml:)?think(?:ing)?[\s\S]*?<\/(?:antml:)?think(?:ing)?>/gi, '')
+        .replace(/<(?:antml:)?reasoning[\s\S]*?<\/(?:antml:)?reasoning>/gi, '')
+        // Tool-call XML.
         .replace(/<(?:antml:)?invoke[\s\S]*?<\/(?:antml:)?invoke>/gi, '')
         .replace(/<(?:antml:)?function_calls[\s\S]*?<\/(?:antml:)?function_calls>/gi, '')
         .replace(/<(?:antml:)?parameter[\s\S]*?<\/(?:antml:)?parameter>/gi, '')
-        // Drop any stray unclosed tool-call opener at the tail.
-        .replace(/<(?:antml:)?(?:invoke|function_calls|parameter)\b[\s\S]*$/gi, '')
+        // Drop any stray unclosed opener (thinking/tool-call) at the tail.
+        .replace(/<(?:antml:)?(?:think(?:ing)?|reasoning|invoke|function_calls|parameter)\b[\s\S]*$/gi, '')
         .trim();
 }
 

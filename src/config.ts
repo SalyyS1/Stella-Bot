@@ -119,6 +119,18 @@ export const config = {
         qaChannel: '1530093732500869231',
         qaCooldownMs: 20_000,   // light per-user cooldown to blunt spam
         qaMaxConcurrent: 3,     // global cap so simultaneous askers don't overload
+        // AI image generation (Gemini "Nano Banana"). Separate provider/key from
+        // the text endpoint above: text = agentgw, image = Google. Fail-closed:
+        // /imagine stays OFF until GEMINI_API_KEY is set. Gated like Q&A (cooldown +
+        // global cap) because image gen is slower and pricier than a text reply.
+        image: {
+            baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com',
+            model: process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
+            cooldownMs: 45_000,    // heavier per-user cooldown than text Q&A
+            maxConcurrent: 2,      // global cap on simultaneous image jobs
+            timeoutMs: 120_000,    // image gen is slow; allow well past the text timeout
+            maxPromptLen: 1000     // cap prompt length sent to the API
+        },
         // Seed catalog of popular plugin wikis (create-if-absent on ready).
         seedWikis: [
             { name: 'mythicmobs', url: 'https://git.luminemc.net/MythicCraft/MythicMobs/-/wikis/home', aliases: 'mythic,mm' },
