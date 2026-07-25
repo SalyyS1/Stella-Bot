@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { config } from '../config';
-import { isImageEnabled } from '../systems/geminiImageClient';
+import { isImageEnabled } from '../systems/imageGenClient';
 import { reserveImageSlot, imageGateMessage, runImage } from '../systems/imageManager';
 
 // /imagine <prompt> — AI image generation (Gemini "Nano Banana"). Gated like

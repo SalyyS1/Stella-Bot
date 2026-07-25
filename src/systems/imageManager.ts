@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { generateImage, isImageEnabled, GeneratedImage } from './geminiImageClient';
+import { generateImage, isImageEnabled, GeneratedImage } from './imageGenClient';
 
 // Community-facing AI image generation. Owns the spam/cost controls (per-user
 // cooldown, per-user single-in-flight, global concurrency cap) and delegates the
