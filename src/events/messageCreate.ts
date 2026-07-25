@@ -13,6 +13,7 @@ import { createCommunityRequest } from '../systems/requestManager';
 import { isSkillKey } from '../systems/skillRoleManager';
 import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
+import { handleTriviaAnswer } from '../systems/trivia-manager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -103,6 +104,13 @@ export default {
         // Reply vào tin bot trả lời người khác sẽ bị bỏ qua (chia luồng theo người).
         if (message.channelId === config.ai.qaChannel) {
             if (await handleAiQa(message)) return;
+        }
+
+        // Auto-trivia: in the chat channel, check if this message answers an open
+        // question. Best-effort and non-blocking — a win is credited but the message
+        // still flows through XP below (answering trivia is normal chatting).
+        if (message.channelId === config.trivia.channelId) {
+            await handleTriviaAnswer(message).catch(() => false);
         }
 
         if (message.channel?.isThread() && message.channel.parentId === config.channels.betterShowcase) {

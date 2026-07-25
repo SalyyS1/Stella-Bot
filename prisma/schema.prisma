@@ -36,6 +36,8 @@ model User {
   requestClaims RequestClaim[]
   requestReviews RequestReview[] @relation("RequestReviewer")
   receivedRequestReviews RequestReview[] @relation("RequestReviewTarget")
+  triviaWins TriviaWin[]
+  memberFacts MemberFact[]
 }
 
 model GuildSettings {
@@ -337,4 +339,29 @@ model WikiEntry {
   addedBy   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model TriviaWin {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  questionId String
+  reward     Int
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model MemberFact {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  fact      String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fact])
+  @@index([userId])
 }

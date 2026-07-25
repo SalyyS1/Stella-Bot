@@ -113,7 +113,7 @@ export const config = {
         // samples. Long output means slower generation, so timeout is raised to
         // match; the Q&A reply splits into multiple messages past Discord's 2000 limit.
         maxTokens: 4000,
-        temperature: 0.6,
+        temperature: 0.85, // giọng tự nhiên/lầy hơn (trước 0.6 hơi khô cho persona cà khịa)
         timeoutMs: 90_000,
         // Q&A assistant
         qaChannel: '1530093732500869231',
@@ -144,6 +144,26 @@ export const config = {
             { name: 'citizens', url: 'https://wiki.citizensnpcs.co/', aliases: 'npc' },
             { name: 'worldguard', url: 'https://worldguard.enginehub.org/en/latest/', aliases: 'wg' }
         ] as { name: string; url: string; aliases: string }[]
+    },
+    // Trivia tự động: Stella đăng câu đố Minecraft ở kênh chat, random 3-4 lần/ngày,
+    // né giờ ngủ (1h-8h VN). Người trả lời đúng ĐẦU TIÊN nhận Scoin; cap chống farm.
+    trivia: {
+        channelId: '943893730123980881', // = channels.chat
+        perDayMin: 3,                     // số lần đăng tối thiểu / ngày
+        perDayMax: 4,                     // số lần đăng tối đa / ngày
+        quietStartHour: 1,                // không đăng từ 1h...
+        quietEndHour: 8,                  // ...đến 8h (giờ Asia/Saigon)
+        answerWindowMs: 90_000,           // thời gian mở mỗi câu trước khi hết hạn
+        reward: 8,                        // Scoin cho người đúng đầu tiên (< showcase 30)
+        maxWinsPerDay: 5                  // cap thắng / người / ngày (chống farm)
+    },
+    // Bộ nhớ thành viên: Stella nhớ "fact" ngắn từ chat CÔNG KHAI để cà khịa cá nhân
+    // hoá. Fail-closed: tắt trừ khi STELLA_MEMORY_ENABLED=true (bật sau khi voice/trivia ổn).
+    memory: {
+        enabled: process.env.STELLA_MEMORY_ENABLED === 'true',
+        maxFactsPerUser: 8,               // giữ tối đa N fact / người (xoá cũ nhất khi vượt)
+        minChars: 4,                      // độ dài fact tối thiểu để lưu
+        maxChars: 200                     // độ dài fact tối đa để lưu
     },
     report: {
         // Nightly AI report (replaces the old plain digest). Posts to a forum channel.
