@@ -58,6 +58,19 @@ async function extractImage(json: any): Promise<GeneratedImage | null> {
         const data = Buffer.from(first.b64_json, 'base64');
         return { data, mimeType: sniffMime(data) };
     }
+    // Some gateways ignore response_format and return a hosted URL instead of
+    // inline base64. Fetch it so the caller still gets bytes to attach.
+    if (typeof first.url === 'string' && first.url.length) {
+        try {
+            const imgRes = await fetch(first.url);
+            if (!imgRes.ok) return null;
+            const data = Buffer.from(await imgRes.arrayBuffer());
+            if (!data.length) return null;
+            return { data, mimeType: sniffMime(data) };
+        } catch {
+            return null;
+        }
+    }
     return null;
 }
 
@@ -81,7 +94,10 @@ export async function generateImage(prompt: string): Promise<GeneratedImage | nu
             body: JSON.stringify({
                 model: config.ai.image.model,
                 prompt: prompt.slice(0, config.ai.image.maxPromptLen),
-                n: 1
+                n: 1,
+                // Ask for inline base64 so we get bytes directly. Gateways that
+                // ignore this fall through to the data[0].url path in extractImage.
+                response_format: 'b64_json'
             }),
             signal: controller.signal
         });
