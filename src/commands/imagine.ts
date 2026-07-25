@@ -32,10 +32,18 @@ export default {
         const transparent = interaction.options.getBoolean('transparent') ?? false;
         const assetMode = size !== null || transparent;
 
-        // For resource-pack assets, steer the model toward flat pixel art on a
-        // plain background so downscaling stays crisp and background removal is clean.
+        // For resource-pack assets, steer the model hard toward a single readable
+        // Minecraft item icon. The subject must survive downscaling to 16-32px, so
+        // demand a bold silhouette, thick outline, flat colors, and high contrast —
+        // a "burning sword" rendered freely turns into a red blob at 16px otherwise.
+        // Background is a flat chroma green (not white: white collides with metal
+        // highlights and the flood-fill would eat into the blade).
         const genPrompt = assetMode
-            ? `${prompt}, minecraft resource pack asset, pixel art, flat solid plain white background, centered single object, no shadow`
+            ? `${prompt}. Single Minecraft item icon sprite, classic pixel-art texture style, `
+              + `one object only, centered, filling the frame, viewed straight-on. `
+              + `Bold readable silhouette, thick dark outline, flat cel-shaded colors, `
+              + `limited palette, high contrast, no gradients, no soft shadows, no realism, `
+              + `no text. Solid flat chroma-key green background (#00ff00).`
             : prompt;
 
         // Defer FIRST, then reserve — so there is no awaited gap between reserving
