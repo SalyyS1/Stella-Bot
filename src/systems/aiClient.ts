@@ -117,14 +117,33 @@ export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<
                 model: config.ai.model,
                 messages,
                 max_tokens: opts.maxTokens ?? config.ai.maxTokens,
-                temperature: opts.temperature ?? config.ai.temperature
+                temperature: opts.temperature ?? config.ai.temperature,
+                // Explicitly non-streaming: some gateways default to SSE, which
+                // would arrive as `data: {...}` lines that JSON.parse can't read.
+                stream: false
             }),
             signal: controller.signal
         });
 
-        const json: any = await res.json().catch(() => ({}));
+        // Read the raw body ONCE as text, then parse. This way a non-JSON body
+        // (SSE stream, HTML error page, empty body) can be logged verbatim
+        // (redacted, truncated) instead of being silently swallowed into `{}` —
+        // which is what hid the real gateway response behind "Shape: keys=[]".
+        const raw = await res.text().catch(() => '');
+        let json: any = null;
+        try {
+            json = raw ? JSON.parse(raw) : null;
+        } catch {
+            json = null;
+        }
         if (!res.ok) {
-            console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || JSON.stringify(json))}`);
+            console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || raw)}`);
+            return null;
+        }
+        if (!json) {
+            // 200 OK but body isn't JSON — log the raw head so the actual gateway
+            // format (SSE? plain text? error HTML?) is visible next time.
+            console.error(`[aiClient] Non-JSON 200 body: ${redactAi(raw.slice(0, 300))}`);
             return null;
         }
         const text = stripToolCalls(extractCompletionText(json) || '');
