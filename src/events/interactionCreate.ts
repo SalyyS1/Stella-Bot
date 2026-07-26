@@ -344,15 +344,19 @@ export default {
                     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(title));
                     await showModalSafely(interaction, modal, client, 'showcase_settings');
                 } else if (type === 'optout') {
+                    // Ack first — optOutShowcase does DB work plus an awaited admin
+                    // log send, which can exceed the 3s interaction window.
+                    const acknowledged = await safeDeferUpdate(interaction);
+                    if (!acknowledged) return;
                     const ok = await optOutShowcase(client, messageId, interaction.user);
                     if (!ok) {
-                        return interaction.reply({ content: `${config.ui.emojis.error} Không thể opt out bài showcase này.`, flags: MessageFlags.Ephemeral });
+                        return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không thể opt out bài showcase này.`, flags: MessageFlags.Ephemeral });
                     }
                     const rendered = await renderShowcaseControl(client, messageId, interaction.user);
                     if (rendered) {
-                        await interaction.update(rendered);
+                        await interaction.editReply(rendered).catch(() => {});
                     } else {
-                        await interaction.reply({ content: `${config.ui.emojis.success} Đã opt out showcase.`, flags: MessageFlags.Ephemeral });
+                        await safeInteractionReply(interaction, { content: `${config.ui.emojis.success} Đã opt out showcase.`, flags: MessageFlags.Ephemeral });
                     }
                 }
                 return;
@@ -525,41 +529,48 @@ export default {
                     return;
                 }
 
-                if (action === 'close') {
-                    const oldEmbed = interaction.message.embeds[0];
-                    if (!oldEmbed) return;
+                try {
+                    if (action === 'close') {
+                        const oldEmbed = interaction.message.embeds[0];
+                        if (!oldEmbed) return;
 
-                    const newEmbed = EmbedBuilder.from(oldEmbed)
-                        .setColor('Red')
-                        .setTitle('[CLOSED] ' + (oldEmbed.title?.replace('[CLOSED] ', '') || ''))
-                        .setFooter({ text: 'Trạng thái: Đã đóng (Tìm được người/Xong)' });
+                        const newEmbed = EmbedBuilder.from(oldEmbed)
+                            .setColor('Red')
+                            .setTitle('[CLOSED] ' + (oldEmbed.title?.replace('[CLOSED] ', '') || ''))
+                            .setFooter({ text: 'Trạng thái: Đã đóng (Tìm được người/Xong)' });
 
-                    const components = interaction.message.components.map((row: any) => {
-                        const actionRow = new ActionRowBuilder<ButtonBuilder>();
-                        row.components.forEach((c: any) => {
-                            if (c.type === 2) {
-                                actionRow.addComponents(ButtonBuilder.from(c as any).setDisabled(true));
-                            }
+                        const components = interaction.message.components.map((row: any) => {
+                            const actionRow = new ActionRowBuilder<ButtonBuilder>();
+                            row.components.forEach((c: any) => {
+                                if (c.type === 2) {
+                                    actionRow.addComponents(ButtonBuilder.from(c as any).setDisabled(true));
+                                }
+                            });
+                            return actionRow;
                         });
-                        return actionRow;
-                    });
 
-                    await interaction.update({ embeds: [newEmbed], components: components });
-                    await interaction.followUp({ content: `${config.ui.emojis.success} Đã đóng bài đăng thành công!`, flags: MessageFlags.Ephemeral });
-                } else if (action === 'bump') {
-                    const oldEmbed = interaction.message.embeds[0];
-                    const oldComponents = interaction.message.components;
-                    const oldContent = interaction.message.content;
+                        await interaction.update({ embeds: [newEmbed], components: components });
+                        await interaction.followUp({ content: `${config.ui.emojis.success} Đã đóng bài đăng thành công!`, flags: MessageFlags.Ephemeral });
+                    } else if (action === 'bump') {
+                        const oldEmbed = interaction.message.embeds[0];
+                        const oldComponents = interaction.message.components;
+                        const oldContent = interaction.message.content;
 
-                    await interaction.message.delete().catch(() => {});
-                    
-                    await (interaction.channel as TextChannel).send({
-                        content: oldContent,
-                        embeds: [oldEmbed],
-                        components: oldComponents as any
-                    });
+                        // Repost BEFORE deleting: if the send fails (e.g. missing
+                        // permission), the original post must survive instead of
+                        // being destroyed with nothing to replace it.
+                        await (interaction.channel as TextChannel).send({
+                            content: oldContent,
+                            embeds: [oldEmbed],
+                            components: oldComponents as any
+                        });
+                        await interaction.message.delete().catch(() => {});
 
-                    await interaction.reply({ content: `${config.ui.emojis.bump} Đã bump bài lên top!`, flags: MessageFlags.Ephemeral });
+                        await interaction.reply({ content: `${config.ui.emojis.bump} Đã bump bài lên top!`, flags: MessageFlags.Ephemeral });
+                    }
+                } catch (error) {
+                    console.error('[interaction] close/bump failed:', error);
+                    await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không thể xử lý bài đăng. Vui lòng thử lại.`, flags: MessageFlags.Ephemeral });
                 }
                 return;
             }
@@ -567,13 +578,17 @@ export default {
             if (interaction.customId.startsWith('showcase_tag_')) {
                 const messageId = interaction.customId.replace('showcase_tag_', '');
                 const tagName = interaction.values[0];
+                // Ack first — updateShowcaseTag does DB work plus an awaited admin
+                // log send, which can exceed the 3s interaction window.
+                const acknowledged = await safeDeferUpdate(interaction);
+                if (!acknowledged) return;
                 const ok = await updateShowcaseTag(client, messageId, interaction.user, tagName);
                 if (!ok) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} Không thể đổi tag showcase này.`, flags: MessageFlags.Ephemeral });
+                    return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không thể đổi tag showcase này.`, flags: MessageFlags.Ephemeral });
                 }
                 const rendered = await renderShowcaseControl(client, messageId, interaction.user);
-                if (rendered) await interaction.update(rendered);
-                else await interaction.reply({ content: `${config.ui.emojis.success} Đã đổi tag thành ${tagName}.`, flags: MessageFlags.Ephemeral });
+                if (rendered) await interaction.editReply(rendered).catch(() => {});
+                else await safeInteractionReply(interaction, { content: `${config.ui.emojis.success} Đã đổi tag thành ${tagName}.`, flags: MessageFlags.Ephemeral });
             }
             // Skill picked for a new request → open the create modal carrying the skill.
             else if (interaction.customId.startsWith('skill_select_')) {
@@ -653,11 +668,15 @@ export default {
             else if (interaction.customId.startsWith('showcasetitle_')) {
                 const messageId = interaction.customId.replace('showcasetitle_', '');
                 const title = interaction.fields.getTextInputValue('title');
+                // Ack first — updateShowcaseTitle does DB work plus an awaited admin
+                // log send, which can exceed the 3s interaction window.
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
                 const ok = await updateShowcaseTitle(client, messageId, interaction.user, title);
                 if (!ok) {
-                    return interaction.reply({ content: `${config.ui.emojis.error} Không thể đổi title showcase này.`, flags: MessageFlags.Ephemeral });
+                    return await interaction.editReply({ content: `${config.ui.emojis.error} Không thể đổi title showcase này.` }).catch(() => {});
                 }
-                await interaction.reply({ content: `${config.ui.emojis.success} Đã cập nhật title showcase.`, flags: MessageFlags.Ephemeral });
+                await interaction.editReply({ content: `${config.ui.emojis.success} Đã cập nhật title showcase.` }).catch(() => {});
             }
             else if (interaction.customId === 'serverads_modal') {
                 const acknowledged = await safeDeferEphemeral(interaction);

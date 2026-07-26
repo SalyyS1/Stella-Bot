@@ -176,6 +176,17 @@ async function punishActor(guild: Guild, actorId: string, reason: string): Promi
     return attempted ? 'punishment-failed' : 'no-permission';
 }
 
+// Members holding the trusted role are exempt from automated punishment — the
+// event is still logged so admins see it. This protects legitimate staff doing
+// bulk setup (e.g. creating several channels for an event) from being banned by
+// threshold triggers. The suspected-compromised-self-token case is never exempt.
+async function isTrustedActor(guild: Guild, actorId: string): Promise<boolean> {
+    const trustedRoleId = config.roles.trusted;
+    if (!trustedRoleId) return false;
+    const member = await guild.members.fetch(actorId).catch(() => null);
+    return Boolean(member?.roles.cache.has(trustedRoleId));
+}
+
 async function recordAndMaybePunish(
     client: Client,
     guild: Guild,
@@ -187,9 +198,12 @@ async function recordAndMaybePunish(
     const count = addStrike(actorId, action);
     const selfActor = isSelf(client, actorId);
     const shouldPunish = selfActor || count >= threshold(action);
-    const result = shouldPunish
-        ? await punishActor(guild, actorId, `${config.antiRaid.punishmentReason}: ${action}`)
-        : 'watching';
+    const trusted = shouldPunish && !selfActor && await isTrustedActor(guild, actorId);
+    const result = trusted
+        ? 'trusted-role-exempt'
+        : shouldPunish
+            ? await punishActor(guild, actorId, `${config.antiRaid.punishmentReason}: ${action}`)
+            : 'watching';
 
     await sendAdminLog(client, {
         title: selfActor ? 'CRITICAL: Stella self-action blocked' : shouldPunish ? 'Anti-raid action blocked' : 'Anti-raid event detected',
@@ -303,8 +317,11 @@ export async function guardChannelCreate(channel: GuildBasedChannel): Promise<vo
 
     const count = actorId ? addStrike(actorId, 'channelCreate') : 0;
     const shouldDelete = Boolean(actorId && (isSelf(channel.client, actorId) || count >= threshold('channelCreate')));
-    let result = shouldDelete ? await punishActor(channel.guild, actorId!, `${config.antiRaid.punishmentReason}: channelCreate`) : 'watching';
-    if (shouldDelete && canManageChannels(channel.guild)) {
+    const trusted = shouldDelete && !isSelf(channel.client, actorId) && await isTrustedActor(channel.guild, actorId!);
+    let result = trusted
+        ? 'trusted-role-exempt'
+        : shouldDelete ? await punishActor(channel.guild, actorId!, `${config.antiRaid.punishmentReason}: channelCreate`) : 'watching';
+    if (shouldDelete && !trusted && canManageChannels(channel.guild)) {
         const deleted = await channel.delete(`${config.antiRaid.punishmentReason}: mass channel create`)
             .then(() => true)
             .catch(() => false);

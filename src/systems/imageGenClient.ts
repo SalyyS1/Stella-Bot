@@ -51,7 +51,7 @@ function sniffMime(buf: Buffer): string {
 // Pull the first image out of an images-generations response. Handles the OpenAI
 // shape: data[0].b64_json (base64 bytes). Falls back to data[0].url if a gateway
 // returns a URL instead of inline bytes (fetched separately).
-async function extractImage(json: any): Promise<GeneratedImage | null> {
+async function extractImage(json: any, signal?: AbortSignal): Promise<GeneratedImage | null> {
     const first = json?.data?.[0];
     if (!first) return null;
     if (typeof first.b64_json === 'string' && first.b64_json.length) {
@@ -59,10 +59,12 @@ async function extractImage(json: any): Promise<GeneratedImage | null> {
         return { data, mimeType: sniffMime(data) };
     }
     // Some gateways ignore response_format and return a hosted URL instead of
-    // inline base64. Fetch it so the caller still gets bytes to attach.
+    // inline base64. Fetch it so the caller still gets bytes to attach. The
+    // caller's abort signal must cover this fetch too — otherwise a slow image
+    // host holds an image slot far beyond the configured timeout.
     if (typeof first.url === 'string' && first.url.length) {
         try {
-            const imgRes = await fetch(first.url);
+            const imgRes = await fetch(first.url, { signal });
             if (!imgRes.ok) return null;
             const data = Buffer.from(await imgRes.arrayBuffer());
             if (!data.length) return null;
@@ -107,7 +109,7 @@ export async function generateImage(prompt: string): Promise<GeneratedImage | nu
             console.error(`[imageGen] HTTP ${res.status}: ${redact(json?.error?.message || JSON.stringify(json))}`);
             return null;
         }
-        const image = await extractImage(json);
+        const image = await extractImage(json, controller.signal);
         if (!image) {
             console.error(`[imageGen] empty/blocked response: ${redact(JSON.stringify(json).slice(0, 200))}`);
             return null;
