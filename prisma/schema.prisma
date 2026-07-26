@@ -20,6 +20,9 @@ model User {
   // Hệ thống Daily
   lastDaily     DateTime?
   dailyStreak   Int      @default(0)
+  // Nhiệm vụ ngày: streak = số ngày liên tiếp hoàn thành đủ quest trong ngày
+  questStreak   Int      @default(0)
+  lastQuestDay  String?  // ngày (Asia/Saigon, yyyy-MM-dd) gần nhất hoàn thành đủ quest
   createdAt     DateTime @default(now())
   // Onboarding / freelancer retention (Phase 5)
   joinedAt      DateTime? // persisted on guildMemberAdd; enables 7-day retention metric
@@ -38,6 +41,10 @@ model User {
   receivedRequestReviews RequestReview[] @relation("RequestReviewTarget")
   triviaWins TriviaWin[]
   memberFacts MemberFact[]
+  dailyQuests DailyQuest[]
+  shopPurchases ShopPurchase[]
+  weeklyActivity WeeklyActivity[]
+  birthday Birthday?
 }
 
 model GuildSettings {
@@ -364,4 +371,77 @@ model MemberFact {
 
   @@unique([userId, fact])
   @@index([userId])
+}
+
+// Nhiệm vụ ngày: mỗi người 3 quest ngẫu nhiên / ngày (gán lazy khi có hoạt động
+// đầu tiên). Hoàn thành tự cộng Scoin; unique chặn gán trùng khi race.
+model DailyQuest {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  day       String   // ngày Asia/Saigon, yyyy-MM-dd
+  questKey  String   // khóa catalog trong quest-manager (chat/daily/trivia/vote/star)
+  target    Int
+  progress  Int      @default(0)
+  completed Boolean  @default(false)
+  reward    Int      // Scoin trả khi hoàn thành
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, questKey])
+  @@index([userId, day])
+}
+
+// Role màu do Stella tự tạo cho Shop; lưu id để tái dùng thay vì tạo lại.
+model ShopColorRole {
+  key       String   @id // khóa màu trong config.shop.colors
+  roleId    String
+  createdAt DateTime @default(now())
+}
+
+// Nhật ký mua hàng Shop (đối soát; số dư trừ qua ScoinTransaction).
+model ShopPurchase {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  itemKey   String
+  price     Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Hoạt động theo tuần (weekKey = ngày thứ 2 đầu tuần Asia/Saigon, yyyy-MM-dd).
+// Cộng dồn từ hook XP; dùng để xếp hạng thưởng tuần.
+model WeeklyActivity {
+  userId   String
+  weekKey  String
+  messages Int    @default(0)
+  xp       Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, weekKey])
+  @@index([weekKey])
+}
+
+// Chốt mỗi tuần chỉ trao thưởng 1 lần: insert (unique weekKey) TRƯỚC khi trao —
+// restart giữa chừng không thể trao lần 2.
+model WeeklyRewardRun {
+  weekKey String   @id
+  ranAt   DateTime @default(now())
+}
+
+// Sinh nhật thành viên tự đăng ký. lastCelebratedYear chặn chúc trùng trong năm.
+model Birthday {
+  userId             String   @id
+  day                Int
+  month              Int
+  lastCelebratedYear Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([month, day])
 }

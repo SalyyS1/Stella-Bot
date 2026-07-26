@@ -3,6 +3,8 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { markInternalAntiRaidAction } from './antiRaidManager';
 import { adjustScoinTx, levelScoinReward } from './scoinManager';
+import { recordQuestProgress } from './quest-manager';
+import { recordWeeklyActivity } from './weekly-reward-manager';
 
 // ═══════════════════════════════════════════════
 // 🌟 STELLA SPIRAL — Công thức XP độc quyền
@@ -110,6 +112,10 @@ export async function processMessageXp(userId: string, content: string, guild: G
     });
 
     if (result.leveledUp && member) await updateLevelRole(guild, member, result.newLevel);
+    // Fire-and-forget community hooks: quest "chat" progress + weekly activity.
+    // Both are internally no-throw; must never delay or fail the XP path.
+    recordQuestProgress(userId, 'chat').catch(() => {});
+    recordWeeklyActivity(userId, result.xpGained).catch(() => {});
     return result;
 }
 

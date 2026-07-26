@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../lib/prisma';
 import { adjustScoinTx } from '../systems/scoinManager';
+import { recordQuestProgress } from '../systems/quest-manager';
 import { config } from '../config';
 
 const LEGACY_STAR_VALUES = { dust: 2, small: 8, bright: 25, comet: 75, galaxy: 220 } as const;
@@ -514,6 +515,9 @@ export default {
                     const left = current?.lastHuntAt ? Math.max(1, Math.ceil((cooldown - (Date.now() - current.lastHuntAt.getTime())) / 1000)) : 1;
                     return interaction.editReply(`Lượt hái sao khác vừa hoàn tất. Chờ thêm **${left}s** rồi thử lại nhé.`);
                 }
+
+                // Quest "star" counts each successful harvest (fire-and-forget).
+                recordQuestProgress(userId, 'star').catch(() => {});
 
                 const item = ITEM_CATALOG[itemKey];
                 const card = await renderHuntCard({

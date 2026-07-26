@@ -9,6 +9,8 @@ import { reconcilePendingCrossPosts } from '../systems/facebookCrossPostManager'
 import { ensureVerifiedRole } from '../systems/freelancerManager';
 import { seedWikis } from '../systems/wikiManager';
 import { startTriviaScheduler } from '../systems/trivia-scheduler';
+import { startWeeklyRewardScheduler } from '../systems/weekly-reward-manager';
+import { startBirthdayScheduler } from '../systems/birthday-manager';
 
 export default {
     name: Events.ClientReady,
@@ -20,6 +22,8 @@ export default {
         startGiveawayScheduler(client);
         startReportScheduler(client);
         startTriviaScheduler(client);
+        startWeeklyRewardScheduler(client);
+        startBirthdayScheduler(client);
         // Single-guild bot: create/persist skill roles for request routing on the
         // primary guild. Lazy — safe to re-run; reuses existing roles by id/name.
         const guild = client.guilds.cache.first();

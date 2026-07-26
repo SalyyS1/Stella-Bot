@@ -165,6 +165,47 @@ export const config = {
         minChars: 4,                      // độ dài fact tối thiểu để lưu
         maxChars: 200                     // độ dài fact tối đa để lưu
     },
+    // Nhiệm vụ ngày: 3 quest ngẫu nhiên / người / ngày, tự cộng Scoin khi hoàn thành.
+    // Gán lazy khi có hoạt động đầu tiên trong ngày — không cần scheduler riêng.
+    quests: {
+        enabled: true,
+        perDay: 3,
+        allDoneBonusBase: 20,     // bonus khi hoàn thành đủ quest trong ngày
+        allDoneBonusPerStreak: 2, // + mỗi ngày streak liên tiếp
+        allDoneBonusCap: 40       // trần bonus (chống lạm phát)
+    },
+    // Shop Scoin: đổi màu tên bằng role màu do Stella tự tạo & quản lý (sink kinh tế).
+    shop: {
+        enabled: true,
+        colorRolePrice: 200,
+        colors: [
+            { key: "ruby",     label: "Ruby Đỏ",      hex: "#e74c3c" },
+            { key: "coral",    label: "San Hô",       hex: "#ff7f50" },
+            { key: "gold",     label: "Hoàng Kim",    hex: "#f1c40f" },
+            { key: "emerald",  label: "Ngọc Lục Bảo", hex: "#2ecc71" },
+            { key: "aqua",     label: "Xanh Ngọc",    hex: "#1abc9c" },
+            { key: "sapphire", label: "Sapphire",     hex: "#3498db" },
+            { key: "orchid",   label: "Lan Tím",      hex: "#9b59b6" },
+            { key: "rose",     label: "Hồng Anh Đào", hex: "#ff6b9d" },
+            { key: "slate",    label: "Xám Khói",     hex: "#95a5a6" },
+            { key: "midnight", label: "Nửa Đêm",      hex: "#34495e" }
+        ]
+    },
+    // Bảng vàng tuần: sáng thứ 2 tổng kết XP tuần trước, thưởng Scoin top 3.
+    weeklyRewards: {
+        enabled: true,
+        channelId: '943893730123980881', // = channels.chat
+        announceHour: 9,                 // 9h sáng thứ 2 (giờ host, Asia/Saigon)
+        prizes: [150, 100, 50],          // Scoin cho hạng 1/2/3
+        minXp: 1                         // cần có hoạt động mới được xếp hạng
+    },
+    // Sinh nhật: thành viên tự đăng ký, Stella chúc mừng + tặng Scoin mỗi sáng.
+    birthday: {
+        enabled: true,
+        channelId: '943893730123980881', // = channels.chat
+        announceHour: 8,                 // 8h sáng (giờ host, Asia/Saigon)
+        gift: 100                        // Scoin quà sinh nhật
+    },
     report: {
         // Nightly AI report (replaces the old plain digest). Posts to a forum channel.
         forumChannel: '1530077329102078042',

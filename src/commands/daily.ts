@@ -5,6 +5,7 @@ import { calculateDailyXp, xpToNextLevel, updateLevelRole } from '../systems/xpM
 import { renderDailyCard } from '../systems/cardRenderer';
 import { sendAdminLog } from '../utils/adminLog';
 import { adjustScoinTx, dailyScoinReward, levelScoinReward } from '../systems/scoinManager';
+import { recordQuestProgress } from '../systems/quest-manager';
 
 export default {
     data: new SlashCommandBuilder()
@@ -80,6 +81,9 @@ export default {
                     levelReward
                 };
             });
+
+            // Quest "daily" progresses only on a real claim (fire-and-forget).
+            if (result.claimed) recordQuestProgress(userId, 'daily').catch(() => {});
 
             if (!result.claimed) {
                 const resetParts = new Intl.DateTimeFormat('en-US', {

@@ -5,6 +5,7 @@ import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { maybePublishShowcase } from './showcaseManager';
 import { adjustScoinTx, SCOIN_REWARDS } from './scoinManager';
 import { lockVoteScores } from './voteScoreLock';
+import { recordQuestProgress } from './quest-manager';
 
 const upvoteId = config.ui.emojis.upvote.match(/:(\d+)>/)?.[1];
 const downvoteId = config.ui.emojis.downvote.match(/:(\d+)>/)?.[1];
@@ -139,6 +140,8 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
         return { changed: true, previousValue: existing?.value ?? null };
     });
     if (!result.changed) return;
+    // Quest "vote" counts only brand-new votes (not plus<->minus switches).
+    if (result.previousValue === null) recordQuestProgress(user.id, 'vote').catch(() => {});
 
     if (result.previousValue !== null) {
         await sendAdminLog(client, {

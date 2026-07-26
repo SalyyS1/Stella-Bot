@@ -2,6 +2,7 @@ import { Client, EmbedBuilder, Message, TextBasedChannel } from 'discord.js';
 import { config } from '../config';
 import prisma from '../lib/prisma';
 import { adjustScoin } from './scoinManager';
+import { recordQuestProgress } from './quest-manager';
 import questionBank from '../data/trivia-questions.json';
 
 // Auto-trivia game. Stella posts a Minecraft quiz to the chat channel a few times
@@ -102,6 +103,9 @@ export async function handleTriviaAnswer(message: Message): Promise<boolean> {
     active = null;
 
     try {
+        // Quest "trivia" counts any claimed correct answer, even past the daily
+        // Scoin cap — the quest rewards participation, not the trivia payout.
+        recordQuestProgress(message.author.id, 'trivia').catch(() => {});
         const already = await winsToday(message.author.id);
         if (already >= config.trivia.maxWinsPerDay) {
             await message.reply(
