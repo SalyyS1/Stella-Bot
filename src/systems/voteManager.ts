@@ -139,7 +139,15 @@ export async function handleVoteAdd(reaction: MessageReaction | PartialMessageRe
         }
         return { changed: true, previousValue: existing?.value ?? null };
     });
-    if (!result.changed) return;
+    // An unchanged vote still gets a publish check below: re-clicking the reaction
+    // is exactly what a member does when a post looks stuck, and that gesture is
+    // the only manual retry they have.
+    if (!result.changed) {
+        if (message.channelId === config.channels.showcase) {
+            await maybePublishShowcase(client, message).catch(() => false);
+        }
+        return;
+    }
     // Quest "vote" counts only brand-new votes (not plus<->minus switches).
     if (result.previousValue === null) recordQuestProgress(user.id, 'vote').catch(() => {});
 

@@ -125,7 +125,10 @@ async function syncVotesForMessage(message: Message, channelId: string): Promise
     });
 }
 
-export async function ensureRecentVoteReactions(client: Client, limit = 50): Promise<{ scanned: number; reacted: number; synced: number; published: number }> {
+// limit=100 is Discord's max for a single messages.fetch, so widening the startup
+// window from 50 costs no extra API call. Votes cast while the bot was offline on
+// posts older than this are recovered by /maintenance backfill-votes (300 deep).
+export async function ensureRecentVoteReactions(client: Client, limit = 100): Promise<{ scanned: number; reacted: number; synced: number; published: number }> {
     const channels = [config.channels.share, config.channels.showcase];
     let scanned = 0;
     let reacted = 0;
@@ -144,28 +147,35 @@ export async function ensureRecentVoteReactions(client: Client, limit = 50): Pro
             if (channelId === config.channels.share && message.attachments.size === 0 && !/(https?:\/\/[^\s]+)/i.test(message.content)) continue;
 
             scanned++;
-            reacted += await reactIfMissing(message);
+            // Isolate each message: a single DB/API hiccup used to abort the whole
+            // startup self-heal, including the publish pass that runs after it.
+            try {
+                reacted += await reactIfMissing(message);
 
-            if (channelId === config.channels.showcase) {
-                await prisma.showcasePost.upsert({
-                    where: { messageId: message.id },
-                    update: {
-                        channelId,
-                        authorId: message.author!.id
-                    },
-                    create: {
-                        messageId: message.id,
-                        channelId,
-                        authorId: message.author!.id,
-                        title: `Showcase by ${message.author!.username}`,
-                        tagName: 'Nothing'
-                    }
-                }).catch(() => {});
+                if (channelId === config.channels.showcase) {
+                    // Create-only: an `update` payload here would bump @updatedAt on every
+                    // existing row, which resets the stale publish lease that
+                    // publishEligibleShowcases (called right after) relies on to retry a
+                    // post stuck mid-publish. Touching nothing keeps that recovery armed.
+                    await prisma.showcasePost.upsert({
+                        where: { messageId: message.id },
+                        update: {},
+                        create: {
+                            messageId: message.id,
+                            channelId,
+                            authorId: message.author!.id,
+                            title: `Showcase by ${message.author!.username}`,
+                            tagName: 'Nothing'
+                        }
+                    }).catch(() => {});
+                }
+
+                const result = await syncVotesForMessage(message, channelId);
+                synced += result.synced;
+                if (result.changed) affectedAuthors.add(message.author!.id);
+            } catch (error) {
+                console.error(`Vote self-heal failed for message ${message.id}:`, error);
             }
-
-            const result = await syncVotesForMessage(message, channelId);
-            synced += result.synced;
-            if (result.changed) affectedAuthors.add(message.author!.id);
         }
     }
 
@@ -249,28 +259,34 @@ export async function backfillVotesAndScores(client: Client): Promise<{ scanned:
             if (channelId === shareId && message.attachments.size === 0 && !/(https?:\/\/[^\s]+)/i.test(message.content)) continue;
 
             scanned++;
-            reacted += await reactIfMissing(message);
+            // Isolate each message: a single DB/API hiccup must not abort the whole
+            // deep backfill (which would also skip the score recompute below).
+            try {
+                reacted += await reactIfMissing(message);
 
-            if (channelId === showcaseId) {
-                const existingPost = await prisma.showcasePost.findUnique({ where: { messageId: message.id }, select: { messageId: true } });
-                await prisma.showcasePost.upsert({
-                    where: { messageId: message.id },
-                    update: {},
-                    create: {
-                        messageId: message.id,
-                        channelId,
-                        authorId: message.author!.id,
-                        title: `Showcase by ${message.author!.username}`,
-                        tagName: 'Nothing'
-                    }
-                }).catch(() => {});
-                if (!existingPost) created++;
-            }
+                if (channelId === showcaseId) {
+                    const existingPost = await prisma.showcasePost.findUnique({ where: { messageId: message.id }, select: { messageId: true } });
+                    await prisma.showcasePost.upsert({
+                        where: { messageId: message.id },
+                        update: {},
+                        create: {
+                            messageId: message.id,
+                            channelId,
+                            authorId: message.author!.id,
+                            title: `Showcase by ${message.author!.username}`,
+                            tagName: 'Nothing'
+                        }
+                    }).catch(() => {});
+                    if (!existingPost) created++;
+                }
 
-            const result = await syncVotesForMessage(message, channelId);
-            votes += result.synced;
-            if (channelId === showcaseId) {
-                if (await maybePublishShowcase(client, message)) published++;
+                const result = await syncVotesForMessage(message, channelId);
+                votes += result.synced;
+                if (channelId === showcaseId) {
+                    if (await maybePublishShowcase(client, message)) published++;
+                }
+            } catch (error) {
+                console.error(`[backfill] message ${message.id} failed:`, error);
             }
         }
     }

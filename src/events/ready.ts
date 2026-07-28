@@ -9,6 +9,7 @@ import { reconcilePendingCrossPosts } from '../systems/facebookCrossPostManager'
 import { ensureVerifiedRole } from '../systems/freelancerManager';
 import { seedWikis } from '../systems/wikiManager';
 import { startTriviaScheduler } from '../systems/trivia-scheduler';
+import { startShowcaseScheduler } from '../systems/showcaseManager';
 import { startWeeklyRewardScheduler } from '../systems/weekly-reward-manager';
 import { startBirthdayScheduler } from '../systems/birthday-manager';
 
@@ -24,6 +25,10 @@ export default {
         startTriviaScheduler(client);
         startWeeklyRewardScheduler(client);
         startBirthdayScheduler(client);
+        // Retries showcase->better-showcase publishing every minute. Live vote
+        // events are the fast path; this is the net that catches posts parked by a
+        // transient forum/API failure instead of leaving them until a restart.
+        startShowcaseScheduler(client);
         // Single-guild bot: create/persist skill roles for request routing on the
         // primary guild. Lazy — safe to re-run; reuses existing roles by id/name.
         const guild = client.guilds.cache.first();

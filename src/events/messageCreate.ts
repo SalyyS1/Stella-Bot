@@ -2,7 +2,7 @@ import { Events, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonS
 import { config } from '../config';
 import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { processMessageXp } from '../systems/xpManager';
-import { createShowcasePost, isAllowedShowcaseMessage } from '../systems/showcaseManager';
+import { createShowcasePost, isAllowedShowcaseMessage, isPublishedShowcaseThread } from '../systems/showcaseManager';
 import { parseServerAd, publishServerAd } from '../systems/serverAdsManager';
 import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
@@ -113,10 +113,22 @@ export default {
             await handleTriviaAnswer(message).catch(() => false);
         }
 
+        // Better-showcase is publish-only: members may NOT open their own forum post
+        // there, but they MUST be able to comment on a featured post. Threads the bot
+        // published are therefore exempt — deleting one would destroy the featured
+        // showcase (and its author's reward) over a single congratulation message.
+        // Human-opened threads are already removed by the threadCreate guard; this
+        // check only catches ones that slipped past it (e.g. created while offline).
         if (message.channel?.isThread() && message.channel.parentId === config.channels.betterShowcase) {
+            const thread = message.channel;
+            // Two independent signals, either of which spares the thread. The DB
+            // checkpoint is authoritative (it is what publishing writes); ownerId is
+            // the cheap in-memory hint. Deleting a featured post is irreversible, so
+            // this must fail CLOSED — when in doubt, keep the thread.
+            const botOwnsThread = thread.ownerId === message.client.user?.id
+                || await isPublishedShowcaseThread(thread.id);
             const isAdmin = message.member?.permissions.has('Administrator') ?? false;
-            if (!isAdmin) {
-                const thread = message.channel;
+            if (!botOwnsThread && !isAdmin) {
                 await sendAdminLog(message.client, {
                     title: 'Unauthorized better-showcase post blocked',
                     color: '#e74c3c',
