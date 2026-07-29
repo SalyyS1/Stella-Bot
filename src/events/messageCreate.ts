@@ -100,6 +100,21 @@ export default {
 
         if (await handleMusicPrefix(message)) return;
 
+        // Glossary: người có role tin cậy dạy Stella một thuật ngữ. Chạy ở MỌI kênh,
+        // không chỉ kênh knowledge: điều kiện thật nằm trong collectAnswer (ping/reply
+        // bot, đúng role, có cặp "từ = nghĩa"), nên chặn theo kênh ở đây chỉ làm
+        // đường ping-ở-kênh-khác không bao giờ tới được hàm đó.
+        //
+        // Đặt TRƯỚC khối Q&A là có chủ ý: kênh Q&A `return` sớm khi handleAiQa nhận
+        // việc, nên nếu để sau thì ping Stella "từ = nghĩa" ngay trong kênh đó sẽ bị
+        // nuốt thành một câu hỏi AI — tốn một lượt gọi AI và không học được gì.
+        // Học được thì dừng luôn: tin đó là lời dạy, không phải câu hỏi.
+        const learned = await collectAnswer(message).catch(() => 0);
+        if (learned > 0) {
+            await message.react('✅').catch(() => {});
+            return;
+        }
+
         // === AI Q&A (kênh chỉ định) ===
         // Kích hoạt bằng: (a) reply vào tin bot đã ping CHÍNH bạn, hoặc (b) prefix "!s <câu hỏi>".
         // Reply vào tin bot trả lời người khác sẽ bị bỏ qua (chia luồng theo người).
@@ -112,14 +127,6 @@ export default {
         // still flows through XP below (answering trivia is normal chatting).
         if (message.channelId === config.trivia.channelId) {
             await handleTriviaAnswer(message).catch(() => false);
-        }
-
-        // Glossary: a trusted member explaining a term Stella asked about. Reacts to
-        // confirm what was learned instead of replying, so the channel stays readable.
-        // Silent no-op for anyone/anything else — this runs on every message there.
-        if (message.channelId === config.channels.knowledge) {
-            const learned = await collectAnswer(message).catch(() => 0);
-            if (learned > 0) await message.react('✅').catch(() => {});
         }
 
         // Better-showcase is publish-only: members may NOT open their own forum post

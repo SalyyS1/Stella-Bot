@@ -108,6 +108,57 @@ export async function recordAnswer(
     return !!saved;
 }
 
+// Dạy CHỦ ĐỘNG: lưu một từ mà Stella chưa từng hỏi. recordAnswer cố tình từ chối
+// việc này (chỉ nhận câu trả lời cho câu hỏi Stella đã đặt), nên nếu không có hàm
+// riêng thì người có role ping bot dạy một từ mới sẽ không lưu được gì — và cũng
+// không có gì báo lại, đúng kiểu thất bại im lặng tệ nhất.
+//
+// Vì sao tách hàm thay vì nới lỏng recordAnswer: hai đường có mức tin cậy khác
+// nhau về NGUỒN. recordAnswer đáp lại câu Stella tự hỏi trong kênh knowledge;
+// đường này là người chủ động nhắn thẳng cho bot. Gộp lại thì mọi tin dạng
+// "abc = xyz" trong kênh knowledge cũng thành lời dạy, kể cả khi hai người đang
+// giải thích cho nhau. Cổng quyền (role) vẫn là cùng một cổng ở lớp trên.
+export async function teachTerm(
+    term: string,
+    meaning: string,
+    answeredBy: string,
+    sourceMsg: string
+): Promise<boolean> {
+    const key = normalizeTerm(term);
+    // Cùng bộ lọc hình dạng với đường AI phát hiện từ: chặn "từ" dài cả câu, có
+    // xuống dòng, hay nhiều chữ — không thì từ điển sẽ đầy những câu văn.
+    if (!isAcceptableTerm(key)) return false;
+
+    const trimmed = meaning.trim().slice(0, config.knowledge.maxMeaningLen);
+    if (trimmed.length < config.knowledge.minMeaningLen) return false;
+
+    const saved = await prisma.glossaryTerm.upsert({
+        where: { term: key },
+        // Chưa có row thì tạo mới. askedAt để null: Stella không hỏi từ này, và
+        // ghi giả một lần hỏi sẽ làm lệch hạn mức hỏi lại của chính nó.
+        create: {
+            term: key,
+            meaning: trimmed,
+            answeredBy,
+            sourceMsg,
+            answeredAt: new Date()
+        },
+        // Đã có thì GHI ĐÈ. Người có role sửa lại một định nghĩa sai là việc phải
+        // làm được: nghĩa cũ đang được tái dùng ở mọi bản tin sau, nên chặn sửa
+        // là giữ cái sai lại lâu hơn.
+        update: {
+            meaning: trimmed,
+            answeredBy,
+            sourceMsg,
+            answeredAt: new Date()
+        }
+    }).catch(error => {
+        console.error(`[glossary] teachTerm ${key} failed:`, error);
+        return null;
+    });
+    return !!saved;
+}
+
 // Answered terms for injecting into report prompts. Capped so a large glossary
 // can't crowd out the actual chat summaries in the context window.
 export async function getAnsweredTerms(limit = config.knowledge.maxTermsInContext): Promise<GlossaryEntry[]> {

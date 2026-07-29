@@ -147,7 +147,12 @@ interface Attempt {
 
 async function attempt(messages: AiMessage[], opts: AskOpts): Promise<Attempt> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? config.ai.timeoutMs);
+    // Giữ hai con số này ra biến để nhánh catch nói được HẾT GIỜ BAO LÂU và với
+    // ngân sách token nào. Không có chúng thì log chỉ có "aborted" — đúng nhưng vô
+    // dụng, vì mỗi tính năng đặt một hạn giờ khác nhau.
+    const budgetMs = opts.timeoutMs ?? config.ai.timeoutMs;
+    const tokenBudget = opts.maxTokens ?? config.ai.maxTokens;
+    const timeout = setTimeout(() => controller.abort(), budgetMs);
     try {
         const res = await fetch(completionsEndpoint(), {
             method: 'POST',
@@ -202,7 +207,21 @@ async function attempt(messages: AiMessage[], opts: AskOpts): Promise<Attempt> {
         }
         return { text: text.trim(), rejected: false };
     } catch (error) {
-        console.error(`[aiClient] request failed: ${redactAi(error)}`);
+        // Phân biệt HẾT GIỜ với lỗi mạng. Cả hai đều tới đây, nhưng abort do timeout
+        // hiện lên đúng một dòng "This operation was aborted" — không nói là hết giờ,
+        // không nói giờ đó là bao lâu, và không nói ai đặt nó. Người đọc log không có
+        // cách nào biết cần tăng cái gì. Đây là lỗi Saly gặp khi chạy /plugin.
+        const aborted = error instanceof Error
+            && (error.name === 'AbortError' || /abort/i.test(error.message));
+        if (aborted) {
+            console.error(
+                `[aiClient] HẾT GIỜ sau ${Math.round(budgetMs / 1000)}s ` +
+                `(max_tokens=${tokenBudget}). Model chưa trả xong trong hạn đó — ` +
+                'tăng timeoutMs của tính năng đang gọi, hoặc giảm max_tokens.'
+            );
+        } else {
+            console.error(`[aiClient] request failed: ${redactAi(error)}`);
+        }
         return { text: null, rejected: false };
     } finally {
         clearTimeout(timeout);

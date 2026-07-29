@@ -1,6 +1,6 @@
 import { Client, EmbedBuilder, Message, TextChannel } from 'discord.js';
 import { config } from '../../config';
-import { selectTermsToAsk, markAsked, recordAnswer, normalizeTerm, getPendingTerms } from './glossary-store';
+import { selectTermsToAsk, markAsked, recordAnswer, teachTerm, normalizeTerm, getPendingTerms } from './glossary-store';
 
 // Asks the community what a word means, and accepts the answer only from members
 // holding the trusted role.
@@ -62,6 +62,36 @@ function parseAnswers(content: string): Array<{ term: string; meaning: string }>
     return out;
 }
 
+// Ai được dạy Stella từ mới. Nhiều role, không phải một: server đã có sẵn tín
+// hiệu tin cậy riêng cho từng nhóm (mod, member kỳ cựu), và bắt chúng gộp về một
+// role là đổi cấu trúc quyền của server chỉ để vừa một tính năng.
+//
+// Vẫn là cổng chống data-poisoning như cũ, chỉ rộng hơn: một định nghĩa sai sẽ
+// được tái dùng ở MỌI bản tin sau, nên danh sách này phải là role người thật cấp
+// tay, không bao giờ là "ai cũng được".
+function canTeachGlossary(message: Message): boolean {
+    const roles = message.member?.roles.cache;
+    if (!roles) return false;
+    return config.roles.knowledgeTeachers.some(id => id && roles.has(id));
+}
+
+// Tin này có đang nói VỚI Stella không: ping trực tiếp, hoặc reply vào tin của
+// Stella. Cả hai đều là hành động có ý thức.
+//
+// Không dùng `mentions.has()` trơn: nó trả true cho cả @everyone và cho ping role
+// mà bot tình cờ có — nghĩa là một tin @everyone kèm dấu "=" sẽ thành lời dạy.
+// Ping đúng user bot mới tính.
+function isAddressedToBot(message: Message): boolean {
+    const selfId = message.client.user?.id;
+    if (!selfId) return false;
+    if (message.mentions.users.has(selfId)) return true;
+    // Reply: chỉ tính khi tin được reply là của Stella. `reference` có thể trỏ tới
+    // tin đã xoá hoặc ngoài cache, nên đọc từ bản đã resolve — không resolve được
+    // thì coi như không phải, vì đoán ở đây là mở cổng quyền cho một điều kiện
+    // không kiểm được.
+    return message.mentions.repliedUser?.id === selfId;
+}
+
 // Handle a message in the knowledge channel. Returns the number of definitions
 // stored, so the caller can react to confirm. Any message that isn't a trusted
 // answer to a pending question is ignored silently — this runs on every message
@@ -69,24 +99,50 @@ function parseAnswers(content: string): Array<{ term: string; meaning: string }>
 export async function collectAnswer(message: Message): Promise<number> {
     if (!config.knowledge.enabled) return 0;
     if (message.author.bot) return 0;
-    if (message.channelId !== config.channels.knowledge) return 0;
 
-    // The gate: only the trusted role may teach Stella vocabulary.
-    const member = message.member;
-    if (!member?.roles.cache.has(config.roles.trusted)) return 0;
+    // Hai đường vào, cùng một cổng quyền:
+    //   1. viết trong kênh knowledge (đường cũ, nơi Stella đặt câu hỏi)
+    //   2. ping Stella hoặc reply tin của Stella ở BẤT KỲ kênh nào
+    //
+    // Đường 2 là điều Saly yêu cầu, và nó có lý do thật: từ lạ xuất hiện giữa lúc
+    // đang chat, không phải lúc người ta rảnh ghé kênh knowledge. Bắt họ đổi kênh
+    // là bắt họ nhớ một việc sẽ bị quên.
+    //
+    // Ping/reply là điều kiện BẮT BUỘC cho đường 2, không phải tiện lợi: thiếu nó
+    // thì mọi tin nhắn có dạng "abc = xyz" ở mọi kênh đều thành lời dạy, kể cả khi
+    // người ta đang giải thích cho nhau chứ không nói với bot.
+    const inKnowledgeChannel = message.channelId === config.channels.knowledge;
+    const addressedToBot = isAddressedToBot(message);
+    if (!inKnowledgeChannel && !addressedToBot) return 0;
+
+    // Cổng quyền: chỉ role được cấp mới ghi được vào từ điển. Giữ nguyên vị trí
+    // TRƯỚC mọi truy vấn DB — đây là chốt chống data-poisoning, không phải bộ lọc
+    // cho tiện.
+    if (!canTeachGlossary(message)) return 0;
 
     const pairs = parseAnswers(message.content);
     if (!pairs.length) return 0;
 
-    // Only accept answers to questions Stella actually asked. Checked up front so
-    // a chatty trusted message doesn't cost one DB write per line.
+    // Danh sách từ Stella đang chờ trả lời. Chỉ tra MỘT lần cho cả tin, không phải
+    // mỗi dòng một lượt.
     const pending = new Set((await getPendingTerms()).map(normalizeTerm));
-    if (!pending.size) return 0;
 
     let stored = 0;
     for (const { term, meaning } of pairs) {
-        if (!pending.has(normalizeTerm(term))) continue;
-        const ok = await recordAnswer(term, meaning, message.author.id, message.id);
+        const isAnswer = pending.has(normalizeTerm(term));
+
+        // Từ Stella ĐÃ hỏi -> đường trả lời cũ.
+        // Từ Stella CHƯA hỏi -> chỉ nhận khi người ta chủ động nhắn thẳng cho bot.
+        //
+        // Phân biệt này quan trọng: trong kênh knowledge, hai người có role hoàn
+        // toàn có thể đang giải thích cho NHAU bằng dạng "abc = xyz". Nhận bừa
+        // những dòng đó là để lời trò chuyện tự lọt vào từ điển. Còn ping/reply
+        // bot thì không thể là tình cờ.
+        const ok = isAnswer
+            ? await recordAnswer(term, meaning, message.author.id, message.id)
+            : addressedToBot
+                ? await teachTerm(term, meaning, message.author.id, message.id)
+                : false;
         if (ok) stored++;
     }
     return stored;

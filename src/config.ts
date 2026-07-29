@@ -26,6 +26,15 @@ function normalizeRepoSlug(raw: string | undefined): string {
 export const config = {
     roles: {
         trusted: "1385258274131279956",
+        // Role được phép DẠY Stella thuật ngữ (từ điển). Tách riêng khỏi `trusted`
+        // vì hai quyền này khác nhau về bản chất: `trusted` là "miễn trừ anti-raid"
+        // (ai đó đáng tin về hành vi), còn đây là "được ghi vào từ điển" (ai đó
+        // đáng tin về KIẾN THỨC). Gộp chung thì mở rộng một cái sẽ vô tình mở
+        // rộng cái kia — mà một định nghĩa sai được tái dùng ở MỌI bản tin sau.
+        knowledgeTeachers: [
+            "1385258274131279956", // role tin cậy cũ, giữ nguyên quyền đang có
+            "1195351303182889031"  // Saly thêm 2026-07-29
+        ] as string[],
         // Level Roles (Bot sẽ tự tạo nếu chưa có, bạn sửa ID sau khi tạo xong)
         levelRoles: {
             littleStar: "", // Lv.1-9 — Bot tự tạo
@@ -139,7 +148,7 @@ export const config = {
         // Free API — allow long answers so the AI can output full config/skill
         // samples. Long output means slower generation, so timeout is raised to
         // match; the Q&A reply splits into multiple messages past Discord's 2000 limit.
-        maxTokens: 4000,
+        maxTokens: 9000,
         temperature: 0.85, // giọng tự nhiên/lầy hơn (trước 0.6 hơi khô cho persona cà khịa)
         timeoutMs: 90_000,
         // Q&A assistant
@@ -260,12 +269,11 @@ export const config = {
             // với 900 token. Chi phí ở đây là chuyện đã cân: chunk mới là nơi chi
             // tiết còn hoặc mất, vì bước gộp cuối KHÔNG bao giờ đọc lại chat gốc.
             //
-            // 40.000 là mức Saly chốt (x10 lần trước). Đo được 2026-07-29:
-            // gateway nhận max_tokens tới 128.000, nên con số này còn xa trần —
-            // quan trọng vì vượt trần model KHÔNG phải "được ít hơn", mà là HTTP
-            // 400 và mất trắng khung đó. Xem scripts/probe-ai-capabilities.js.
-            maxTokens: 40_000,
-            // Phải đi cùng maxTokens: sinh 40k token mất lâu hơn 4k rất nhiều, và
+            // Đo được 2026-07-29: gateway nhận max_tokens tới 128.000, nên mức này
+            // còn xa trần — quan trọng vì vượt trần model KHÔNG phải "được ít hơn",
+            // mà là HTTP 400 và mất trắng khung đó. Xem scripts/probe-ai-capabilities.js.
+            maxTokens: 50_000,
+            // Phải đi cùng maxTokens: sinh 50k token mất lâu hơn 4k rất nhiều, và
             // timeout ngắn thì công đã làm bị bỏ đúng lúc gần xong.
             timeoutMs: 600_000,
             // Trần độ dài mỗi tin khi dựng transcript. 300 ký tự cắt mất phần cuối
@@ -297,11 +305,10 @@ export const config = {
         // đến đâu thì bản tin cũng chỉ dài bằng ngân sách ở đây. Ngày có drama thì
         // 1600 token buộc model phải nén "sáng bàn gì, tối chốt gì" thành một dòng.
         daily: {
-            // 60.000 (x10 mức trước). Trần đo được của gateway là 128.000 nên vẫn
-            // còn khoảng an toàn.
-            maxTokens: 60_000,
+            // Trần đo được của gateway là 128.000 nên vẫn còn khoảng an toàn.
+            maxTokens: 100_000,
             // Bước này chờ lâu nhất trong cả hệ: input là 8 chunk dày, output có
-            // thể tới 60k token. Timeout ngắn ở đây là mất bản tin của cả ngày sau
+            // thể tới 100k token. Timeout ngắn ở đây là mất bản tin của cả ngày sau
             // khi đã trả tiền cho 8 lượt chunk.
             timeoutMs: 900_000,
             // Trần ký tự phần ghi chép bơm vào prompt gộp. 8 chunk x 40.000 token
@@ -353,7 +360,7 @@ export const config = {
         suggest: {
             enabled: true,
             ownerUserId: process.env.OWNER_USER_ID || '',
-            maxTokens: 900,
+            maxTokens: 9000,
             timeoutMs: 90_000
         }
     },
@@ -385,8 +392,12 @@ export const config = {
         maxBytes: 256 * 1024,        // trần khi tải file đính kèm về
         maxChars: 60_000,            // trần nội dung gửi lên AI
         maxInstructionChars: 500,
-        maxTokens: 8000,             // phải đủ để trả về TOÀN BỘ file sau khi sửa
-        timeoutMs: 180_000,          // file dài + yêu cầu trả full file => chậm
+        maxTokens: 20_000,             // phải đủ để trả về TOÀN BỘ file sau khi sửa
+        // Cùng nguyên nhân với pluginSource.timeoutMs: trả về TOÀN BỘ file sau khi
+        // sửa là output dài, và 180s không đủ cho model này -> abort giữa đường,
+        // member chỉ thấy lệnh thất bại. Trần vẫn dưới 900s vì interaction token
+        // của Discord chết sau 15 phút.
+        timeoutMs: 600_000,
         cooldownMs: 60_000,          // mỗi người 1 lần / phút
         maxConcurrent: 2             // trần toàn server (tốn token nhất trong các tính năng AI)
     },
@@ -398,8 +409,16 @@ export const config = {
         enabled: true,
         minDescriptionChars: 15,
         maxDescriptionChars: 600,
-        maxTokens: 8000,             // đủ cho plugin.yml + vài class
-        timeoutMs: 180_000,
+        maxTokens: 80_000,             // đủ cho plugin.yml + vài class
+        // 180s là NGUYÊN NHÂN lỗi "[aiClient] request failed: This operation was
+        // aborted" khi Saly chạy /plugin ngày 2026-07-29: model chưa viết xong đã bị
+        // cắt. Mốc so sánh: cùng model này, một lượt tóm tắt chat 3h cần tới 600s —
+        // mà sinh nhiều class Java + plugin.yml không nhẹ hơn việc đó.
+        //
+        // Trần trên là 900s, do Discord chứ không do ta: interaction token chết sau
+        // 15 phút, quá đó thì không còn đường trả file cho member. 600s để còn chỗ
+        // cho các bước sau lượt AI (ghép file, đăng, dispatch build).
+        timeoutMs: 600_000,
         cooldownMs: 120_000,         // đắt hơn /config nên siết chặt hơn
         maxConcurrent: 1             // 1 lượt toàn server
     },

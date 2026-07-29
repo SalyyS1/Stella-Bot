@@ -42,6 +42,15 @@ export default {
         )
         .addSubcommand(subcommand =>
             subcommand
+                // Tuỳ chọn dựng lại: chất lượng bản tin nằm ở ghi chép 3h, không nằm
+                // ở bước gộp (bước gộp không bao giờ đọc lại chat gốc). Nên sau khi
+                // sửa prompt ghi chép, phải có đường buộc làm lại ghi chép cũ —
+                // không thì gộp bao nhiêu lần cũng ra bản tin chung chung y như cũ.
+                .addBooleanOption(option =>
+                    option
+                        .setName('rebuild')
+                        .setDescription('Đọc lại chat và ghi chép lại từ đầu (chậm hơn, tốn AI hơn)')
+                )
                 .setName('report')
                 .setDescription('Soi lại 24h vừa rồi và đăng bản tin ngay (bỏ qua lịch, mất vài phút)')
         )
@@ -101,21 +110,34 @@ export default {
             // was actually built from.
             const before = await reportChunkStatus().catch(() => null);
 
+            // rebuild: làm LẠI cả những khung đã có ghi chép. Cần khi prompt ghi
+            // chép vừa đổi — chất lượng bản tin nằm ở chunk, và bước gộp không bao
+            // giờ đọc lại chat gốc, nên chunk cũ viết chung chung thì gộp lại bao
+            // nhiêu lần cũng ra bản tin chung chung.
+            const rebuild = interaction.options.getBoolean('rebuild') ?? false;
+
             // Say something straight away. The admin path rebuilds every missing
             // 3h window from Discord history first: 8 sequential AI calls, each
             // allowed up to 10 minutes now that a chunk may emit 40k tokens, plus
             // a reduce allowed 15. Worst case is well over an hour, so the wait is
             // quoted from the real budget rather than guessed at — an admin told
             // "a few minutes" would reasonably assume it had hung and re-run it.
-            const missing = before ? before.expected - before.stored : 0;
+            //
+            // rebuild làm lại MỌI khung, nên số khung phải chạy là toàn bộ, không
+            // phải chỉ phần đang thiếu.
+            const missing = rebuild
+                ? (before?.expected ?? 8)
+                : before ? before.expected - before.stored : 0;
             const perSlotMin = Math.ceil(config.report.chunk.timeoutMs / 60_000);
             const reduceMin = Math.ceil(config.report.daily.timeoutMs / 60_000);
             await interaction
                 .editReply(
                     `${config.ui.emojis.note} Đang soi lại 24h vừa rồi` +
-                    (missing > 0
-                        ? ` — thiếu ${missing}/${before!.expected} khung, đọc lại lịch sử chat để dựng lại.`
-                        : ` — đã có đủ ${before?.expected ?? 8} khung ghi chép.`) +
+                    (rebuild
+                        ? ` — DỰNG LẠI toàn bộ ${missing} khung từ đầu (ghi đè ghi chép cũ).`
+                        : missing > 0
+                            ? ` — thiếu ${missing}/${before!.expected} khung, đọc lại lịch sử chat để dựng lại.`
+                            : ` — đã có đủ ${before?.expected ?? 8} khung ghi chép.`) +
                     (missing > 0
                         ? `\nNgân sách đang mở rất rộng (mỗi khung tối đa ${perSlotMin} phút, bước gộp ${reduceMin} phút), ` +
                           `nên lượt này có thể chạy tới ~${missing * perSlotMin + reduceMin} phút. Cứ để đó, đừng bấm lại.`
@@ -124,7 +146,7 @@ export default {
                 )
                 .catch(() => {});
 
-            const result = await runReport(interaction.client, true);
+            const result = await runReport(interaction.client, true, rebuild);
             const msg = result === 'posted'
                 ? 'Đã đăng bản tin AI.'
                 : result === 'empty'

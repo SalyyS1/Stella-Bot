@@ -32,6 +32,8 @@ const scheduler = source('systems/report/report-scheduler.ts');
 const imageCollector = source('systems/report/report-image-collector.ts');
 const chunkStore = source('systems/report/report-chunk-store.ts');
 const config_ts = source('config.ts');
+const glossaryAsker = source('systems/knowledge/glossary-question-asker.ts');
+const chunkSummarizer = source('systems/report/report-chunk-summarizer.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
     'utf8'
@@ -114,11 +116,22 @@ assert(
     scheduler.includes('backfillAllSlots') && scheduler.includes('if (force)'),
     'admin report no longer rebuilds missing windows, so it cannot actually review the last 24h'
 );
-// Budgets must stay under the gateway ceiling measured on 2026-07-29 (128k):
-// exceeding it is an HTTP 400 that loses the window outright, not a smaller reply.
+// Every max_tokens budget must stay under the gateway ceiling measured on
+// 2026-07-29 (128k). Exceeding it is an HTTP 400 that loses the whole call, not a
+// shorter reply — so a budget raised past the ceiling fails LOUDER than one set
+// too low, and does it at runtime on a real window rather than here.
+//
+// Checked as a number, not as a literal match on today's values: pinning the
+// exact figures made this fire every time a budget was tuned, which trains people
+// to edit the assertion instead of reading it. The ceiling is the invariant.
+const GATEWAY_MAX_TOKENS = 128_000;
+const tokenBudgets = [...config_ts.matchAll(/maxTokens:\s*([\d_]+)/g)]
+    .map(m => Number(m[1].replace(/_/g, '')));
+assert(tokenBudgets.length > 0, 'no maxTokens budgets found in config.ts — pattern moved');
 assert(
-    config_ts.includes('maxTokens: 40_000') && config_ts.includes('maxTokens: 60_000'),
-    'report budgets moved; re-probe the gateway ceiling before raising them'
+    tokenBudgets.every(n => n <= GATEWAY_MAX_TOKENS),
+    `a maxTokens budget exceeds the measured gateway ceiling (${GATEWAY_MAX_TOKENS}): ` +
+    `${tokenBudgets.filter(n => n > GATEWAY_MAX_TOKENS).join(', ')} — re-probe before raising`
 );
 
 // The scheduler runs unattended on a 15-minute beat. With logging only on the
@@ -143,4 +156,44 @@ assert(
     'startup log is gone, so a disabled config looks the same as code that never ran'
 );
 
-console.log('Stella self-check passed (51 assertions).');
+// The glossary write gate is the anti-poisoning lock: a wrong definition is
+// reused in EVERY later bulletin. It must read the role allowlist, never fall
+// back to "any member", and must sit before any DB work.
+assert(
+    glossaryAsker.includes('config.roles.knowledgeTeachers'),
+    'glossary write gate no longer reads the teacher-role allowlist'
+);
+// Path 2 (ping/reply anywhere) is only safe because being addressed to the bot
+// is REQUIRED. Without that check every "abc = xyz" line in every channel — including
+// two members explaining things to each other — becomes a lesson Stella believes.
+assert(
+    glossaryAsker.includes('isAddressedToBot') && glossaryAsker.includes('mentions.users.has(selfId)'),
+    'glossary accepts lessons without being addressed to the bot, so any channel chatter can teach it'
+);
+// collectAnswer must run before the Q&A block: that block returns early, so a
+// lesson typed in the Q&A channel would be swallowed as a question instead.
+assert(
+    message.indexOf('collectAnswer(message)') < message.indexOf('handleAiQa(message)'),
+    'glossary collection runs after Q&A, so a lesson in the Q&A channel is eaten as a question'
+);
+// The bulletin is meant to read as an account of the day (who fell out with whom,
+// over what) rather than a status report. Both prompt tiers have to ask for names
+// and specifics: the reduce step never sees the raw chat, so a chunk that says
+// "lively discussion" leaves nothing to retell, permanently.
+assert(
+    chunkSummarizer.includes('TÊN NGƯỜI') && chunkSummarizer.includes('xỉa xói'),
+    'chunk prompt no longer demands names and specifics, so conflicts vanish into generalities'
+);
+assert(
+    !chunkSummarizer.includes('không trích nguyên văn hội thoại riêng tư'),
+    'the blanket privacy clause is back; it covers public chat too and is why bulletins read as vague'
+);
+// rebuild=true is the only way a prompt change reaches a day already summarized,
+// since stored chunks are what the reduce reads and they were written by the old
+// prompt. Losing it means prompt fixes silently do nothing for today.
+assert(
+    scheduler.includes('rebuild') && maintenance.includes("getBoolean('rebuild')"),
+    'rebuild path is gone, so improving the chunk prompt cannot fix a day already summarized'
+);
+
+console.log('Stella self-check passed (52 assertions).');

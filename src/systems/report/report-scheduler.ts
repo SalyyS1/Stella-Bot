@@ -277,38 +277,59 @@ async function runBackfill(client: Client): Promise<number> {
 //
 // Slot đã có row thì bỏ qua (summarizeSlot tự kiểm), nên gọi lại nhiều lần không
 // tốn thêm lượt AI nào.
-async function backfillAllSlots(client: Client): Promise<number> {
+//
+// rebuild=true thì làm LẠI mọi khung, kể cả khung đã có row. Cần đường này vì
+// chất lượng bản tin nằm ở chunk, không nằm ở bước gộp: bước gộp KHÔNG bao giờ
+// đọc lại chat gốc. Nên sau khi sửa prompt ghi chép, những chunk đã lưu bằng
+// prompt cũ vẫn là bản chung chung, và gộp lại bao nhiêu lần cũng ra bản tin
+// chung chung y như cũ. Dựng lại là cách duy nhất để prompt mới có tác dụng lên
+// một ngày đã trôi qua.
+async function backfillAllSlots(client: Client, rebuild = false): Promise<number> {
     if (!isAiEnabled()) return 0;
 
     const candidates = closedSlotsForDailyReport();
     const stored = await findStoredSlots(
         candidates.map(s => ({ period: s.period, slot: s.slot }))
     );
-    const holes = candidates.filter(s => !stored.has(`${s.period}#${s.slot}`));
-    if (!holes.length) return 0;
+    // rebuild: mọi khung đã đóng đều là mục tiêu. Ngược lại chỉ những khung chưa
+    // có row.
+    const targets = rebuild
+        ? candidates
+        : candidates.filter(s => !stored.has(`${s.period}#${s.slot}`));
+    if (!targets.length) return 0;
 
-    console.log(`[report] admin backfill: ${holes.length} khung còn thiếu, đọc lại lịch sử`);
+    logReport(
+        rebuild
+            ? `admin: DỰNG LẠI toàn bộ ${targets.length} khung (ghi đè ${stored.size} khung đã có)`
+            : `admin: ${targets.length} khung còn thiếu, đọc lại lịch sử`
+    );
 
     // Mới về cũ: khung gần hiện tại cần ít trang lịch sử hơn nên chắc với tới hơn,
     // và cũng là phần bản tin cần nhất nếu một khung xa bị hụt trang.
     let repaired = 0;
-    for (const target of [...holes].reverse()) {
+    for (const target of [...targets].reverse()) {
         const outcome = await summarizeSlot(
             client,
             target,
-            config.report.chunk.backfill.maxPagesPerChannel
+            config.report.chunk.backfill.maxPagesPerChannel,
+            // force khi rebuild: bỏ qua chốt "đã có row" và cho saveChunk ghi đè.
+            rebuild
         );
         if (outcome === 'saved' || outcome === 'empty') repaired++;
-        else console.error(`[report] admin backfill: khung ${target.period}#${target.slot} thất bại (${outcome})`);
+        else console.error(`[report] admin: khung ${target.period}#${target.slot} thất bại (${outcome})`);
     }
 
-    console.log(`[report] admin backfill: vá được ${repaired}/${holes.length} khung`);
+    logReport(`admin: xong ${repaired}/${targets.length} khung`);
     return repaired;
 }
 
 // Compose and post the daily bulletin from the stored chunks. force=true bypasses
 // the once-a-day guard for a manual admin run.
-export async function runReport(client: Client, force = false): Promise<ReportOutcome> {
+export async function runReport(
+    client: Client,
+    force = false,
+    rebuild = false
+): Promise<ReportOutcome> {
     if (!isAiEnabled()) return 'disabled';
     const { period } = saigonNow();
 
@@ -320,12 +341,15 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
     let posted = false;
     const startedAt = Date.now();
     try {
-        logReport(`bản tin: bắt đầu${force ? ' (lượt admin, bỏ qua chốt 1 lần/ngày)' : ''}`);
+        logReport(
+            `bản tin: bắt đầu${force ? ' (lượt admin, bỏ qua chốt 1 lần/ngày)' : ''}` +
+            `${rebuild ? ' — DỰNG LẠI toàn bộ ghi chép' : ''}`
+        );
         // Lượt admin: dựng lại mọi khung thiếu TRƯỚC khi gộp, để lệnh này thật sự
         // soi lại 24h chứ không chỉ gộp những gì tình cờ đã có trong DB. Đặt trong
         // try để claim vẫn được nhả nếu bước này ném lỗi.
         if (force) {
-            await backfillAllSlots(client).catch(error =>
+            await backfillAllSlots(client, rebuild).catch(error =>
                 console.error('[report] admin backfill failed:', error)
             );
         }
