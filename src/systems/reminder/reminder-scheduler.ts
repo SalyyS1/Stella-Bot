@@ -1,6 +1,7 @@
 import { Client, TextChannel } from 'discord.js';
 import { config } from '../../config';
 import { loadDue, markFired, deactivate, type DueReminder } from './reminder-store';
+import { voiceReminder } from './reminder-voice';
 
 // Đồng hồ của hệ nhắc nhở. Quét mỗi phút, ping những lời đã tới hạn.
 //
@@ -32,10 +33,14 @@ async function fire(client: Client, reminder: DueReminder): Promise<'ok' | 'dead
 
     const body = reminder.message.trim();
     const byOther = reminder.requesterId !== reminder.targetId;
+    // Stella tự viết câu nhắc. Trước đây là `⏰ @Ri — đi tắm`: đúng nội dung nhưng
+    // đọc như tin của máy, mà Saly muốn nó nhây. voiceReminder LUÔN trả về một câu
+    // dùng được (gateway chết thì rơi về câu mặc định), nên bước này không bao giờ
+    // làm mất một lần ping — mất ping tệ hơn nhiều so với ping bằng câu khô.
+    const line = await voiceReminder(body, byOther);
     const text =
-        `⏰ <@${reminder.targetId}>` +
-        (body ? ` — ${body}` : ' — tới giờ rồi nè!') +
-        (byOther ? `\n-# <@${reminder.requesterId}> nhờ Stella nhắc bạn đó.` : '');
+        `<@${reminder.targetId}> ${line}` +
+        (byOther ? `\n-# <@${reminder.requesterId}> nhờ Stella nhắc đó nha.` : '');
 
     const sent = await (channel as TextChannel).send({
         content: text,

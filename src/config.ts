@@ -78,7 +78,11 @@ export const config = {
         levelUp: "943895860595544075",
         rules: "1214607328775639072",
         chat: "943893730123980881",
-        botLog: "1214596264617050173",
+        // Saly đổi 2026-07-29: kênh cũ (1214596264617050173) trả "Missing Access"
+        // trên MỌI lượt gửi. Đáng ghi lại vì triệu chứng dễ đọc sai: fetch kênh
+        // thành công rồi send mới bị chặn, nên log không phải "kênh không tồn tại"
+        // mà là Discord từ chối — tức là ID sai/kênh đã mất, không phải bug code.
+        botLog: "1532000288825671830",
         rate: "1512109752895930460",
         // Kênh đăng digest định kỳ (mặc định dùng kênh chat; đổi sang kênh highlight riêng nếu muốn).
         digest: "943893730123980881",
@@ -216,7 +220,29 @@ export const config = {
             maxFiresPerTick: 10,
             // Ngân sách cho lượt AI đọc câu. Nhỏ vì output chỉ là một JSON ngắn.
             maxTokens: 600,
-            timeoutMs: 60_000
+            timeoutMs: 60_000,
+            // Giọng lúc PING (khác hẳn lượt đọc câu ở trên). Saly chốt: đừng nhắc
+            // kiểu cứng "⏰ @Ri — đi tắm" mà phải nhây, kiểu "ê ê Ri sao giờ chưa
+            // tắm nữa, ở dơ thế đi tắm đi".
+            //
+            // Tách ngân sách riêng vì hai lượt AI này ngược nhau: lượt đọc câu cần
+            // temperature 0 (trích xuất dữ liệu, sáng tạo là sai giờ), còn lượt này
+            // cần temperature cao mới ra được câu vui. Dùng chung một khối config
+            // thì sửa cái này sẽ vô tình phá cái kia.
+            voice: {
+                enabled: true,
+                // Ngắn: một câu nhây dài hơn 2-3 dòng là hết vui. Trần thấp cũng
+                // giữ cho lượt ping rẻ, vì nó chạy mỗi lần tới giờ.
+                maxTokens: 300,
+                // Ngắn hơn timeout đọc câu: nếu AI chậm thì code gửi câu mặc định
+                // chứ KHÔNG bỏ ping. Lời nhắc tới muộn còn tệ hơn lời nhắc khô.
+                timeoutMs: 30_000,
+                temperature: 1,
+                // Trần ký tự câu ping. Model đôi khi viết cả đoạn văn, mà một lời
+                // nhắc dài thì mất luôn tác dụng nhắc — người ta đọc câu đầu rồi
+                // bỏ qua phần còn lại.
+                maxChars: 400
+            }
         },
         // Seed catalog of popular plugin wikis (create-if-absent on ready).
         seedWikis: [

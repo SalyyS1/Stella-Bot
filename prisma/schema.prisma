@@ -502,6 +502,29 @@ model Reminder {
   @@index([targetId])
 }
 
+// Tên gợi nhớ: "Ri" -> user id thật. Để Saly nói "nhắc Ri đi tắm" mà không phải
+// ping, vì ping thì phải mở danh sách member tìm đúng người — đúng cái việc mà
+// tính năng nhắc nhở định bỏ đi.
+//
+// Vì sao là bảng DB chứ không phải hằng trong config: thêm một tên là việc Saly
+// làm lúc đang chat, còn sửa config thì phải deploy lại bot. Lưu DB nên thêm được
+// bằng lệnh và sống qua restart.
+//
+// alias là khoá chính đã lowercase: tra tên phải không phân biệt hoa thường ("ri",
+// "Ri", "RI" là một người), mà so sánh lowercase trên khoá tự nhiên thì DB tự
+// chặn trùng luôn — không cần thêm chốt ở tầng code.
+model ReminderAlias {
+  alias     String   @id // đã lowercase
+  userId    String // người mà tên này chỉ tới
+  // Ai thêm. Giữ lại để truy vết: một tên trỏ sai người sẽ ping oan người đó mỗi
+  // ngày, nên phải biết ai đặt để hỏi lại.
+  addedBy   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 // Thuật ngữ cộng đồng mà Stella chưa hiểu. Vòng đời: phát hiện trong chat (kèm
 // lượt tóm tắt chunk, không tốn AI call riêng) -> hỏi ở kênh knowledge -> chỉ ghi
 // nghĩa khi NGƯỜI CÓ ROLE TIN CẬY trả lời. answeredBy + sourceMsg để truy vết và

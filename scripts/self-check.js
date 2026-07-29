@@ -39,6 +39,8 @@ const aiClient = source('systems/aiClient.ts');
 const reminderHandler = source('systems/reminder/reminder-handler.ts');
 const reminderScheduler = source('systems/reminder/reminder-scheduler.ts');
 const reminderStore = source('systems/reminder/reminder-store.ts');
+const reminderParser = source('systems/reminder/reminder-parser.ts');
+const reminderVoice = source('systems/reminder/reminder-voice.ts');
 const emojiPalette = source('systems/emoji-palette.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
@@ -282,4 +284,32 @@ assert(
     'emoji palette no longer emits real server emoji ids, so Stella prints broken emoji text'
 );
 
-console.log('Stella self-check passed (62 assertions).');
+// 5. Tên gợi nhớ là đường tắt BỎ QUA bước ping, nên nó phải là đặc quyền của chủ
+//    server. Mở cho mọi người thì một người có role ping-người-khác chỉ cần biết
+//    alias là ping được người lạ mà không phải tìm họ trong danh sách — tức là hạ
+//    đúng cái ma sát đang bảo vệ người bị ping.
+assert(
+    reminderParser.includes('ownerUserId') && reminderParser.includes('resolveAlias'),
+    'reminder alias lookup is no longer owner-only, so it becomes a shortcut around the ping gate'
+);
+// 6. Lượt AI viết giọng nhây phải LUÔN trả về một câu dùng được. Trả rỗng/null khi
+//    gateway chậm nghĩa là mất ping — mà mất ping là mất đúng điều người ta nhờ,
+//    tệ hơn nhiều so với một câu nhắc khô.
+// Chốt là KIỂU TRẢ VỀ `Promise<string>` chứ không phải "không có chữ null trong
+// file": nhánh `.catch` của lượt gọi AI trả null là đúng và cần thiết. Điều phải
+// giữ là mọi nhánh đó đều rơi về fallback() trước khi ra khỏi hàm.
+assert(
+    reminderVoice.includes('function fallback')
+    && reminderVoice.includes('Promise<string>')
+    && !reminderVoice.includes('Promise<string | null>'),
+    'reminder voice can return empty, so a slow AI call silently costs the ping itself'
+);
+// 7. Giọng nhắc do AI viết phải bị tước mention trước khi gửi. allowedMentions đã
+//    chặn ping thật, nhưng để nguyên chuỗi `@everyone` trong nội dung thì người đọc
+//    vẫn thấy nó và tưởng cả server bị gọi.
+assert(
+    reminderVoice.includes('stripMentions'),
+    'reminder voice no longer strips mentions, so AI-written text can display a fake @everyone'
+);
+
+console.log('Stella self-check passed (65 assertions).');

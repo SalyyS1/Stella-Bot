@@ -1,6 +1,7 @@
 import { Message } from 'discord.js';
 import { config } from '../../config';
 import { askAI } from '../aiClient';
+import { resolveAlias } from './reminder-alias-store';
 
 // Đọc một câu tiếng Việt tự nhiên thành lời nhắc. Dùng AI thay vì regex vì cách
 // người ta nói giờ quá nhiều biến thể ("3h chiều nay", "1 giờ trưa", "tối 9h",
@@ -135,6 +136,21 @@ export async function resolveTarget(
     // Dạng <@123> nằm trong hint mà mentions không bắt được (hiếm, nhưng rẻ).
     const idMatch = trimmed.match(/^<@!?(\d{17,20})>$/);
     if (idMatch) return { id: idMatch[1] };
+
+    // Tên gợi nhớ ("Ri" -> id thật). Xét TRƯỚC khi tra tên member vì alias là ý
+    // định đã được ghi rõ: Saly tự tay khai "Ri là người này", nên nó phải thắng
+    // phép đoán theo nickname — mà nickname thì có thể trùng, đổi, hoặc khớp một
+    // phần với người khác.
+    //
+    // Chỉ chủ server dùng được, đúng như Saly chốt. Đây cũng là chốt an toàn thật:
+    // alias là đường tắt bỏ qua bước ping, nên nếu ai cũng dùng thì một người có
+    // role ping-người-khác chỉ cần biết alias là ping được người lạ mà không phải
+    // tìm họ trong danh sách — tức là hạ đúng cái ma sát đang bảo vệ người bị ping.
+    const ownerId = config.report.suggest.ownerUserId;
+    if (ownerId && message.author.id === ownerId) {
+        const aliased = await resolveAlias(trimmed);
+        if (aliased) return { id: aliased };
+    }
 
     // Tra theo tên trong server. Cần guild: DM không có ai để tra.
     const guild = message.guild;
