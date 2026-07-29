@@ -121,4 +121,26 @@ assert(
     'report budgets moved; re-probe the gateway ceiling before raising them'
 );
 
-console.log('Stella self-check passed (47 assertions).');
+// The scheduler runs unattended on a 15-minute beat. With logging only on the
+// error path, "healthy" and "dead" produce the same empty log, and the first
+// symptom is a missing bulletin at 21h — i.e. after the day is already lost. The
+// heartbeat line is what makes silence itself diagnostic, so it has to survive:
+// an open/close pair per tick distinguishes a slow tick from one hung mid-step.
+assert(
+    scheduler.includes('tick #${tickCount}: đang sống'),
+    'per-tick heartbeat log is gone, so a dead scheduler looks identical to an idle one'
+);
+assert(
+    scheduler.includes('tick #${tickCount}: xong sau'),
+    'tick completion log is gone, so a tick hung mid-step cannot be told from a slow one'
+);
+assert(
+    scheduler.includes('lượt trước còn đang chạy'),
+    'skipped-tick log is gone, so a hung run silently swallows every later beat'
+);
+assert(
+    scheduler.includes('scheduler bật:'),
+    'startup log is gone, so a disabled config looks the same as code that never ran'
+);
+
+console.log('Stella self-check passed (51 assertions).');

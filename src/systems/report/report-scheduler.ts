@@ -42,6 +42,31 @@ import { researchTopics, pickResearchTopics } from './report-web-research';
 
 const CHUNK_KIND = 'report-chunk';
 const REPORT_KIND = 'report';
+
+// Nhật báo chạy ngầm, mỗi 15 phút một nhịp, và trước đây CHỈ in log khi lỗi. Hệ
+// quả: "chạy bình thường" và "chết ngắc" trông giống nhau y hệt trong log — không
+// có cách nào biết bot còn sống ngoài việc chờ 21h xem có bản tin hay không, tức
+// là phát hiện sự cố sau khi đã mất bản tin. Nên mọi bước giờ đều in một dòng, kể
+// cả khi thành công, kèm thời gian chạy.
+//
+// Đường đắt nhất được đo riêng (đọc chat / gọi AI / đăng bài): với trần 10 phút
+// mỗi lượt AI, biết được nó treo ở BƯỚC nào quan trọng hơn nhiều so với biết là
+// "có treo". Không log nội dung chat hay bản tóm tắt — chỉ số đo, vì log này
+// nằm trên host và chat của member không cần rời khỏi bộ nhớ tạm.
+function elapsed(startMs: number): string {
+    const ms = Date.now() - startMs;
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')}s`;
+}
+
+function logReport(message: string): void {
+    // Kèm mốc giờ Saigon: log của host có thể ở UTC, mà mọi mốc trong hệ này
+    // (khung 3h, cửa sổ 21h) đều tính theo giờ Saigon. Lệch múi giờ khi đọc log
+    // sự cố là đủ để kết luận sai chỗ.
+    const { hour, period } = saigonNow();
+    console.log(`[report ${period} ${String(hour).padStart(2, '0')}h] ${message}`);
+}
 // Ticks every 15 minutes rather than hourly. A slot boundary is only detected on a
 // tick, so an hourly timer that misses its beat could skip a window entirely; at
 // 15 minutes the work is claimed within a quarter hour of the window closing and
@@ -96,8 +121,14 @@ async function summarizeSlot(
     if (!force && !(await claim(CHUNK_KIND, lockPeriod))) return 'already';
 
     let settled = false;
+    const startedAt = Date.now();
     try {
+        logReport(`chunk ${lockPeriod}: bắt đầu đọc chat (trần ${maxPages} trang/kênh)`);
         const chat = await collectChunkChat(client, target.startMs, target.endMs, maxPages);
+        logReport(
+            `chunk ${lockPeriod}: đọc xong ${chat.msgCount} tin trong ${elapsed(startedAt)}` +
+            (chat.reachedStart ? '' : ' — CHƯA tới đầu khung (hết hạn mức trang)')
+        );
 
         // A genuinely quiet window is recorded as an empty row and costs no AI
         // call. The row matters: it stops every later tick from re-reading the
@@ -116,6 +147,9 @@ async function summarizeSlot(
                 return 'failed';
             }
             settled = await saveChunk(target.period, target.slot, '', 0);
+            logReport(
+                `chunk ${lockPeriod}: khung vắng thật, lưu row rỗng (${settled ? 'ok' : 'LƯU THẤT BẠI'})`
+            );
             return settled ? 'empty' : 'failed';
         }
 
@@ -131,14 +165,34 @@ async function summarizeSlot(
         const images = await collectChunkImages(client, target.startMs, target.endMs)
             .catch(() => []);
 
+        // Lượt AI được đo riêng vì nó là bước đắt nhất và cũng là bước treo lâu
+        // nhất (trần 10 phút). Biết "treo ở lúc gọi AI" khác hẳn biết "tick chạy
+        // lâu": một cái là gateway chậm, cái kia có thể là Discord hoặc DB.
+        const aiStartedAt = Date.now();
+        logReport(
+            `chunk ${lockPeriod}: gọi AI tóm tắt (${chat.text.length} ký tự, ${images.length} ảnh)`
+        );
         const result = await summarizeChunk(chat.text, target.period, target.slot, images);
         // No summary means the AI call failed. Leave the window unrecorded so the
         // next tick retries it, rather than storing an empty row that would mark a
         // busy window as permanently done.
-        if (!result) return 'failed';
+        if (!result) {
+            console.error(
+                `[report] chunk ${lockPeriod}: AI không trả kết quả sau ${elapsed(aiStartedAt)} — để khung lại cho lượt sau`
+            );
+            return 'failed';
+        }
+        logReport(
+            `chunk ${lockPeriod}: AI xong trong ${elapsed(aiStartedAt)} ` +
+            `(tóm tắt ${result.summary.length} ký tự, ${result.terms.length} từ lạ)`
+        );
 
         settled = await saveChunk(target.period, target.slot, result.summary, chat.msgCount);
-        if (!settled) return 'failed';
+        if (!settled) {
+            console.error(`[report] chunk ${lockPeriod}: lưu DB thất bại sau khi đã trả tiền cho lượt AI`);
+            return 'failed';
+        }
+        logReport(`chunk ${lockPeriod}: HOÀN TẤT, tổng ${elapsed(startedAt)}`);
 
         // Ask the community about any jargon this window surfaced. Deliberately
         // after the chunk is safely stored and never allowed to fail the slot: the
@@ -258,10 +312,15 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
     if (!isAiEnabled()) return 'disabled';
     const { period } = saigonNow();
 
-    if (!force && !(await claim(REPORT_KIND, period))) return 'already';
+    if (!force && !(await claim(REPORT_KIND, period))) {
+        logReport('bản tin: hôm nay đã đăng rồi (hoặc runner khác đang làm) — bỏ qua');
+        return 'already';
+    }
 
     let posted = false;
+    const startedAt = Date.now();
     try {
+        logReport(`bản tin: bắt đầu${force ? ' (lượt admin, bỏ qua chốt 1 lần/ngày)' : ''}`);
         // Lượt admin: dựng lại mọi khung thiếu TRƯỚC khi gộp, để lệnh này thật sự
         // soi lại 24h chứ không chỉ gộp những gì tình cờ đã có trong DB. Đặt trong
         // try để claim vẫn được nhả nếu bước này ném lỗi.
@@ -282,17 +341,37 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
             getAnsweredTerms().catch(() => [])
         ]);
 
+        logReport(
+            `bản tin: có ${chunks.length}/${wanted.length} khung ghi chép, ` +
+            `${chunks.reduce((sum, c) => sum + c.msgCount, 0)} tin, ` +
+            `board ${board ? 'có' : 'rỗng'}, changelog ${changelog ? 'có' : 'không'}, ` +
+            `từ điển ${glossary.length} từ (${elapsed(startedAt)})`
+        );
+
         // Nothing summarized all day and nothing on the board: a dead day, skip.
-        if (!chunks.length && !board) return 'empty';
+        if (!chunks.length && !board) {
+            logReport('bản tin: KHÔNG có ghi chép nào và board rỗng — bỏ qua, không đăng');
+            return 'empty';
+        }
 
         // Look up outside facts for a couple of the day's own subjects. Topics are
         // the jargon the community explained today — concrete nouns tied to real
         // demand, chosen without an extra AI call. Inert unless RESEARCH_API_KEY is
         // set, and best-effort either way: the bulletin never waits on the web.
-        const research = await researchTopics(
-            pickResearchTopics(glossary.map(g => g.term))
-        ).catch(() => null);
+        const topics = pickResearchTopics(glossary.map(g => g.term));
+        const research = await researchTopics(topics).catch(() => null);
+        if (topics.length) {
+            logReport(
+                `bản tin: tra web ${topics.length} chủ đề (${topics.join(', ')}) — ` +
+                `${research ? `${research.length} ký tự` : 'không có kết quả / đang tắt'}`
+            );
+        }
 
+        // Bước đắt nhất và lâu nhất của cả hệ: trần 15 phút, input là toàn bộ ghi
+        // chép của ngày. Đo riêng vì treo ở đây khác hẳn treo ở lúc đọc chat —
+        // một cái là gateway, một cái là Discord.
+        const composeAt = Date.now();
+        logReport('bản tin: gọi AI gộp ghi chép thành bản tin (bước lâu nhất)');
         const body = await composeDailyReport(
             chunks,
             board,
@@ -302,9 +381,20 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
             glossary,
             research
         );
-        if (!body) return 'empty';
+        if (!body) {
+            console.error(
+                `[report] bản tin: AI gộp KHÔNG trả về gì sau ${elapsed(composeAt)} — không đăng, giữ chỗ cho lượt sau`
+            );
+            return 'empty';
+        }
+        logReport(`bản tin: AI gộp xong ${body.length} ký tự trong ${elapsed(composeAt)}`);
 
         posted = await postReport(client, period, body);
+        if (!posted) {
+            console.error('[report] bản tin: ĐĂNG THẤT BẠI (kênh nhật báo sai id hoặc thiếu quyền?)');
+        } else {
+            logReport(`bản tin: ĐÃ ĐĂNG (tổng ${elapsed(startedAt)})`);
+        }
         if (posted) {
             await pruneOldChunks();
             // The spent work-claims for those same aged-out windows. Separate call
@@ -331,13 +421,22 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
 // the 18:00-21:00 window instead of missing the whole evening.
 export function startReportScheduler(client: Client): void {
     let running = false;
+    let tickCount = 0;
 
     const tick = async () => {
         // The tick does network + AI work that can outlast the interval; a busy
         // guard keeps a slow run from overlapping itself. The DB claims already
         // make double work harmless, this just avoids the wasted attempt.
-        if (running) return;
+        if (running) {
+            // Bỏ qua vì lượt trước CHƯA xong — phải nói ra. Một tick treo (AI
+            // không trả, timeout 10 phút chưa tới) sẽ làm mọi nhịp sau đó lặng lẽ
+            // trả về ở đây; không có dòng này thì log trông y như bot đã chết.
+            logReport('tick: bỏ qua — lượt trước còn đang chạy');
+            return;
+        }
         running = true;
+        const tickStartedAt = Date.now();
+        tickCount++;
         try {
             // Giờ được chụp Ở ĐẦU tick, không phải sau khi làm chunk. Cửa sổ đăng
             // bản tin chỉ dài 1 tiếng (21-22h), còn phần chunk+backfill giờ có thể
@@ -348,6 +447,14 @@ export function startReportScheduler(client: Client): void {
             // phần ghi chép chạy lâu hơn dự kiến.
             const { hour } = saigonNow();
             const dueForDaily = hour >= config.report.hourStart && hour < config.report.hourEnd;
+
+            // NHỊP TIM. Dòng duy nhất chắc chắn in ra mỗi 15 phút dù không có việc
+            // gì để làm — đó chính là điểm: nếu log im hơn 15 phút thì scheduler đã
+            // chết, không cần chờ tới 21h mới biết.
+            logReport(
+                `tick #${tickCount}: đang sống, khung hiện tại ${slotAt(Date.now()).slot}, ` +
+                `bản tin ${dueForDaily ? 'ĐẾN GIỜ' : `chờ ${config.report.hourStart}h`}`
+            );
 
             if (config.report.chunk.enabled) {
                 await runChunk(client).catch(error =>
@@ -368,8 +475,23 @@ export function startReportScheduler(client: Client): void {
             }
         } finally {
             running = false;
+            // Đóng cặp với dòng nhịp tim. Có "xong" mới phân biệt được tick chạy
+            // lâu và tick chết giữa đường: thấy mở mà không thấy đóng nghĩa là nó
+            // đang treo ở một bước nào đó phía trên.
+            logReport(`tick #${tickCount}: xong sau ${elapsed(tickStartedAt)}`);
         }
     };
+
+    // In một dòng lúc bật, kèm cấu hình thật đang chạy. Sự cố hay gặp nhất không
+    // phải code sai mà là config/env ở host khác với ở đây (chunk bị tắt, thiếu
+    // AI_API_KEY, sai kênh) — và không có dòng này thì cả hai trường hợp đều biểu
+    // hiện y hệt nhau: log trống trơn.
+    logReport(
+        `scheduler bật: nhịp ${CHECK_INTERVAL_MS / 60_000} phút, khung ${config.report.chunk.slotHours}h, ` +
+        `bản tin ${config.report.hourStart}-${config.report.hourEnd}h, ` +
+        `chunk ${config.report.chunk.enabled ? 'bật' : 'TẮT'}, AI ${isAiEnabled() ? 'bật' : 'TẮT'}, ` +
+        `${config.report.sourceChannels.length} kênh nguồn`
+    );
 
     void tick();
     setInterval(() => void tick(), CHECK_INTERVAL_MS);
