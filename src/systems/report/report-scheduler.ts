@@ -339,6 +339,16 @@ export function startReportScheduler(client: Client): void {
         if (running) return;
         running = true;
         try {
+            // Giờ được chụp Ở ĐẦU tick, không phải sau khi làm chunk. Cửa sổ đăng
+            // bản tin chỉ dài 1 tiếng (21-22h), còn phần chunk+backfill giờ có thể
+            // mất tới 30 phút (1 chunk + 2 slot vá, mỗi lượt trần 10 phút). Đọc giờ
+            // sau khi làm xong thì một tick bắt đầu lúc 21:45 sẽ kiểm lúc 22:15 và
+            // bỏ bản tin của CẢ NGÀY — mất trắng sau khi đã trả tiền cho 8 lượt
+            // chunk. Chụp trước nghĩa là: đã tới giờ lúc bắt đầu thì vẫn đăng, dù
+            // phần ghi chép chạy lâu hơn dự kiến.
+            const { hour } = saigonNow();
+            const dueForDaily = hour >= config.report.hourStart && hour < config.report.hourEnd;
+
             if (config.report.chunk.enabled) {
                 await runChunk(client).catch(error =>
                     console.error('[report] chunk tick failed:', error)
@@ -351,8 +361,7 @@ export function startReportScheduler(client: Client): void {
                 );
             }
 
-            const { hour } = saigonNow();
-            if (hour >= config.report.hourStart && hour < config.report.hourEnd) {
+            if (dueForDaily) {
                 await runReport(client).catch(error =>
                     console.error('[report] daily tick failed:', error)
                 );

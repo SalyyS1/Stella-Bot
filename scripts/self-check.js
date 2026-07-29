@@ -31,6 +31,7 @@ const chunkCollector = source('systems/report/report-chunk-collector.ts');
 const scheduler = source('systems/report/report-scheduler.ts');
 const imageCollector = source('systems/report/report-image-collector.ts');
 const chunkStore = source('systems/report/report-chunk-store.ts');
+const config_ts = source('config.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
     'utf8'
@@ -97,4 +98,27 @@ assert(chunkStore.includes("kind: { in: ['report-chunk', 'report'] }"), 'chunk-c
 // The gateway fetches image URLs itself, so Discord's signed query must survive.
 assert(imageCollector.includes('image_url: { url: attachment.url }'), 'image URL is rewritten, which strips the Discord CDN signature');
 
-console.log('Stella self-check passed (44 assertions).');
+// The daily post window is one hour wide, but chunk+backfill in a single tick can
+// now run ~30 minutes (three AI calls at a 10-minute ceiling each). Reading the
+// clock AFTER that work means a tick starting at 21:45 checks at 22:15 and drops
+// the whole day's bulletin, after paying for every chunk. The hour must be
+// sampled before the slow work, and the decision kept in a variable.
+assert(
+    scheduler.indexOf('const dueForDaily') < scheduler.indexOf('await runChunk(client)'),
+    'tick samples the hour after chunk work, so a slow run can miss the daily post window entirely'
+);
+// The admin path must rebuild missing windows before reducing, or `/maintenance
+// report` just folds whatever happens to be in the DB — which on the first day is
+// nothing, and the admin pressed the command precisely to review the last 24h.
+assert(
+    scheduler.includes('backfillAllSlots') && scheduler.includes('if (force)'),
+    'admin report no longer rebuilds missing windows, so it cannot actually review the last 24h'
+);
+// Budgets must stay under the gateway ceiling measured on 2026-07-29 (128k):
+// exceeding it is an HTTP 400 that loses the window outright, not a smaller reply.
+assert(
+    config_ts.includes('maxTokens: 40_000') && config_ts.includes('maxTokens: 60_000'),
+    'report budgets moved; re-probe the gateway ceiling before raising them'
+);
+
+console.log('Stella self-check passed (47 assertions).');

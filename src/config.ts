@@ -259,8 +259,15 @@ export const config = {
             // ~250 tin/khung; ghi chép trung thực cho 250 tin cần chỗ hơn nhiều so
             // với 900 token. Chi phí ở đây là chuyện đã cân: chunk mới là nơi chi
             // tiết còn hoặc mất, vì bước gộp cuối KHÔNG bao giờ đọc lại chat gốc.
-            maxTokens: 4000,
-            timeoutMs: 150_000,      // output dài hơn thì cũng cần chờ lâu hơn
+            //
+            // 40.000 là mức Saly chốt (x10 lần trước). Đo được 2026-07-29:
+            // gateway nhận max_tokens tới 128.000, nên con số này còn xa trần —
+            // quan trọng vì vượt trần model KHÔNG phải "được ít hơn", mà là HTTP
+            // 400 và mất trắng khung đó. Xem scripts/probe-ai-capabilities.js.
+            maxTokens: 40_000,
+            // Phải đi cùng maxTokens: sinh 40k token mất lâu hơn 4k rất nhiều, và
+            // timeout ngắn thì công đã làm bị bỏ đúng lúc gần xong.
+            timeoutMs: 600_000,
             // Trần độ dài mỗi tin khi dựng transcript. 300 ký tự cắt mất phần cuối
             // của đúng loại tin đáng đọc nhất: tin dài là tin tranh luận/giải thích.
             maxCharsPerMessage: 700,
@@ -290,13 +297,19 @@ export const config = {
         // đến đâu thì bản tin cũng chỉ dài bằng ngân sách ở đây. Ngày có drama thì
         // 1600 token buộc model phải nén "sáng bàn gì, tối chốt gì" thành một dòng.
         daily: {
-            maxTokens: 6000,
-            timeoutMs: 240_000,
-            // Trần ký tự phần ghi chép bơm vào prompt gộp. 8 chunk x 4000 token
-            // (~12k ký tự/chunk) có thể lên ~96k ký tự — vẫn thừa sức trong cửa sổ
-            // context của model, nhưng có trần để một chunk bất thường không đẩy
-            // request vượt giới hạn gateway rồi mất cả bản tin.
-            maxContextChars: 160_000
+            // 60.000 (x10 mức trước). Trần đo được của gateway là 128.000 nên vẫn
+            // còn khoảng an toàn.
+            maxTokens: 60_000,
+            // Bước này chờ lâu nhất trong cả hệ: input là 8 chunk dày, output có
+            // thể tới 60k token. Timeout ngắn ở đây là mất bản tin của cả ngày sau
+            // khi đã trả tiền cho 8 lượt chunk.
+            timeoutMs: 900_000,
+            // Trần ký tự phần ghi chép bơm vào prompt gộp. 8 chunk x 40.000 token
+            // (~120k ký tự/chunk) về lý thuyết là ~960k ký tự — nên trần ở đây
+            // KHÔNG còn là hình thức như hồi chunk 4k: nó là thứ giữ cho request
+            // không vượt cửa sổ context rồi mất cả bản tin. 600k ký tự ~ 150k
+            // token input, cộng 60k output vẫn nằm trong cửa sổ của model.
+            maxContextChars: 600_000
         },
         // Official Mojang patch-notes JSON (stable; preferred over HTML scraping).
         changelogUrl: 'https://launchercontent.mojang.com/v2/javaPatchNotes.json',

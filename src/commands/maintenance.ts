@@ -102,17 +102,25 @@ export default {
             const before = await reportChunkStatus().catch(() => null);
 
             // Say something straight away. The admin path rebuilds every missing
-            // 3h window from Discord history first, so this is 8 sequential AI
-            // calls plus the reduce — minutes, not seconds. Without this the
-            // command looks hung.
+            // 3h window from Discord history first: 8 sequential AI calls, each
+            // allowed up to 10 minutes now that a chunk may emit 40k tokens, plus
+            // a reduce allowed 15. Worst case is well over an hour, so the wait is
+            // quoted from the real budget rather than guessed at — an admin told
+            // "a few minutes" would reasonably assume it had hung and re-run it.
             const missing = before ? before.expected - before.stored : 0;
+            const perSlotMin = Math.ceil(config.report.chunk.timeoutMs / 60_000);
+            const reduceMin = Math.ceil(config.report.daily.timeoutMs / 60_000);
             await interaction
                 .editReply(
                     `${config.ui.emojis.note} Đang soi lại 24h vừa rồi` +
                     (missing > 0
                         ? ` — thiếu ${missing}/${before!.expected} khung, đọc lại lịch sử chat để dựng lại.`
                         : ` — đã có đủ ${before?.expected ?? 8} khung ghi chép.`) +
-                    '\nViệc này mất vài phút. Bản tin sẽ đăng ở kênh nhật báo khi xong.'
+                    (missing > 0
+                        ? `\nNgân sách đang mở rất rộng (mỗi khung tối đa ${perSlotMin} phút, bước gộp ${reduceMin} phút), ` +
+                          `nên lượt này có thể chạy tới ~${missing * perSlotMin + reduceMin} phút. Cứ để đó, đừng bấm lại.`
+                        : `\nBước gộp tối đa ${reduceMin} phút.`) +
+                    '\nBản tin sẽ đăng ở kênh nhật báo khi xong, kể cả khi thông báo này hết hạn.'
                 )
                 .catch(() => {});
 
