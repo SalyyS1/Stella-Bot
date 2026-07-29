@@ -41,6 +41,7 @@ const reminderScheduler = source('systems/reminder/reminder-scheduler.ts');
 const reminderStore = source('systems/reminder/reminder-store.ts');
 const reminderParser = source('systems/reminder/reminder-parser.ts');
 const reminderVoice = source('systems/reminder/reminder-voice.ts');
+const qaManager = source('systems/aiQaManager.ts');
 const emojiPalette = source('systems/emoji-palette.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
@@ -312,4 +313,27 @@ assert(
     'reminder voice no longer strips mentions, so AI-written text can display a fake @everyone'
 );
 
-console.log('Stella self-check passed (65 assertions).');
+// 8. Bộ lọc rẻ chặn trước lượt AI đọc câu phải nhận ĐỦ các động từ nhờ nhắc thật.
+//    Bản đầu thiếu "kêu", nên đúng câu mẫu Saly đưa ("nhớ kêu Ri đi tắm") rơi qua
+//    Q&A và Stella trả lời là mình không ping được — tính năng có mà như hỏng, và
+//    người dùng không có cách nào biết vì sao. Một từ dư chỉ tốn một lượt AI oan;
+//    một từ thiếu làm cả một cách nói hợp lệ bị phớt lờ.
+assert(
+    ['kêu', 'nhắc', 'ping', 'gọi', 'réo', 'nhớ'].every(v => reminderParser.includes(v)),
+    'reminder intent filter dropped a real way of asking, so those requests fall through to Q&A'
+);
+// 9. Persona Q&A không được PHỦ NHẬN là mình đặt được nhắc nhở. Khi bộ lọc hụt,
+//    câu "Stella không tự ping đúng giờ được" tệ hơn im lặng: người dùng tin và
+//    thôi không thử nữa, nên một lỗ nhỏ ở bộ lọc thành mất hẳn tính năng.
+// Câu "KHÔNG có công cụ nào" phải được GIỮ — nó chặn model xuất cú pháp gọi tool.
+// Thứ bắt buộc có là câu phản bác ngay sau nó, và thứ tự đó là cả điểm: model đọc
+// câu chặn tool rộng thành "tôi không làm được gì", nên lời phản bác phải đứng
+// liền kề mới đè được.
+assert(
+    qaManager.includes('Stella CÓ hệ nhắc nhở thật')
+    && qaManager.includes('không nói "Stella không ping được"')
+    && qaManager.indexOf('KHÔNG có công cụ nào') < qaManager.indexOf('Stella CÓ hệ nhắc nhở thật'),
+    'Q&A persona claims it cannot schedule pings, which teaches users the feature does not exist'
+);
+
+console.log('Stella self-check passed (67 assertions).');

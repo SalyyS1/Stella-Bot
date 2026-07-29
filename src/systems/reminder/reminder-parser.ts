@@ -59,8 +59,14 @@ function extractJson(raw: string): string {
 // sẽ bị rơi trước cả khi AI có cơ hội hiểu, và người dùng chỉ thấy bot phớt lờ.
 export function looksLikeReminder(text: string): boolean {
     const t = text.toLowerCase();
-    const hasIntent = /nhắc|nhac|ping|gọi|goi|báo|bao|đánh thức|danh thuc/.test(t);
-    const hasTime = /\d\s*(h|giờ|gio|:)|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem/.test(t);
+    // Danh sách này đã BỎ SÓT thật một lần: bản đầu thiếu "kêu", nên đúng câu mẫu
+    // Saly đưa ("nhớ kêu Ri đi tắm") rơi qua Q&A và Stella trả lời là mình không
+    // ping được. Bài học không phải "thêm kêu vào" mà là: mỗi từ thiếu ở đây là
+    // một cách nói hợp lệ bị bot phớt lờ, và người dùng không có cách nào biết vì
+    // sao. Nên danh sách phải rộng — chi phí của một từ dư là một lượt gọi AI oan
+    // (rồi trả isReminder=false), chi phí của một từ thiếu là tính năng như hỏng.
+    const hasIntent = /nhắc|nhac|ping|gọi|goi|kêu|keu|réo|reo|báo|bao|nhớ|đánh thức|danh thuc|hẹn giờ|hen gio|đừng để.*quên|dung de.*quen/.test(t);
+    const hasTime = /\d\s*(h|giờ|gio|:)|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem|mỗi ngày|moi ngay|hằng ngày|hang ngay/.test(t);
     return hasIntent && hasTime;
 }
 

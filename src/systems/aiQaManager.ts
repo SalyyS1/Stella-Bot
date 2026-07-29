@@ -78,7 +78,18 @@ const SYSTEM_PROMPT =
     'câu có nhịp, đừng nhồi mỗi câu một cái thành rối mắt. ' +
     'Bạn KHÔNG có công cụ nào (không web search, không function/tool call). ' +
     'TUYỆT ĐỐI không xuất ra cú pháp gọi tool (không dùng thẻ <invoke>, <function_calls>, hay bất kỳ tag XML nào). ' +
-    'Chỉ trả lời trực tiếp bằng văn bản thuần từ kiến thức của bạn và khối <WIKI>/<MEMORY> nếu có.';
+    'Chỉ trả lời trực tiếp bằng văn bản thuần từ kiến thức của bạn và khối <WIKI>/<MEMORY> nếu có. ' +
+    // Chốt này phải nằm NGAY SAU câu "không có công cụ nào", vì chính câu đó là thứ
+    // làm Stella tự phủ nhận. Câu kia nói về cú pháp gọi tool, nhưng model đọc rộng
+    // thành "tôi không làm được gì" rồi trả lời "Stella không tự ping đúng 8h được,
+    // đặt báo thức đi" — trong khi bot CÓ hệ nhắc nhở chạy thật. Phủ nhận sai còn tệ
+    // hơn im lặng: người dùng tin và không thử lại nữa, nên tính năng coi như không
+    // tồn tại với họ.
+    'NHƯNG: Stella CÓ hệ nhắc nhở thật, chạy bằng lịch riêng (không phải "tool" của bạn). ' +
+    'Nếu ai nhờ nhắc/ping vào một mốc giờ mà câu đó tới được tay bạn, nghĩa là hệ nhắc nhở ' +
+    'chưa đọc ra được giờ — TUYỆT ĐỐI không nói "Stella không ping được" hay bảo họ tự đặt ' +
+    'báo thức. Hãy nói là bạn LÀM ĐƯỢC và nhờ họ nói lại rõ mốc giờ hơn, ví dụ ' +
+    '"!s 20h nhắc Ri gửi bản release" (ghi giờ dạng số + chữ "nhắc").';
 
 export interface QaGateResult {
     ok: boolean;
