@@ -1,4 +1,5 @@
 import { askAI } from '../aiClient';
+import { config } from '../../config';
 import { StoredChunk } from './report-chunk-store';
 import { GlossaryEntry } from '../knowledge/glossary-store';
 
@@ -11,8 +12,10 @@ import { GlossaryEntry } from '../knowledge/glossary-store';
 // characters, so on a busy day the model never saw most of the conversation and
 // the report read as if it had missed the day. Nothing is truncated on this path.
 
-const DAILY_MAX_TOKENS = 1600;
-const DAILY_TIMEOUT_MS = 120_000;
+// Budget lives in config (report.daily) rather than here: this is the step that
+// decides how long the bulletin may be, so it has to be tunable next to the chunk
+// budget it consumes. A generous chunk that gets folded through a tight reduce
+// still comes out as a one-line-per-topic list.
 
 // Same anti-injection framing as the chunk tier. The chunks are AI-written, but
 // they are written FROM member text, so a crafted instruction could have survived
@@ -58,8 +61,20 @@ export async function composeDailyReport(
     glossary: GlossaryEntry[] = [],
     research: string | null = null
 ): Promise<string | null> {
+    // Cap the chunk block, not the whole context. The board/changelog/glossary/web
+    // blocks are small and each answers a specific section of the bulletin, so
+    // trimming the joined string would silently drop whichever happened to land
+    // last. Only the ghi chép can grow without bound, so that is what gets capped —
+    // and it is trimmed from the FRONT, keeping the most recent windows, because a
+    // bulletin missing this morning reads better than one missing tonight.
+    const rendered = chunks.length ? renderChunks(chunks, slotHours) : '';
+    const cap = config.report.daily.maxContextChars;
+    const ghiChep = rendered.length > cap
+        ? `[đã lược phần đầu ngày cho vừa ngân sách]\n${rendered.slice(rendered.length - cap)}`
+        : rendered;
+
     const context = [
-        chunks.length ? `<GHI_CHEP>\n${renderChunks(chunks, slotHours)}\n</GHI_CHEP>` : '',
+        ghiChep ? `<GHI_CHEP>\n${ghiChep}\n</GHI_CHEP>` : '',
         board ? `<SERVICE_BOARD>\n${board}\n</SERVICE_BOARD>` : '',
         changelog ? `<MINECRAFT_CHANGELOG>\n${changelog}\n</MINECRAFT_CHANGELOG>` : '',
         // Vocabulary the community taught Stella. Placed last so it reads as a
@@ -79,6 +94,6 @@ export async function composeDailyReport(
             { role: 'system', content: DAILY_SYSTEM },
             { role: 'user', content: `Bản tin ngày ${period}.\n\n${context}` }
         ],
-        { maxTokens: DAILY_MAX_TOKENS, timeoutMs: DAILY_TIMEOUT_MS }
+        { maxTokens: config.report.daily.maxTokens, timeoutMs: config.report.daily.timeoutMs }
     );
 }

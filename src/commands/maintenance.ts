@@ -43,7 +43,7 @@ export default {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('report')
-                .setDescription('Đăng ngay bản tin AI (bỏ qua lịch, để test)')
+                .setDescription('Soi lại 24h vừa rồi và đăng bản tin ngay (bỏ qua lịch, mất vài phút)')
         )
         .addSubcommand(subcommand =>
             subcommand
@@ -99,7 +99,23 @@ export default {
             // Read the chunk state BEFORE composing: a posted report prunes old
             // chunks, so asking afterwards would under-report what the bulletin
             // was actually built from.
-            const chunkInfo = await reportChunkStatus().catch(() => null);
+            const before = await reportChunkStatus().catch(() => null);
+
+            // Say something straight away. The admin path rebuilds every missing
+            // 3h window from Discord history first, so this is 8 sequential AI
+            // calls plus the reduce — minutes, not seconds. Without this the
+            // command looks hung.
+            const missing = before ? before.expected - before.stored : 0;
+            await interaction
+                .editReply(
+                    `${config.ui.emojis.note} Đang soi lại 24h vừa rồi` +
+                    (missing > 0
+                        ? ` — thiếu ${missing}/${before!.expected} khung, đọc lại lịch sử chat để dựng lại.`
+                        : ` — đã có đủ ${before?.expected ?? 8} khung ghi chép.`) +
+                    '\nViệc này mất vài phút. Bản tin sẽ đăng ở kênh nhật báo khi xong.'
+                )
+                .catch(() => {});
+
             const result = await runReport(interaction.client, true);
             const msg = result === 'posted'
                 ? 'Đã đăng bản tin AI.'
@@ -108,13 +124,24 @@ export default {
                     : result === 'disabled'
                         ? 'Tính năng AI đang tắt (thiếu AI_API_KEY).'
                         : 'Bản tin cho hôm nay đã đăng rồi.';
-            // Surface how many 3h windows the bulletin drew on. A thin report is
-            // almost always missing chunks (bot offline, or AI failing on a slot),
-            // and that is invisible from the bulletin text alone.
-            const detail = chunkInfo
-                ? ` (ghi chép 3h: ${chunkInfo.stored}/${chunkInfo.expected} khung, đang ở khung ${chunkInfo.currentSlot})`
+
+            // Re-read AFTER the run: the admin path may have just rebuilt windows,
+            // so the count taken before would understate what the bulletin used.
+            const after = await reportChunkStatus().catch(() => null);
+            const detail = after
+                ? ` (ghi chép 3h: ${after.stored}/${after.expected} khung, đang ở khung ${after.currentSlot})`
                 : '';
-            return interaction.editReply(`${config.ui.emojis.success} ${msg}${detail}`);
+
+            // Tolerate a dead interaction token. Discord expires it 15 minutes
+            // after the defer, and a full 8-window rebuild can outlast that. The
+            // bulletin is already posted to the forum channel by then, so failing
+            // to edit an ephemeral confirmation must not surface as a command error.
+            return interaction
+                .editReply(`${config.ui.emojis.success} ${msg}${detail}`)
+                .catch(() => {
+                    console.log(`[report] admin run xong (${result}) nhưng interaction đã hết hạn`);
+                    return null;
+                });
         }
 
         // Audit what the community has taught Stella. A wrong definition gets reused

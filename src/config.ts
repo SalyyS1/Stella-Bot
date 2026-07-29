@@ -247,7 +247,6 @@ export const config = {
         ],
         hourStart: 21,           // 21:00 Asia/Saigon
         hourEnd: 22,             // fire within the 21-22h window
-        maxMessagesPerChannel: 200,
         // Map-reduce nhật báo. Mỗi 3h gom 1 "chunk" (tóm tắt cửa sổ 3h, LƯU DB,
         // KHÔNG đăng); 21h gộp 8 chunk thành bản tin cuối rồi đăng. Lý do: bản cũ
         // cắt chat còn 8.000 ký tự nên ngày bận mất phần lớn dữ liệu — chia 8 lượt
@@ -255,13 +254,23 @@ export const config = {
         chunk: {
             enabled: true,
             slotHours: 3,            // độ dài mỗi cửa sổ (24 / 3 = 8 slot/ngày)
-            maxTokens: 900,          // chunk là dữ liệu trung gian, không cần dài
-            timeoutMs: 90_000,
+            // Ngân sách ĐỦ RỘNG là điều kiện để bản tin nói được chuyện gì đã xảy
+            // ra, không phải chỉ liệt kê chủ đề. Một ngày ~2000 tin chia 8 khung là
+            // ~250 tin/khung; ghi chép trung thực cho 250 tin cần chỗ hơn nhiều so
+            // với 900 token. Chi phí ở đây là chuyện đã cân: chunk mới là nơi chi
+            // tiết còn hoặc mất, vì bước gộp cuối KHÔNG bao giờ đọc lại chat gốc.
+            maxTokens: 4000,
+            timeoutMs: 150_000,      // output dài hơn thì cũng cần chờ lâu hơn
+            // Trần độ dài mỗi tin khi dựng transcript. 300 ký tự cắt mất phần cuối
+            // của đúng loại tin đáng đọc nhất: tin dài là tin tranh luận/giải thích.
+            maxCharsPerMessage: 700,
             retentionDays: 7,        // xoá chunk cũ hơn N ngày sau khi đăng bản ngày
             // Trần số trang lịch sử đọc mỗi kênh cho MỖI cửa sổ 3h. Vòng lặp thật
             // sự dừng theo mốc thời gian; số này chỉ để một kênh bất thường không
-            // quay vô hạn. 6 trang = 600 tin/kênh/3h, dư sức cho server này.
-            maxPagesPerChannel: 6,
+            // quay vô hạn. 12 trang = 1200 tin/kênh/3h — mức này để một khung cao
+            // điểm (drama nổ ra, cả server vào cùng lúc) không bị cắt ngang, vì
+            // trần trang chạm trước mốc thời gian là mất phần ĐẦU của khung.
+            maxPagesPerChannel: 12,
             // Vá lại slot bị mất khi bot chết qua ranh 3h.
             backfill: {
                 enabled: true,
@@ -276,19 +285,36 @@ export const config = {
                 maxSlotsPerRun: 2
             }
         },
+        // Bước GỘP cuối (8 chunk -> 1 bản tin). Trước đây hardcode 1600 token trong
+        // report-daily-composer.ts, và đó là chỗ thắt cuối: chunk có ghi chi tiết
+        // đến đâu thì bản tin cũng chỉ dài bằng ngân sách ở đây. Ngày có drama thì
+        // 1600 token buộc model phải nén "sáng bàn gì, tối chốt gì" thành một dòng.
+        daily: {
+            maxTokens: 6000,
+            timeoutMs: 240_000,
+            // Trần ký tự phần ghi chép bơm vào prompt gộp. 8 chunk x 4000 token
+            // (~12k ký tự/chunk) có thể lên ~96k ký tự — vẫn thừa sức trong cửa sổ
+            // context của model, nhưng có trần để một chunk bất thường không đẩy
+            // request vượt giới hạn gateway rồi mất cả bản tin.
+            maxContextChars: 160_000
+        },
         // Official Mojang patch-notes JSON (stable; preferred over HTML scraping).
         changelogUrl: 'https://launchercontent.mojang.com/v2/javaPatchNotes.json',
         // Đọc ảnh (vision): kèm ảnh member đăng vào lượt tóm tắt 3h để Stella tả được
-        // build/art thay vì chỉ thấy "[ảnh]". CHƯA xác minh gateway có nhận ảnh —
-        // aiClient tự thử lại bằng text nếu bị từ chối, nên bật cũng không làm hỏng
-        // nhật báo. Chỉ đọc từ kênh whitelist (share/showcase), KHÔNG đọc kênh chat.
+        // build/art thay vì chỉ thấy "[ảnh]". Probe 2026-07-29 đã xác nhận gateway
+        // ĐỌC ĐƯỢC ảnh qua URL https (đúng đường Discord CDN mà code dùng); aiClient
+        // vẫn giữ nhánh thử lại bằng text như lưới an toàn.
+        // Chỉ đọc từ kênh whitelist (share/showcase), KHÔNG đọc kênh chat.
         vision: {
             enabled: true,
             channels: [
                 '1401215533243957388', // = channels.share
                 '1401215370978922506'  // = channels.showcase
             ],
-            maxImagesPerChunk: 4,              // trần ảnh / cửa sổ 3h (ảnh đắt hơn text nhiều)
+            // Trần ảnh / cửa sổ 3h. Ảnh đắt hơn text nhiều, nhưng 4 ảnh là quá chật
+            // cho một buổi tối cả server đăng build: khung nào nhiều ảnh thì phần
+            // bị bỏ chính là phần đáng xem nhất.
+            maxImagesPerChunk: 12,
             maxBytesPerImage: 4 * 1024 * 1024  // bỏ qua ảnh lớn hơn N byte
         },
         // Web research: tra thông tin ngoài cho chủ đề cộng đồng đang bàn (plugin lạ,

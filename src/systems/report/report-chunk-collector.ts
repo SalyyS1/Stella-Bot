@@ -67,7 +67,14 @@ async function collectChannel(
             if (msg.createdTimestamp < sinceMs) continue;
             if (msg.createdTimestamp >= untilMs) continue;
             const content = msg.content.replace(/\s+/g, ' ').trim();
-            if (content) lines.push(`${msg.author.username}: ${content.slice(0, 300)}`);
+            // Trần độ dài mỗi tin đọc từ config, không hardcode: cắt quá ngắn là mất
+            // đúng loại tin đáng đọc nhất — tin dài thường là tranh luận hoặc giải
+            // thích, tức là phần mang thông tin chứ không phải phần chào hỏi.
+            if (content) {
+                lines.push(
+                    `${msg.author.username}: ${content.slice(0, config.report.chunk.maxCharsPerMessage)}`
+                );
+            }
         }
 
         const oldest = batch.last();

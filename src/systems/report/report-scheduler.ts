@@ -208,6 +208,50 @@ async function runBackfill(client: Client): Promise<number> {
     return repaired;
 }
 
+// Vá MỌI khung còn thiếu của bản tin hôm nay, không giới hạn 2 slot như lượt tự
+// động. Chỉ dùng cho lệnh admin.
+//
+// Lý do phải có: bản tin chỉ gộp chunk ĐÃ lưu trong DB. Ngày bật tính năng lần
+// đầu (hoặc bot vừa chết cả ngày) thì DB trống, nên `/maintenance report` sẽ trả
+// "không có gì để đăng" — đúng theo code nhưng sai theo điều admin muốn: họ bấm
+// lệnh đó chính vì muốn soi lại 24h vừa rồi. Ở đây đọc lại lịch sử Discord để
+// dựng đủ 8 khung trước khi gộp.
+//
+// Trần chi phí bỏ hẳn là có chủ ý: admin gõ tay, biết mình đang gọi, và Saly đã
+// chốt không lo chi phí cho đúng đường này. Ngược lại lượt tự động vẫn giữ trần
+// 2 slot/tick, vì nó chạy 15 phút một lần mà không ai bấm.
+//
+// Slot đã có row thì bỏ qua (summarizeSlot tự kiểm), nên gọi lại nhiều lần không
+// tốn thêm lượt AI nào.
+async function backfillAllSlots(client: Client): Promise<number> {
+    if (!isAiEnabled()) return 0;
+
+    const candidates = closedSlotsForDailyReport();
+    const stored = await findStoredSlots(
+        candidates.map(s => ({ period: s.period, slot: s.slot }))
+    );
+    const holes = candidates.filter(s => !stored.has(`${s.period}#${s.slot}`));
+    if (!holes.length) return 0;
+
+    console.log(`[report] admin backfill: ${holes.length} khung còn thiếu, đọc lại lịch sử`);
+
+    // Mới về cũ: khung gần hiện tại cần ít trang lịch sử hơn nên chắc với tới hơn,
+    // và cũng là phần bản tin cần nhất nếu một khung xa bị hụt trang.
+    let repaired = 0;
+    for (const target of [...holes].reverse()) {
+        const outcome = await summarizeSlot(
+            client,
+            target,
+            config.report.chunk.backfill.maxPagesPerChannel
+        );
+        if (outcome === 'saved' || outcome === 'empty') repaired++;
+        else console.error(`[report] admin backfill: khung ${target.period}#${target.slot} thất bại (${outcome})`);
+    }
+
+    console.log(`[report] admin backfill: vá được ${repaired}/${holes.length} khung`);
+    return repaired;
+}
+
 // Compose and post the daily bulletin from the stored chunks. force=true bypasses
 // the once-a-day guard for a manual admin run.
 export async function runReport(client: Client, force = false): Promise<ReportOutcome> {
@@ -218,6 +262,15 @@ export async function runReport(client: Client, force = false): Promise<ReportOu
 
     let posted = false;
     try {
+        // Lượt admin: dựng lại mọi khung thiếu TRƯỚC khi gộp, để lệnh này thật sự
+        // soi lại 24h chứ không chỉ gộp những gì tình cờ đã có trong DB. Đặt trong
+        // try để claim vẫn được nhả nếu bước này ném lỗi.
+        if (force) {
+            await backfillAllSlots(client).catch(error =>
+                console.error('[report] admin backfill failed:', error)
+            );
+        }
+
         const wanted = slotsForDailyReport();
         const [chunks, board, changelog, glossary] = await Promise.all([
             loadChunks(wanted),
