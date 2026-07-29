@@ -49,6 +49,39 @@ export function slotsPerDay(): number {
     return Math.max(1, Math.floor(24 / config.report.chunk.slotHours));
 }
 
+// Lần kế tiếp đồng hồ Saigon chỉ đúng hour:minute, trả về epoch ms.
+//
+// Dùng cho hệ nhắc nhở: người ta nói "3h chiều" theo giờ Hà Nội, còn host có thể
+// chạy ở UTC. Cách tính bám đúng lối của slotAt() — lấy giờ tường Saigon HIỆN TẠI
+// rồi cộng phần còn thiếu, KHÔNG hardcode +07:00 ở đâu. Viết kiểu
+// `new Date('...+07:00')` sẽ đúng hôm nay và sai lặng lẽ nếu vùng đổi offset.
+//
+// Mốc đã qua trong ngày thì nhảy sang mai: "nhắc tôi 3h chiều" gõ lúc 4h chiều chỉ
+// có thể nghĩa là 3h chiều mai. Cộng 86400s là đủ đúng vì Việt Nam không có DST;
+// ở vùng có DST thì phép này lệch 1 tiếng hai lần mỗi năm.
+export function nextSaigonTime(hour: number, minute: number, nowMs = Date.now()): number {
+    const at = new Date(nowMs);
+    const parts = saigonParts(at);
+    const nowSec = parts.hour * 3600 + parts.minute * 60 + parts.second;
+    const targetSec = hour * 3600 + minute * 60;
+    let deltaSec = targetSec - nowSec;
+    if (deltaSec <= 0) deltaSec += 86_400;
+    // Trừ phần millisecond để mốc rơi đúng đầu giây, không lệch lẻ.
+    return nowMs + deltaSec * 1000 - at.getMilliseconds();
+}
+
+// Mô tả một mốc epoch bằng giờ tường Saigon, để nói lại cho người dùng nghe.
+//
+// Cần vì mọi mốc trong hệ nhắc nhở được lưu dạng UTC: xác nhận lại bằng giờ UTC
+// thì người đặt "3h chiều" sẽ đọc thấy "8:00" và tưởng bot hiểu sai, rồi đặt lại
+// lần nữa. Nói lại đúng giờ họ đã nói là cách duy nhất để họ tin là đã đặt đúng.
+export function describeSaigon(atMs: number): string {
+    const { period, hour, minute } = saigonParts(new Date(atMs));
+    const hh = String(hour).padStart(2, '0');
+    const mm = String(minute).padStart(2, '0');
+    return `${hh}:${mm} ngày ${period} (giờ VN)`;
+}
+
 // Describe the slot containing `atMs`. The window bounds are derived by
 // subtracting the elapsed wall-clock time since the slot began, NOT by assuming
 // a fixed UTC offset — so the math holds regardless of the zone's offset or any

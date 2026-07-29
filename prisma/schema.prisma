@@ -464,6 +464,44 @@ model ReportChunk {
   @@index([period])
 }
 
+// Lời nhắc do member nhờ Stella ping hộ, đặt bằng câu nói thường trong `!s`.
+//
+// Vì sao phải lưu DB chứ không setTimeout: một lời nhắc "3h chiều nay" đặt lúc
+// 9h sáng phải sống qua mọi lần bot restart/deploy giữa khoảng đó. setTimeout
+// mất trắng khi process chết, và mất một lời nhắc thì người ta không biết là
+// mình đã bị quên — đúng kiểu thất bại tệ nhất cho một tính năng nhắc nhở.
+//
+// requesterId TÁCH RIÊNG targetId là chốt quyền, không phải để thống kê: chỉ
+// role được cấp mới đặt được lời nhắc cho NGƯỜI KHÁC, còn ai cũng đặt được cho
+// chính mình. Thiếu tách hai cột này thì không truy được ai đã nhờ ping ai.
+model Reminder {
+  id          Int       @id @default(autoincrement())
+  requesterId String // ai nhờ đặt (dùng để truy vết và kiểm quyền)
+  targetId    String // ai bị ping khi tới giờ
+  channelId   String // ping ở kênh nào (mặc định kênh chat)
+  message     String // nội dung nhắc, do người đặt nói
+  // Mốc giờ TIẾP THEO cần ping, tính sẵn theo giờ VN rồi lưu về UTC. Lưu mốc
+  // tuyệt đối thay vì "3h chiều" dạng chữ để scheduler chỉ cần so sánh thời
+  // gian, không phải parse lại tiếng Việt mỗi phút.
+  nextFireAt  DateTime
+  // Lặp hằng ngày hay chỉ một lần. Lời nhắc một lần được đánh done sau khi ping;
+  // lời lặp thì dời nextFireAt sang cùng giờ ngày mai.
+  repeatDaily Boolean   @default(false)
+  // Giờ/phút theo giờ VN, giữ lại RIÊNG cho lời lặp: cộng thêm 24h vào mốc UTC
+  // sẽ lệch nếu múi giờ đổi, còn dựng lại từ giờ-phút thì luôn đúng "1h chiều
+  // theo giờ Hà Nội" bất kể chuyện gì xảy ra với offset.
+  hourVn      Int
+  minuteVn    Int       @default(0)
+  active      Boolean   @default(true)
+  lastFiredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Chỉ quét lời nhắc còn sống và đã tới hạn.
+  @@index([active, nextFireAt])
+  @@index([targetId])
+}
+
 // Thuật ngữ cộng đồng mà Stella chưa hiểu. Vòng đời: phát hiện trong chat (kèm
 // lượt tóm tắt chunk, không tốn AI call riêng) -> hỏi ở kênh knowledge -> chỉ ghi
 // nghĩa khi NGƯỜI CÓ ROLE TIN CẬY trả lời. answeredBy + sourceMsg để truy vết và

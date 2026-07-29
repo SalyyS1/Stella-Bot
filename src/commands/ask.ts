@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags, EmbedBu
 import { config } from '../config';
 import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
+import { buildEmojiHint, extractSticker } from '../systems/emoji-palette';
 
 // /ask <question> — AI Q&A usable in any channel. Pings the caller in the answer
 // so the reply-ownership check in the Q&A channel works on the next turn.
@@ -25,7 +26,23 @@ export default {
         if (!gate.ok) {
             return interaction.editReply({ content: gateMessage(gate.reason) }).catch(() => {});
         }
-        const answer = await answerQuestion(interaction.user.id, question, interaction.channelId);
+        // Cùng một Stella ở cả hai đường vào, nên palette emoji phải truyền ở đây
+        // nữa. Bỏ sót một đường là để bot có giọng khác nhau tuỳ người ta gõ `!s`
+        // hay `/ask` — không ai hiểu nổi vì sao.
+        const raw = await answerQuestion(
+            interaction.user.id,
+            question,
+            interaction.channelId,
+            buildEmojiHint(interaction.guild)
+        );
+        // Cố tình KHÔNG truyền sticker hint: interaction reply không gửi được
+        // sticker, nên xin nó ở đây là xin một thứ không có đường thực hiện.
+        //
+        // Nhưng vẫn phải LỌC marker: mạch hội thoại được lưu chung theo
+        // (người, kênh) cho cả `!s` và `/ask`, nên một câu trả lời cũ từ `!s` còn
+        // marker trong history có thể khiến model bắt chước viết lại ở đây — và ở
+        // đây không có ai bóc nó ra, người dùng sẽ đọc thấy `[[sticker:kek]]`.
+        const { text: answer } = extractSticker(raw, null);
         // Answers can be long (config/skill samples) → embed (4096/desc) + split.
         // First chunk pings the caller so a follow-up reply is attributable to them.
         const chunks = splitForDiscord(answer);

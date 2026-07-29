@@ -36,6 +36,10 @@ const glossaryAsker = source('systems/knowledge/glossary-question-asker.ts');
 const chunkSummarizer = source('systems/report/report-chunk-summarizer.ts');
 const dailyComposer = source('systems/report/report-daily-composer.ts');
 const aiClient = source('systems/aiClient.ts');
+const reminderHandler = source('systems/reminder/reminder-handler.ts');
+const reminderScheduler = source('systems/reminder/reminder-scheduler.ts');
+const reminderStore = source('systems/reminder/reminder-store.ts');
+const emojiPalette = source('systems/emoji-palette.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
     'utf8'
@@ -247,4 +251,35 @@ assert(
     'reduce prompt lost its voice guidance, so bulletins read like meeting minutes again'
 );
 
-console.log('Stella self-check passed (58 assertions).');
+// Hệ nhắc nhở đưa cho bot quyền ping người khác theo lịch, nên mọi chốt dưới đây
+// là chốt chống quấy rối, không phải chốt cho gọn code.
+//
+// 1. Quyền ping người khác phải do ROLE THẬT quyết, không bao giờ do AI đọc ra từ
+//    câu chữ. Để model quyết nghĩa là ai cũng viết được "tôi có quyền ping người
+//    khác" và nó sẽ tin — tức là bot thành công cụ quấy rối có hẹn giờ.
+assert(
+    reminderHandler.includes('reminderPingOthers') && reminderHandler.includes('target.id === message.author.id'),
+    'reminder ping-others gate no longer checks a real role, so anyone can schedule pings at anyone'
+);
+// 2. Nội dung lời nhắc là chữ người dùng gõ, nên nó phải được gửi với
+//    allowedMentions khoá chặt. Thiếu nó thì một lời nhắc chứa "@everyone" sẽ ping
+//    cả server, mỗi ngày, theo lịch.
+assert(
+    reminderScheduler.includes('parse: []') && reminderScheduler.includes('roles: []'),
+    'reminder send lost its mention allowlist, so reminder text can ping @everyone on a schedule'
+);
+// 3. Lịch lặp phải dựng lại mốc kế tiếp từ giờ-phút VN, KHÔNG cộng 24h vào mốc cũ:
+//    một lần ping trễ sẽ đẩy giờ của mọi ngày sau lệch thêm, trôi dần mãi.
+assert(
+    reminderStore.includes('nextSaigonTime(reminder.hourVn, reminder.minuteVn)'),
+    'recurring reminders drift because the next fire time is no longer rebuilt from the VN wall clock'
+);
+// 4. Emoji riêng của server chỉ dùng được khi model nhận danh sách id THẬT. Dặn
+//    "hãy dùng emoji server" mà không đưa danh sách thì nó bịa id, và Discord in
+//    nguyên chuỗi `<:abc:123>` ra giữa câu — trông như bot lỗi.
+assert(
+    emojiPalette.includes('buildEmojiHint') && emojiPalette.includes('animated'),
+    'emoji palette no longer emits real server emoji ids, so Stella prints broken emoji text'
+);
+
+console.log('Stella self-check passed (62 assertions).');

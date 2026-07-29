@@ -15,6 +15,8 @@ import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
 import { handleTriviaAnswer } from '../systems/trivia-manager';
 import { collectAnswer } from '../systems/knowledge/glossary-question-asker';
+import { handleReminderRequest } from '../systems/reminder/reminder-handler';
+import { buildEmojiHint, buildStickerHint, extractSticker } from '../systems/emoji-palette';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -56,6 +58,19 @@ async function handleAiQa(message: Message): Promise<boolean> {
         return true;
     }
 
+    // Nhờ đặt lời nhắc? Xét TRƯỚC khi vào cổng Q&A, vì một câu nhờ nhắc không phải
+    // câu hỏi: để nó đi tiếp thì người dùng vừa được đặt lịch lại vừa nhận một câu
+    // trả lời AI về chính câu nhờ đó — tốn thêm một lượt gọi và đọc như bot bị lag.
+    //
+    // handleReminderRequest tự lọc rẻ trước (từ khoá giờ + ý nhờ nhắc) nên câu tán
+    // gẫu thường không tốn lượt AI nào ở đây.
+    if (await handleReminderRequest(message, question).catch(error => {
+        console.error('[reminder] handler failed:', error);
+        return false;
+    })) {
+        return true;
+    }
+
     // Atomic reserve: claims the slot in the same sync call so a burst can't bypass the cap.
     const gate = reserveQaSlot(message.author.id);
     if (!gate.ok) {
@@ -66,13 +81,26 @@ async function handleAiQa(message: Message): Promise<boolean> {
     // sendTyping is best-effort (.catch) so it can't throw between reserve and
     // answerQuestion — answerQuestion always runs and releases the slot in its finally.
     await (message.channel as any).sendTyping?.().catch(() => {});
-    const answer = await answerQuestion(message.author.id, question, message.channelId);
+    // Emoji + sticker thật của server, dựng ở đây vì đây là nơi có Guild.
+    // Best-effort: không có guild (DM) hoặc server không có emoji thì Stella dùng
+    // emoji Unicode và không thả sticker.
+    const palette = [buildEmojiHint(message.guild), buildStickerHint(message.guild)]
+        .filter(Boolean)
+        .join('\n');
+    const raw = await answerQuestion(message.author.id, question, message.channelId, palette);
+    // Tách marker [[sticker:tên]] TRƯỚC khi chia đoạn: model được dặn đặt nó ở cuối,
+    // nên chia trước thì marker rơi vào đoạn cuối và đoạn đầu (đoạn được reply) mất
+    // sticker — còn nếu tên sai thì marker phải bị xoá khỏi text bằng mọi giá.
+    const { text: answer, stickerId } = extractSticker(raw, message.guild);
     // Answers can be long (config/skill samples) → embed (4096/desc) + split.
     // First message pings the asker so their follow-up reply is attributable.
     const chunks = splitForDiscord(answer);
     await message.reply({
         content: `<@${message.author.id}>`,
         embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(chunks[0])],
+        // Sticker gửi kèm tin đầu. Bọc trong mảng chỉ khi có: truyền `stickers: []`
+        // là hợp lệ nhưng vô nghĩa, còn `undefined` thì discord.js bỏ hẳn field.
+        ...(stickerId ? { stickers: [stickerId] } : {}),
         allowedMentions: { users: [message.author.id] }
     }).catch(() => {});
     for (const chunk of chunks.slice(1)) {

@@ -35,6 +35,17 @@ export const config = {
             "1385258274131279956", // role tin cậy cũ, giữ nguyên quyền đang có
             "1195351303182889031"  // Saly thêm 2026-07-29
         ] as string[],
+        // Role được phép nhờ Stella ping NGƯỜI KHÁC. Ai không có role này vẫn đặt
+        // được nhắc nhở, nhưng CHỈ cho chính mình.
+        //
+        // Đây là cổng chống biến bot thành công cụ spam: "nhờ bot ping người khác"
+        // nghe vô hại cho tới khi ai đó đặt nhắc mỗi 5 phút ping một người họ đang
+        // ghét — bot sẽ làm đúng như được dặn, và người bị ping không chặn được vì
+        // đó là bot của server. Ping chính mình thì không có vấn đề đó: tệ nhất là
+        // họ tự làm ồn chính mình.
+        reminderPingOthers: [
+            "894579088843485244"   // Saly chốt 2026-07-29
+        ] as string[],
         // Level Roles (Bot sẽ tự tạo nếu chưa có, bạn sửa ID sau khi tạo xong)
         levelRoles: {
             littleStar: "", // Lv.1-9 — Bot tự tạo
@@ -166,6 +177,46 @@ export const config = {
             maxConcurrent: 2,      // global cap on simultaneous image jobs
             timeoutMs: 120_000,    // image gen is slow; allow well past the text timeout
             maxPromptLen: 1000     // cap prompt length sent to the API
+        },
+        // Nhắc nhở: Stella đọc câu tiếng Việt tự nhiên trong `!s` và tự đặt lịch
+        // ping. Không có lệnh slash riêng là có chủ ý — Saly yêu cầu đúng dạng
+        // "!s ê bot 3h chiều nay nhớ ping tôi", tức là đường vào phải là câu nói
+        // thường, không phải form.
+        //
+        // AI chỉ dùng để ĐỌC câu (trả về JSON giờ + người + nội dung). Việc ai
+        // được ping ai do CODE quyết định, không do AI — xem reminder-manager.
+        // Để AI tự chọn người ping là mở đường cho một câu chat bất kỳ biến thành
+        // lệnh ping cả server.
+        reminder: {
+            enabled: true,
+            // Kênh Stella ping khi tới giờ. Saly chốt: kênh chat, không phải kênh
+            // người ta đã gõ lệnh — nhắc nhở phải xuất hiện ở nơi người ta thật sự
+            // đang ngồi.
+            channel: '943893730123980881',
+            // Trần số lịch đang chờ MỖI người. Chặn một người đặt hàng trăm lịch
+            // rồi biến kênh chat thành máy spam.
+            maxPerUser: 10,
+            // Trần lịch lặp lại mỗi ngày / người. Chặt hơn hẳn lịch một lần: lịch
+            // lặp không tự hết, nên một lịch rác sống mãi tới khi có người xoá.
+            maxRecurringPerUser: 3,
+            // Nhịp kiểm. 30 giây để một lịch đặt "3h chiều" ping đúng phút, thay vì
+            // trôi tới 15 phút như nhịp của nhật báo.
+            checkIntervalMs: 30_000,
+            // Bỏ qua lịch đã quá hạn hơn N phút thay vì ping muộn. Bot chết 3 tiếng
+            // rồi sống lại mà ping dồn "nhắc bạn việc lúc 3h" vào 6h là vô nghĩa và
+            // gây nhiễu; quá hạn xa thì đánh dấu xong luôn và im lặng.
+            lateToleranceMs: 30 * 60_000,
+            maxNoteChars: 300,
+            // Trần ký tự câu gửi lên AI để đọc. Câu nhờ nhắc dài hơn mức này gần
+            // như chắc chắn là chat lẫn lộn, không phải lệnh.
+            maxParseChars: 400,
+            // Trần số lịch ping trong MỘT nhịp. Bot chết lâu rồi sống lại có thể có
+            // hàng chục lịch cùng tới hạn; ping hết trong một nhịp là tự rate-limit
+            // chính mình và làm ngập kênh chat.
+            maxFiresPerTick: 10,
+            // Ngân sách cho lượt AI đọc câu. Nhỏ vì output chỉ là một JSON ngắn.
+            maxTokens: 600,
+            timeoutMs: 60_000
         },
         // Seed catalog of popular plugin wikis (create-if-absent on ready).
         seedWikis: [
@@ -324,12 +375,23 @@ export const config = {
         // build/art thay vì chỉ thấy "[ảnh]". Probe 2026-07-29 đã xác nhận gateway
         // ĐỌC ĐƯỢC ảnh qua URL https (đúng đường Discord CDN mà code dùng); aiClient
         // vẫn giữ nhánh thử lại bằng text như lưới an toàn.
-        // Chỉ đọc từ kênh whitelist (share/showcase), KHÔNG đọc kênh chat.
         vision: {
             enabled: true,
+            // Saly chốt 2026-07-29: THÊM kênh chat. Trước đây cố tình loại nó ra vì
+            // ảnh trong kênh chat là ảnh người ta đăng lúc nói chuyện, không phải
+            // đăng để trưng — nhưng đúng lý do đó lại là lý do phải đọc: ảnh chụp
+            // màn hình drama nằm ở kênh chat, và bản tin bỏ chúng thì bỏ luôn phần
+            // giải thích cho chính chuyện nó đang kể.
+            //
+            // Đánh đổi phải nói thẳng: kênh chat là nơi dễ có ảnh cá nhân (ảnh thật,
+            // ảnh chụp màn hình có thông tin riêng) hơn hẳn share/showcase. Chốt an
+            // toàn nằm ở PROMPT, không ở đây: model được dặn mô tả nội dung liên quan
+            // tới server và BỎ HẲN ảnh cá nhân/giấy tờ. Ảnh không bao giờ được lưu —
+            // chỉ có URL đi vào một lượt gọi AI rồi mất.
             channels: [
                 '1401215533243957388', // = channels.share
-                '1401215370978922506'  // = channels.showcase
+                '1401215370978922506', // = channels.showcase
+                '943893730123980881'   // = channels.chat (nơi drama diễn ra)
             ],
             // Trần ảnh / cửa sổ 3h. Ảnh đắt hơn text nhiều, nhưng 4 ảnh là quá chật
             // cho một buổi tối cả server đăng build: khung nào nhiều ảnh thì phần

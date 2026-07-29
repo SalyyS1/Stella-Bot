@@ -12,6 +12,7 @@ import { startTriviaScheduler } from '../systems/trivia-scheduler';
 import { startShowcaseScheduler } from '../systems/showcaseManager';
 import { startWeeklyRewardScheduler } from '../systems/weekly-reward-manager';
 import { startBirthdayScheduler } from '../systems/birthday-manager';
+import { startReminderScheduler } from '../systems/reminder/reminder-scheduler';
 
 export default {
     name: Events.ClientReady,
@@ -25,6 +26,10 @@ export default {
         startTriviaScheduler(client);
         startWeeklyRewardScheduler(client);
         startBirthdayScheduler(client);
+        // Lời nhắc do member đặt qua `!s`. Nhịp riêng (30s) chứ không ghép vào
+        // scheduler nào có sẵn: nhịp của nhật báo là 15 phút, mà một lời nhắc hẹn
+        // "3h chiều" ping lúc 15:14 thì người dùng thấy sai ngay.
+        startReminderScheduler(client);
         // Retries showcase->better-showcase publishing every minute. Live vote
         // events are the fast path; this is the net that catches posts parked by a
         // transient forum/API failure instead of leaving them until a restart.
