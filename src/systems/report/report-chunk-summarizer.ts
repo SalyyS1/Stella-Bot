@@ -33,7 +33,17 @@ const CHUNK_SYSTEM =
     'phán xét ai đúng ai sai, không thêm cảm xúc của bạn — nhưng cũng KHÔNG được né ' +
     'hay làm nhẹ đi. Chuyện đã xảy ra công khai trong kênh chat thì cứ ghi đúng như nó xảy ra.\n' +
     'Cũng ghi các mảng đời thường: ai vừa vào server, ai khoe được gì, ai đang cần ' +
-    'giúp gì, chuyện gì làm cả kênh cười, ai rủ nhau chơi cùng, quyết định/kết luận nào đã có.\n' +
+    'giúp gì, ai rủ nhau chơi cùng, quyết định/kết luận nào đã có.\n' +
+    // Bước gộp là nơi giọng hài được viết ra, nhưng nó KHÔNG bao giờ đọc lại chat
+    // gốc — nên nếu ghi chép không giữ lại chi tiết vui thì bước gộp không có gì
+    // để kể vui, và cố kể sẽ thành bịa. Đây là chỗ chất liệu hài còn hoặc mất.
+    'GHI CẢ PHẦN VUI, vì đó là phần người đọc thích nhất: ai pha trò, câu nào làm cả ' +
+    'kênh cười (trích ngắn đúng câu đó), ai bị trêu, ai tấu hài không chủ đích, ai ' +
+    'nói một câu vô tình thành kinh điển. Quan trọng: ghi rõ pha trò đó rơi vào LÚC ' +
+    'NÀO — đang lúc cả kênh căng thẳng, đang giữa cuộc tranh luận, hay lúc đang bình ' +
+    'thường — và sau đó không khí đổi thế nào (dịu xuống, cười xoà rồi bỏ qua, hay ' +
+    'vẫn căng như cũ). Một câu đùa chen vào giữa lúc hai người đang gắt nhau là chi ' +
+    'tiết đáng giá nhất của cả khung giờ, đừng bỏ.\n' +
     'Giữ nguyên tên người và thuật ngữ y như trong chat, không diễn giải lại. ' +
     // Ranh giới riêng tư thu về đúng phần thật sự riêng tư. Câu cũ ("không trích
     // nguyên văn hội thoại riêng tư") phủ lên cả chat công khai, và đó là lý do bản

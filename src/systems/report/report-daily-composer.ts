@@ -41,6 +41,18 @@ const DAILY_SYSTEM =
     'sát, không bênh bên nào, không kết luận ai đúng ai sai, không thêm lời bình của ' +
     'bạn. Nhưng cũng KHÔNG né và KHÔNG làm nhẹ đi: chuyện xảy ra công khai trong kênh ' +
     'thì kể đúng như nó xảy ra.\n' +
+    // Giọng kể là thứ quyết định người bận có đọc hết hay không. Bản trước đúng về
+    // nội dung nhưng khô, nên đọc như biên bản. Chỗ này xin giọng sống, và cố tình
+    // đặt NGAY SAU luật trung lập: hài là ở cách kể, không phải ở việc thêm ý kiến.
+    'GIỌNG KỂ: sống động, có chút hài, hóm hỉnh như người kể chuyện giỏi — đừng khô ' +
+    'như biên bản. Dùng ví von, cách nói vui, nhịp kể có cao trào khi chuyện đáng thế. ' +
+    'Ví dụ đúng giọng cần có: "Cuộc chiến đang căng thì Long thả ngay một quả bom gây ' +
+    'cười, trấn áp cả hai bên" — thay vì "có một thành viên pha trò trong lúc tranh ' +
+    'luận". Cùng một sự việc, cách kể thứ nhất người ta đọc hết, cách thứ hai người ta ' +
+    'bỏ qua.\n' +
+    'Nhưng hài nằm ở CÁCH KỂ, không phải ở việc thêm chuyện: không bịa chi tiết cho ' +
+    'vui, không phóng đại thành to hơn thực tế, không lấy ai ra làm trò cười. Chuyện ' +
+    'buồn hoặc căng thật thì kể tử tế, đừng cố pha trò vào.\n' +
     'Kể theo DIỄN BIẾN của ngày khi có (sáng nổ ra chuyện gì, chiều xoay sang đâu, tối ' +
     'chốt lại thế nào), gộp một chuyện chạy qua nhiều khung giờ thành một mạch thay vì ' +
     'liệt kê lại từng khung.\n' +

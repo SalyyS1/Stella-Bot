@@ -1,6 +1,7 @@
 import { Client, TextChannel } from 'discord.js';
 import { config } from '../../config';
 import { AiImagePart } from '../aiClient';
+import { displayNameOf } from './report-chunk-collector';
 
 // Collects member-posted images from ONE time window so the chunk summarizer can
 // actually look at what was shared, instead of recording "ai đó đăng 1 ảnh".
@@ -117,7 +118,12 @@ async function collectChannelImages(
                 // best-effort and never gate a slot.
                 out.push({
                     part: { type: 'image_url', image_url: { url: attachment.url } },
-                    label: `${msg.author.username} đăng ở #${channelName}`
+                    // Cùng cách gọi tên với transcript (nickname trước, username sau
+                    // cùng). Nếu chỗ này dùng username thì một người sẽ xuất hiện
+                    // dưới HAI cái tên trong cùng bản tin — phần chat gọi họ một
+                    // kiểu, phần ảnh gọi kiểu khác — và người đọc sẽ tưởng là hai
+                    // người khác nhau.
+                    label: `${displayNameOf(msg)} đăng ở #${channelName}`
                 });
             }
         }

@@ -34,6 +34,7 @@ const chunkStore = source('systems/report/report-chunk-store.ts');
 const config_ts = source('config.ts');
 const glossaryAsker = source('systems/knowledge/glossary-question-asker.ts');
 const chunkSummarizer = source('systems/report/report-chunk-summarizer.ts');
+const dailyComposer = source('systems/report/report-daily-composer.ts');
 const aiClient = source('systems/aiClient.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
@@ -224,4 +225,26 @@ assert(
     'scheduler no longer passes its page budget to image collection, so backfill uses the live cap and finds nothing'
 );
 
-console.log('Stella self-check passed (55 assertions).');
+// Names in the bulletin must be the ones people actually call each other. A
+// username like `abc_1234` is unmemorable, so a reader cannot tell who the story
+// is about — which defeats the point of naming names at all. The collector is the
+// ONLY place that decides this: both prompt tiers are told to keep names exactly
+// as they appear in the chat, so a username leaking in here leaks all the way to
+// the post.
+assert(
+    chunkCollector.includes('displayNameOf') && !chunkCollector.includes('${msg.author.username}: '),
+    'transcript is back to raw usernames, so the bulletin names people unrecognizably'
+);
+// The humor lives in the reduce prompt, but its raw material has to survive the
+// chunk tier: the reduce NEVER re-reads the original chat, so a chunk that omits
+// the joke leaves nothing to retell and any wit added later would be invented.
+assert(
+    chunkSummarizer.includes('GHI CẢ PHẦN VUI'),
+    'chunk prompt no longer keeps the funny material, so the reduce can only invent it'
+);
+assert(
+    dailyComposer.includes('GIỌNG KỂ') && dailyComposer.includes('quả bom gây'),
+    'reduce prompt lost its voice guidance, so bulletins read like meeting minutes again'
+);
+
+console.log('Stella self-check passed (58 assertions).');

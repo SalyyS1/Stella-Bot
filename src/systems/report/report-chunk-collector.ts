@@ -1,4 +1,4 @@
-import { Client, TextChannel } from 'discord.js';
+import { Client, Message, TextChannel } from 'discord.js';
 import { config } from '../../config';
 
 // Reads raw chat for ONE time window out of the configured source channels.
@@ -12,6 +12,22 @@ export interface CollectedChat {
     // ran out of page budget on the way there, so an empty result proves nothing
     // about the window — see the caller, which must not record it as a quiet one.
     reachedStart: boolean;
+}
+
+// Tên để gọi người trong bản tin. Thứ tự có lý do: nickname trong server là cái
+// người ta tự đặt cho chỗ này và là cái người khác gọi nhau hằng ngày; globalName
+// là tên hiển thị Discord; username (`abc_1234`) là thứ cuối cùng nên dùng vì
+// gần như không ai nhớ nổi ai là ai qua nó.
+//
+// Đây là chỗ DUY NHẤT quyết định tên đi vào prompt. Bản tóm tắt được dặn "giữ
+// nguyên tên y như trong chat", nên đổi ở đây là đổi tên trong cả bản tin — không
+// cần dặn thêm ở tầng prompt, và cũng không có đường nào để username lọt vào.
+export function displayNameOf(msg: Message): string {
+    const nick = msg.member?.displayName?.trim();
+    if (nick) return nick;
+    const global = msg.author.globalName?.trim();
+    if (global) return global;
+    return msg.author.username;
 }
 
 // Walk a channel's history backwards until we're past `sinceMs`. Unlike the old
@@ -72,7 +88,7 @@ async function collectChannel(
             // thích, tức là phần mang thông tin chứ không phải phần chào hỏi.
             if (content) {
                 lines.push(
-                    `${msg.author.username}: ${content.slice(0, config.report.chunk.maxCharsPerMessage)}`
+                    `${displayNameOf(msg)}: ${content.slice(0, config.report.chunk.maxCharsPerMessage)}`
                 );
             }
         }
