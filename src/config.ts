@@ -1,3 +1,28 @@
+// Chấp nhận cả "owner/repo" và cả URL dán nguyên từ thanh địa chỉ
+// ("https://github.com/owner/repo", có/không ".git", có/không dấu "/" cuối).
+// Lý do: giá trị này bị ghép thành đường dẫn API. Dán URL vào sẽ ra
+// api.github.com/repos/https://github.com/... → GitHub trả 404, và member chỉ
+// thấy "không gọi được máy build" — không ai đoán được nguyên nhân từ đó. Rẻ hơn
+// nhiều nếu sửa ngay tại chỗ đọc biến môi trường.
+function normalizeRepoSlug(raw: string | undefined): string {
+    const value = (raw || '').trim();
+    if (!value) return '';
+    const withoutHost = value
+        .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+        .replace(/^git@github\.com:/i, '');
+    const slug = withoutHost.replace(/\.git$/i, '').replace(/\/+$/, '');
+    // Chỉ nhận đúng dạng "owner/repo". Thừa đoạn đường dẫn (ví dụ dán link tới
+    // /tree/main) thì trả rỗng để tính năng tắt hẳn, thay vì gọi API sai âm thầm.
+    if (/^[\w.-]+\/[\w.-]+$/.test(slug)) return slug;
+    // Kêu lên lúc khởi động: Saly ĐÃ đặt biến này, nên tắt im lặng là tệ nhất —
+    // /plugin sẽ chỉ trả mã nguồn mà không ai hiểu tại sao jar không tới.
+    console.error(
+        `[config] PLUGIN_BUILD_REPO không đúng dạng "owner/repo" (nhận: "${value}") — ` +
+        'tính năng build jar tắt. Ví dụ đúng: Stella-Studio/stella-plugin-builder'
+    );
+    return '';
+}
+
 export const config = {
     roles: {
         trusted: "1385258274131279956",
@@ -37,6 +62,8 @@ export const config = {
         rate: "1512109752895930460",
         // Kênh đăng digest định kỳ (mặc định dùng kênh chat; đổi sang kênh highlight riêng nếu muốn).
         digest: "943893730123980881",
+        // Kênh nội bộ: Stella hỏi thuật ngữ lạ ở đây và ping chủ server gợi ý sản phẩm.
+        knowledge: "1195351127596736552",
     },
     // Digest định kỳ: gom request đang mở + showcase mới, đăng 1 embed. Bỏ qua khi rỗng.
     digest: {
@@ -221,8 +248,148 @@ export const config = {
         hourStart: 21,           // 21:00 Asia/Saigon
         hourEnd: 22,             // fire within the 21-22h window
         maxMessagesPerChannel: 200,
+        // Map-reduce nhật báo. Mỗi 3h gom 1 "chunk" (tóm tắt cửa sổ 3h, LƯU DB,
+        // KHÔNG đăng); 21h gộp 8 chunk thành bản tin cuối rồi đăng. Lý do: bản cũ
+        // cắt chat còn 8.000 ký tự nên ngày bận mất phần lớn dữ liệu — chia 8 lượt
+        // thì mỗi lượt đọc gần đủ, và bước gộp chỉ nhận 8 bản tóm tắt đặc.
+        chunk: {
+            enabled: true,
+            slotHours: 3,            // độ dài mỗi cửa sổ (24 / 3 = 8 slot/ngày)
+            maxTokens: 900,          // chunk là dữ liệu trung gian, không cần dài
+            timeoutMs: 90_000,
+            retentionDays: 7,        // xoá chunk cũ hơn N ngày sau khi đăng bản ngày
+            // Trần số trang lịch sử đọc mỗi kênh cho MỖI cửa sổ 3h. Vòng lặp thật
+            // sự dừng theo mốc thời gian; số này chỉ để một kênh bất thường không
+            // quay vô hạn. 6 trang = 600 tin/kênh/3h, dư sức cho server này.
+            maxPagesPerChannel: 6,
+            // Vá lại slot bị mất khi bot chết qua ranh 3h.
+            backfill: {
+                enabled: true,
+                // Trần trang RIÊNG, cao hơn hẳn bản live: lịch sử đọc từ mới về cũ,
+                // nên muốn tới cửa sổ đã đóng 18h trước phải bước qua toàn bộ tin
+                // nhắn đăng sau đó. Dùng trần live (6) thì hết trang trước khi tới,
+                // và cửa sổ đó trả về rỗng — trông y như một đêm vắng.
+                maxPagesPerChannel: 40,
+                // Số slot vá tối đa MỖI lượt tick. Chặn chi phí: bot chết 1 ngày mà
+                // vá cả 8 slot trong 1 tick là 8 lượt gọi AI liền nhau. Vá 2 slot/tick,
+                // tick 15 phút, nên 1 giờ bù được 8 slot — kịp trước bản tin 21h.
+                maxSlotsPerRun: 2
+            }
+        },
         // Official Mojang patch-notes JSON (stable; preferred over HTML scraping).
-        changelogUrl: 'https://launchercontent.mojang.com/v2/javaPatchNotes.json'
+        changelogUrl: 'https://launchercontent.mojang.com/v2/javaPatchNotes.json',
+        // Đọc ảnh (vision): kèm ảnh member đăng vào lượt tóm tắt 3h để Stella tả được
+        // build/art thay vì chỉ thấy "[ảnh]". CHƯA xác minh gateway có nhận ảnh —
+        // aiClient tự thử lại bằng text nếu bị từ chối, nên bật cũng không làm hỏng
+        // nhật báo. Chỉ đọc từ kênh whitelist (share/showcase), KHÔNG đọc kênh chat.
+        vision: {
+            enabled: true,
+            channels: [
+                '1401215533243957388', // = channels.share
+                '1401215370978922506'  // = channels.showcase
+            ],
+            maxImagesPerChunk: 4,              // trần ảnh / cửa sổ 3h (ảnh đắt hơn text nhiều)
+            maxBytesPerImage: 4 * 1024 * 1024  // bỏ qua ảnh lớn hơn N byte
+        },
+        // Web research: tra thông tin ngoài cho chủ đề cộng đồng đang bàn (plugin lạ,
+        // bản cập nhật) để bản tin nói đúng thay vì đoán. AI KHÔNG tự chọn URL —
+        // search API trả JSON, code chỉ fetch host mà provider trả về, và mọi URL
+        // đều qua lại guard SSRF. Fail-closed: tắt hoàn toàn khi thiếu
+        // RESEARCH_API_KEY, vì đây là phần đắt nhất và ít cần nhất của nhật báo.
+        research: {
+            enabled: true,
+            // Tavily-compatible JSON POST. Đổi provider chỉ cần đổi URL + hàm search().
+            searchUrl: process.env.RESEARCH_SEARCH_URL || 'https://api.tavily.com/search',
+            maxResults: 5,           // số kết quả search nhận về
+            maxPagesToRead: 2,       // chỉ mở N trang đầu (fetch chậm hơn search nhiều)
+            maxTopicsPerReport: 2,   // trần chủ đề tra / bản tin (chống nổ chi phí)
+            maxCharsPerPage: 2_000,
+            maxTotalChars: 6_000,    // trần tổng nội dung bơm vào prompt bản tin
+            timeoutMs: 10_000
+        },
+        // Sau khi đăng bản tin ngày, Stella gợi ý ý tưởng sản phẩm/dịch vụ cho chủ
+        // server dựa trên nhu cầu member nói trong ngày (dùng lại chunk đã có, không
+        // tốn thêm bước gom dữ liệu). Fail-closed: tắt khi thiếu OWNER_USER_ID —
+        // KHÔNG hardcode ID người thật vào repo.
+        suggest: {
+            enabled: true,
+            ownerUserId: process.env.OWNER_USER_ID || '',
+            maxTokens: 900,
+            timeoutMs: 90_000
+        }
+    },
+    // Từ điển thuật ngữ: Stella phát hiện từ lạ trong chat (miễn phí — đi kèm lượt
+    // tóm tắt chunk sẵn có), hỏi ở kênh knowledge, và CHỈ học khi người có role tin
+    // cậy trả lời. Gate role là chốt chống data-poisoning: nếu ai cũng dạy được thì
+    // một định nghĩa sai sẽ được tái dùng ở mọi bản tin sau.
+    knowledge: {
+        enabled: true,
+        maxTermsPerAsk: 5,        // gộp tối đa N từ vào MỘT message hỏi (chống spam kênh)
+        minTermLen: 2,
+        maxTermLen: 40,
+        maxTermWords: 4,          // dài hơn = AI đang trả về cả câu, không phải thuật ngữ
+        minMeaningLen: 10,        // câu trả lời quá ngắn ("ừ", "đúng") không phải định nghĩa
+        maxMeaningLen: 300,
+        maxAsksPerTerm: 3,        // hỏi mãi không ai đáp thì thôi, tránh spam vĩnh viễn
+        reAskAfterDays: 30,       // từ đã hỏi mà chưa ai đáp: chờ N ngày mới hỏi lại
+        maxTermsInContext: 25     // số term bơm vào prompt bản tin ngày
+    },
+    // /config: sửa MỘT file config bằng câu lệnh tiếng Việt. Cố tình KHÔNG nhận zip
+    // — bỏ zip nghĩa là bỏ luôn cả zip-slip và zip-bomb, và không cần thêm thư viện.
+    // File được truyền dạng TEXT (không parse YAML rồi ghi lại) để giữ nguyên comment
+    // và định dạng; nếu parse lại thì một thay đổi 1 dòng sẽ trả về diff không đọc nổi.
+    // Mật khẩu/token trong file được thay bằng placeholder TRƯỚC khi gửi AI, và trả
+    // lại giá trị gốc sau khi nhận kết quả — xem config-secret-redactor.ts.
+    configPatch: {
+        enabled: true,
+        allowedExtensions: ['.yml', '.yaml', '.properties', '.conf', '.cfg', '.toml', '.json', '.txt'],
+        maxBytes: 256 * 1024,        // trần khi tải file đính kèm về
+        maxChars: 60_000,            // trần nội dung gửi lên AI
+        maxInstructionChars: 500,
+        maxTokens: 8000,             // phải đủ để trả về TOÀN BỘ file sau khi sửa
+        timeoutMs: 180_000,          // file dài + yêu cầu trả full file => chậm
+        cooldownMs: 60_000,          // mỗi người 1 lần / phút
+        maxConcurrent: 2             // trần toàn server (tốn token nhất trong các tính năng AI)
+    },
+    // /plugin: viết MÃ NGUỒN plugin. Mã nguồn là sản phẩm chính và luôn được trả;
+    // jar chỉ là phần thêm, do pluginBuild bên dưới lo và build ở nơi khác (host bot
+    // không có JDK/Gradle, mà cũng không nên có — xem pluginBuild).
+    // Trả source trước => người thật đọc được code trước khi nó chạy.
+    pluginSource: {
+        enabled: true,
+        minDescriptionChars: 15,
+        maxDescriptionChars: 600,
+        maxTokens: 8000,             // đủ cho plugin.yml + vài class
+        timeoutMs: 180_000,
+        cooldownMs: 120_000,         // đắt hơn /config nên siết chặt hơn
+        maxConcurrent: 1             // 1 lượt toàn server
+    },
+    // Build jar TRÊN GitHub Actions, không build ở host bot. Lý do: script build là
+    // chương trình — Gradle chạy code tuỳ ý theo thiết kế. Build cạnh bot là đặt
+    // token bot + DATABASE_URL + AI key vào cùng bán kính nổ. Runner GitHub là VM
+    // dùng một lần, không giữ secret nào của mình, và mỗi build có log truy vết.
+    // Tắt cứng nếu thiếu PLUGIN_BUILD_TOKEN hoặc PLUGIN_BUILD_REPO.
+    pluginBuild: {
+        enabled: true,
+        // "owner/repo" chứa .github/workflows/build-plugin.yml. Dán cả URL
+        // ("https://github.com/owner/repo") cũng được — xem normalizeRepoSlug.
+        repo: normalizeRepoSlug(process.env.PLUGIN_BUILD_REPO),
+        workflowFile: 'build-plugin.yml',
+        ref: process.env.PLUGIN_BUILD_REF || 'main',
+        // Jar do AI viết PHẢI qua người thật trước khi tới tay member: bật thì jar
+        // gửi riêng cho owner, member chỉ nhận thông báo đang chờ duyệt.
+        requireReview: process.env.PLUGIN_BUILD_REVIEW !== 'off',
+        maxFiles: 12,                // 1 plugin nhỏ: plugin.yml + vài class
+        maxBytesPerFile: 24 * 1024,
+        // Trần này do GitHub quy định, không phải mình chọn: mỗi input của
+        // workflow_dispatch tối đa 65.535 ký tự. Payload đi dạng base64 nên phình
+        // 4/3 → nguồn thô phải dưới ~49KB. Lấy 45KB cho phần JSON bọc ngoài
+        // (dấu ngoặc, tên file, ký tự escape của \n trong code).
+        maxTotalBytes: 45 * 1024,
+        maxInputChars: 65_535,       // giới hạn cứng của workflow_dispatch
+        pollIntervalMs: 5_000,
+        maxWaitMs: 300_000,          // Gradle tải paper-api lần đầu khá lâu
+        maxJarBytes: 8 * 1024 * 1024 // trần Discord cho server chưa boost
     },
     showcase: {
         threshold: 5,

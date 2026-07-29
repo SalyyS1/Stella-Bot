@@ -1,0 +1,222 @@
+# Builds an AI-generated Minecraft plugin into a jar, on GitHub's runners.
+#
+# Why here and not on the bot's host: a Gradle build executes arbitrary code by
+# design (build scripts are programs). Running that next to the bot would put the
+# bot's token, database URL and AI key inside the blast radius. A GitHub runner is
+# an ephemeral VM that is destroyed after the job, holds none of those secrets, and
+# leaves a public log for every build.
+#
+# Two rules make this safe enough to expose to members, and both must hold:
+#
+#   1. The build script is written HERE, not by the AI. Anything script-shaped in
+#      the payload is deleted before Gradle runs. Without this the AI (or a member
+#      steering it) could execute code on the runner.
+#   2. Payload text never reaches a `run:` block through ${{ }}. It is passed via
+#      `env:` and read by the shell as a variable. Inline ${{ }} inside run: is
+#      textual substitution, so a description containing a quote and a semicolon
+#      would become a command.
+
+name: build-plugin
+
+# Named after the caller's build id so the bot can find its own run in the list.
+# Run names are not shell input, so interpolation is safe here.
+run-name: build-${{ inputs.build_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Correlation id supplied by the bot
+        required: true
+        type: string
+      source_b64:
+        description: Base64 of a JSON object {"files":{"path":"content"}}
+        required: true
+        type: string
+
+# Least privilege. The job reads the repo to get this workflow and nothing else;
+# it never pushes, never comments, never touches releases. The default token is
+# write-capable, so narrowing it here is what stops a compromised build from
+# altering the repository it runs in.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Materialise plugin source
+        env:
+          # Via env, never inlined into the script below.
+          SOURCE_B64: ${{ inputs.source_b64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          printf '%s' "$SOURCE_B64" | base64 -d > work/payload.json
+
+          # Node is preinstalled on ubuntu-latest. Used instead of jq because the
+          # file contents are arbitrary text and JSON.parse handles the escaping
+          # without another shell round-trip.
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const payload = JSON.parse(fs.readFileSync('work/payload.json', 'utf8'));
+          const files = payload.files;
+          if (!files || typeof files !== 'object') {
+            console.error('payload has no files object');
+            process.exit(1);
+          }
+
+          // Any of these would run as code during the build, so they are dropped
+          // whatever the payload says. The real build script is written in the
+          // next step and cannot be influenced from outside.
+          const BUILD_SCRIPTS = new Set([
+            'build.gradle', 'build.gradle.kts',
+            'settings.gradle', 'settings.gradle.kts',
+            'gradle.properties', 'gradlew', 'gradlew.bat',
+            'pom.xml',
+          ]);
+
+          const root = path.resolve('work/src');
+          let written = 0;
+
+          for (const [rawName, content] of Object.entries(files)) {
+            if (typeof content !== 'string') continue;
+
+            const base = path.basename(rawName);
+            if (BUILD_SCRIPTS.has(base.toLowerCase())) {
+              console.log(`skipped build script from payload: ${rawName}`);
+              continue;
+            }
+            // Kotlin is a hard stop, not a skip. There is no Kotlin toolchain in
+            // the build script written below, so a .kt file would be copied in,
+            // never compiled, and Gradle would still succeed — shipping a jar
+            // that is missing code. Skipping it silently has the same effect.
+            // Failing here is the only outcome that cannot be mistaken for a
+            // working build. This repeats the caller's check on purpose: the
+            // runner is a second, independent gate.
+            if (/\.kt$/i.test(base)) {
+              console.error(`refusing Kotlin source, this builder only compiles Java: ${rawName}`);
+              process.exit(1);
+            }
+            // Only source and plugin metadata. An unexpected extension is far
+            // more likely to be a mistake than something we want to compile.
+            if (!/\.(java|yml|yaml)$/i.test(base)) {
+              console.log(`skipped unexpected file type: ${rawName}`);
+              continue;
+            }
+
+            // Contain the write inside work/src. A name like ../../.github/x or
+            // an absolute path would otherwise escape and overwrite the workflow
+            // that is about to run. resolve() then prefix-check is the check that
+            // actually holds, because it collapses .. before comparing.
+            const target = path.resolve(root, rawName);
+            if (target !== root && !target.startsWith(root + path.sep)) {
+              console.error(`refusing path outside source root: ${rawName}`);
+              process.exit(1);
+            }
+
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content, 'utf8');
+            written++;
+          }
+
+          if (!written) {
+            console.error('no usable source files in payload');
+            process.exit(1);
+          }
+          console.log(`wrote ${written} source file(s)`);
+          EOF
+
+      - name: Lay out a Gradle project around the source
+        run: |
+          set -euo pipefail
+          cd work
+
+          # Sources arrive as bare paths; Gradle wants them under src/main. Any
+          # .yml (plugin.yml) belongs in resources, the rest in java.
+          #
+          # Java only, matching the build script below. The previous step already
+          # refuses .kt outright, so there is nothing else here to pick up.
+          mkdir -p project/src/main/java project/src/main/resources
+          find src -type f -name '*.java' -exec cp {} project/src/main/java/ \;
+          find src -type f \( -name '*.yml' -o -name '*.yaml' \) -exec cp {} project/src/main/resources/ \;
+
+          if [ ! -f project/src/main/resources/plugin.yml ]; then
+            echo "::error::plugin.yml missing — a Paper plugin cannot load without it"
+            exit 1
+          fi
+
+          # The build script, fixed and written here. Note there is no
+          # dependency on anything the payload said.
+          cat > project/build.gradle <<'EOF'
+          plugins {
+              id 'java'
+          }
+
+          repositories {
+              mavenCentral()
+              maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+          }
+
+          dependencies {
+              compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+          }
+
+          java {
+              toolchain {
+                  languageVersion = JavaLanguageVersion.of(21)
+              }
+          }
+
+          // Flat source layout: generated files carry no package directories.
+          sourceSets {
+              main {
+                  java { srcDirs = ['src/main/java'] }
+                  resources { srcDirs = ['src/main/resources'] }
+              }
+          }
+
+          jar {
+              archiveFileName = 'plugin.jar'
+          }
+          EOF
+
+          cat > project/settings.gradle <<'EOF'
+          rootProject.name = 'plugin'
+          EOF
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile
+        working-directory: work/project
+        # Offline-hostile by nature (it fetches paper-api), but no build cache is
+        # written back: a poisoned cache would outlive the ephemeral runner.
+        run: gradle jar --no-daemon --no-build-cache
+
+      - name: Collect jar
+        run: |
+          set -euo pipefail
+          jar=$(find work/project/build/libs -name '*.jar' | head -1)
+          if [ -z "$jar" ]; then
+            echo "::error::compile produced no jar"
+            exit 1
+          fi
+          mkdir -p out
+          cp "$jar" out/plugin.jar
+          ls -l out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-jar
+          path: out/plugin.jar
+          retention-days: 1
+          if-no-files-found: error

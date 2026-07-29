@@ -15,6 +15,9 @@ prisma/*.db-journal
 prisma/*.db-shm
 prisma/*.db-wal
 
+# Local editor/app state (Claude Terminal dashboard cache)
+.claude-terminal
+
 # Logs and temporary files
 *.log
 tmp_*.ts

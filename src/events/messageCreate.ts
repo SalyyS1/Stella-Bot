@@ -14,6 +14,7 @@ import { isSkillKey } from '../systems/skillRoleManager';
 import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
 import { handleTriviaAnswer } from '../systems/trivia-manager';
+import { collectAnswer } from '../systems/knowledge/glossary-question-asker';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -111,6 +112,14 @@ export default {
         // still flows through XP below (answering trivia is normal chatting).
         if (message.channelId === config.trivia.channelId) {
             await handleTriviaAnswer(message).catch(() => false);
+        }
+
+        // Glossary: a trusted member explaining a term Stella asked about. Reacts to
+        // confirm what was learned instead of replying, so the channel stays readable.
+        // Silent no-op for anyone/anything else — this runs on every message there.
+        if (message.channelId === config.channels.knowledge) {
+            const learned = await collectAnswer(message).catch(() => 0);
+            if (learned > 0) await message.react('✅').catch(() => {});
         }
 
         // Better-showcase is publish-only: members may NOT open their own forum post

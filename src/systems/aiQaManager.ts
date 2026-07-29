@@ -2,6 +2,7 @@ import { config } from '../config';
 import { askAI, AiMessage } from './aiClient';
 import { findWikiEntry } from './wikiManager';
 import { getFacts, extractFact } from './member-memory-manager';
+import { fetchPageText } from '../utils/safe-public-url';
 
 // Community-facing AI Q&A. Owns the spam/cost controls (per-user cooldown,
 // per-user single-in-flight, global concurrency cap) and assembles wiki context
@@ -129,64 +130,13 @@ export function gateMessage(reason: QaGateResult['reason']): string {
     }
 }
 
-// https-only + reject internal/loopback/private hosts. Defense-in-depth: the
-// catalog is admin-curated, but a bad URL or redirect target could still point
-// at an internal address. Hostname-based (does not resolve DNS) — a pragmatic
-// guard against the obvious metadata/localhost/private-range targets.
-function isSafePublicHttpsUrl(raw: string): boolean {
-    let u: URL;
-    try {
-        u = new URL(raw);
-    } catch {
-        return false;
-    }
-    if (u.protocol !== 'https:') return false;
-    const host = u.hostname.toLowerCase();
-    if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) return false;
-    // IPv4 literal → block loopback / link-local / private ranges.
-    const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (m) {
-        const [a, b] = [Number(m[1]), Number(m[2])];
-        if (a === 127 || a === 10 || a === 0) return false;              // loopback / private / this-host
-        if (a === 169 && b === 254) return false;                        // link-local (cloud metadata)
-        if (a === 172 && b >= 16 && b <= 31) return false;               // private
-        if (a === 192 && b === 168) return false;                        // private
-    }
-    // IPv6 literal → block loopback / unique-local / link-local.
-    if (host.includes(':') && (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80'))) return false;
-    return true;
-}
-
 // Fetch a wiki page and extract a plain-text excerpt for AI context. Only ever
 // called with admin-curated catalog URLs (never arbitrary user input) — SSRF
-// surface is limited to what admins add via /add wiki. https-only + timeout + size cap.
+// surface is limited to what admins add via /add wiki. The guard and the fetch
+// both live in utils/safe-public-url now that the report also does web research;
+// two copies of an SSRF check is one copy too many.
 async function fetchWikiExcerpt(url: string): Promise<string | null> {
-    // https-only + reject internal/loopback hosts before fetch (SSRF defense-in-depth;
-    // catalog is admin-curated but a redirect could still target an internal address).
-    if (!isSafePublicHttpsUrl(url)) return null;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    try {
-        // redirect:'manual' — do NOT auto-follow to a possibly-internal host.
-        const res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
-        if (!res.ok) return null;
-        // The abort timer stays armed THROUGH the body read (a slow drip would
-        // otherwise hang here with no timeout and pin a QA slot). Also cap size.
-        const html = (await res.text()).slice(0, 200_000);
-        // Strip tags/scripts/styles → collapse whitespace → cap length.
-        const text = html
-            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&[a-z#0-9]+;/gi, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-        return text.slice(0, 3000) || null;
-    } catch {
-        return null;
-    } finally {
-        clearTimeout(timeout);
-    }
+    return fetchPageText(url, { timeoutMs: 8_000, maxBytes: 200_000, maxChars: 3_000 });
 }
 
 // Assemble context + call the AI. Caller must have passed checkQaGate first;

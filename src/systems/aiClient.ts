@@ -5,9 +5,48 @@ import { config } from '../config';
 // degrade gracefully instead of crashing. Key comes from env, is sent via the
 // Authorization header (never a query string), and is redacted from any log.
 
+// Multimodal content parts, in the OpenAI-compatible shape every gateway that
+// supports vision accepts. Kept as a union with plain string so every existing
+// caller (the vast majority, all text) is untouched.
+export interface AiTextPart {
+    type: 'text';
+    text: string;
+}
+
+export interface AiImagePart {
+    type: 'image_url';
+    image_url: { url: string };
+}
+
+export type AiContentPart = AiTextPart | AiImagePart;
+
 export interface AiMessage {
     role: 'system' | 'user' | 'assistant';
-    content: string;
+    content: string | AiContentPart[];
+}
+
+// Whether a payload carries images. Used to decide if a failure is worth retrying
+// without them — see askAI.
+function hasImageParts(messages: AiMessage[]): boolean {
+    return messages.some(m =>
+        Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+    );
+}
+
+// Collapse image parts away, keeping the text. This is the fallback path: whether
+// a given gateway/model accepts vision cannot be known from here, so instead of
+// requiring a capability probe up front, an image request that gets rejected is
+// retried as text. A gateway without vision degrades to the old behaviour rather
+// than losing the report for that window.
+function stripImageParts(messages: AiMessage[]): AiMessage[] {
+    return messages.map(m => {
+        if (!Array.isArray(m.content)) return m;
+        const text = m.content
+            .filter((p): p is AiTextPart => p.type === 'text')
+            .map(p => p.text)
+            .join('\n');
+        return { role: m.role, content: text };
+    });
 }
 
 interface AskOpts {
@@ -98,12 +137,15 @@ function describeShape(json: any): string {
     return `keys=[${keys}] choice0=[${choiceKeys}] message.content=${msgType}`;
 }
 
-export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<string | null> {
-    if (!isAiEnabled()) {
-        console.error('[aiClient] AI disabled: AI_API_KEY / base URL / model not set.');
-        return null;
-    }
+// Outcome of one HTTP attempt. `rejected` distinguishes "the gateway refused this
+// payload" (a 4xx — worth retrying without images) from a transport/5xx failure,
+// where dropping the images would not help and would silently degrade the answer.
+interface Attempt {
+    text: string | null;
+    rejected: boolean;
+}
 
+async function attempt(messages: AiMessage[], opts: AskOpts): Promise<Attempt> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? config.ai.timeoutMs);
     try {
@@ -138,26 +180,53 @@ export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<
         }
         if (!res.ok) {
             console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || raw)}`);
-            return null;
+            // A 4xx means the gateway understood the request and refused it — an
+            // unsupported image part lands here. 5xx/transport errors are not
+            // attributable to the payload, so they are not retried differently.
+            return { text: null, rejected: res.status >= 400 && res.status < 500 };
         }
         if (!json) {
             // 200 OK but body isn't JSON — log the raw head so the actual gateway
             // format (SSE? plain text? error HTML?) is visible next time.
             console.error(`[aiClient] Non-JSON 200 body: ${redactAi(raw.slice(0, 300))}`);
-            return null;
+            return { text: null, rejected: false };
         }
         const text = stripToolCalls(extractCompletionText(json) || '');
         if (!text || !text.trim()) {
             // Log the response SHAPE (keys only, redacted) so an unexpected gateway
             // format can be diagnosed without dumping secrets or full payloads.
             console.error(`[aiClient] Empty/invalid completion. Shape: ${redactAi(describeShape(json))}`);
-            return null;
+            // An empty 200 is also how some gateways answer a payload they parsed
+            // but could not handle, so treat it as payload-attributable too.
+            return { text: null, rejected: true };
         }
-        return text.trim();
+        return { text: text.trim(), rejected: false };
     } catch (error) {
         console.error(`[aiClient] request failed: ${redactAi(error)}`);
-        return null;
+        return { text: null, rejected: false };
     } finally {
         clearTimeout(timeout);
     }
+}
+
+export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<string | null> {
+    if (!isAiEnabled()) {
+        console.error('[aiClient] AI disabled: AI_API_KEY / base URL / model not set.');
+        return null;
+    }
+
+    const first = await attempt(messages, opts);
+    if (first.text) return first.text;
+
+    // Vision is optional and unverified on this gateway. Rather than gate the
+    // feature behind a capability probe that needs a live key, an image payload
+    // the gateway refuses is retried as text — so a model without vision still
+    // produces the report, just without the pictures.
+    if (first.rejected && hasImageParts(messages)) {
+        console.error('[aiClient] retrying without image parts (gateway rejected multimodal payload)');
+        const retry = await attempt(stripImageParts(messages), opts);
+        return retry.text;
+    }
+
+    return null;
 }

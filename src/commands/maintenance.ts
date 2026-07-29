@@ -5,7 +5,8 @@ import { backfillVotesAndScores } from '../systems/voteBackfillManager';
 import { t } from '../i18n';
 import { antiRaidStatus } from '../systems/antiRaidManager';
 import { getManagedChannelIds } from '../utils/managedChannels';
-import { runReport } from '../systems/reportManager';
+import { runReport, reportChunkStatus } from '../systems/reportManager';
+import { listTerms, deleteTerm } from '../systems/knowledge/glossary-store';
 import prisma from '../lib/prisma';
 
 export default {
@@ -43,6 +44,22 @@ export default {
             subcommand
                 .setName('report')
                 .setDescription('Đăng ngay bản tin AI (bỏ qua lịch, để test)')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('glossary-list')
+                .setDescription('Xem các thuật ngữ Stella đã học (kiểm tra định nghĩa sai)')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('glossary-forget')
+                .setDescription('Xoá một thuật ngữ Stella đã học sai')
+                .addStringOption(option =>
+                    option
+                        .setName('term')
+                        .setDescription('Thuật ngữ cần xoá')
+                        .setRequired(true)
+                )
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -79,6 +96,10 @@ export default {
         }
 
         if (interaction.options.getSubcommand() === 'report') {
+            // Read the chunk state BEFORE composing: a posted report prunes old
+            // chunks, so asking afterwards would under-report what the bulletin
+            // was actually built from.
+            const chunkInfo = await reportChunkStatus().catch(() => null);
             const result = await runReport(interaction.client, true);
             const msg = result === 'posted'
                 ? 'Đã đăng bản tin AI.'
@@ -87,7 +108,41 @@ export default {
                     : result === 'disabled'
                         ? 'Tính năng AI đang tắt (thiếu AI_API_KEY).'
                         : 'Bản tin cho hôm nay đã đăng rồi.';
-            return interaction.editReply(`${config.ui.emojis.success} ${msg}`);
+            // Surface how many 3h windows the bulletin drew on. A thin report is
+            // almost always missing chunks (bot offline, or AI failing on a slot),
+            // and that is invisible from the bulletin text alone.
+            const detail = chunkInfo
+                ? ` (ghi chép 3h: ${chunkInfo.stored}/${chunkInfo.expected} khung, đang ở khung ${chunkInfo.currentSlot})`
+                : '';
+            return interaction.editReply(`${config.ui.emojis.success} ${msg}${detail}`);
+        }
+
+        // Audit what the community has taught Stella. A wrong definition gets reused
+        // in every later bulletin, so being able to read the list back matters as
+        // much as being able to delete from it.
+        if (interaction.options.getSubcommand() === 'glossary-list') {
+            const terms = await listTerms();
+            if (!terms.length) {
+                return interaction.editReply('Chưa có thuật ngữ nào trong từ điển.');
+            }
+            const lines = terms.map(row => row.meaning
+                ? `• **${row.term}** — ${row.meaning.slice(0, 120)}${row.answeredBy ? ` (bởi <@${row.answeredBy}>)` : ''}`
+                : `• **${row.term}** — _chưa ai trả lời_`);
+            return interaction.editReply({
+                embeds: [new EmbedBuilder()
+                    .setColor('#9b59b6')
+                    .setTitle('Từ điển Stella')
+                    .setDescription(lines.join('\n').slice(0, 4096))
+                    .setFooter({ text: `${terms.length} thuật ngữ · dùng /maintenance glossary-forget để xoá` })]
+            });
+        }
+
+        if (interaction.options.getSubcommand() === 'glossary-forget') {
+            const term = interaction.options.getString('term', true);
+            const removed = await deleteTerm(term);
+            return interaction.editReply(removed
+                ? `${config.ui.emojis.success} Đã xoá thuật ngữ \`${term}\`.`
+                : `${config.ui.emojis.error} Không tìm thấy thuật ngữ \`${term}\`.`);
         }
 
         if (interaction.options.getSubcommand() === 'backfill-votes') {

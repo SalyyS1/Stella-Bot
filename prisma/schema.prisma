@@ -445,3 +445,40 @@ model Birthday {
 
   @@index([month, day])
 }
+
+// Bản tóm tắt trung gian của nhật báo: mỗi 3h một "slot" (0..7) được tóm tắt và
+// lưu ở đây, KHÔNG đăng lên kênh. Cuối ngày 8 slot được gộp lại thành bản tin
+// hoàn chỉnh. Lưu ở DB thay vì file tạm vì host là shared hosting — filesystem
+// có thể bị xoá khi restart, còn Postgres là nguồn bền duy nhất của bot.
+// summary rỗng + msgCount 0 = slot đó thật sự không có chat (đã kiểm tra, không
+// phải lỗi) — ghi lại để scheduler không thử lại vô hạn.
+model ReportChunk {
+  id        Int      @id @default(autoincrement())
+  period    String // ngày theo timezone cấu hình, yyyy-MM-dd
+  slot      Int // 0..7, mốc 3 giờ
+  summary   String
+  msgCount  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([period, slot])
+  @@index([period])
+}
+
+// Thuật ngữ cộng đồng mà Stella chưa hiểu. Vòng đời: phát hiện trong chat (kèm
+// lượt tóm tắt chunk, không tốn AI call riêng) -> hỏi ở kênh knowledge -> chỉ ghi
+// nghĩa khi NGƯỜI CÓ ROLE TIN CẬY trả lời. answeredBy + sourceMsg để truy vết và
+// xoá được khi bị dạy sai — một nghĩa sai sẽ được tái dùng ở mọi bản tin sau, nên
+// phải sửa được. askedAt/askCount để không hỏi lại cùng một từ mỗi 3 tiếng.
+model GlossaryTerm {
+  term       String    @id // đã lowercase, dùng làm khoá tự nhiên
+  meaning    String? // null = đã hỏi nhưng chưa ai trả lời
+  answeredBy String? // Discord user id của người giải thích
+  sourceMsg  String? // message id để truy vết nguồn
+  askedAt    DateTime?
+  askCount   Int       @default(0)
+  answeredAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([answeredAt])
+}
