@@ -34,6 +34,7 @@ const chunkStore = source('systems/report/report-chunk-store.ts');
 const config_ts = source('config.ts');
 const glossaryAsker = source('systems/knowledge/glossary-question-asker.ts');
 const chunkSummarizer = source('systems/report/report-chunk-summarizer.ts');
+const aiClient = source('systems/aiClient.ts');
 const buildWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'build-plugin.yml'),
     'utf8'
@@ -196,4 +197,31 @@ assert(
     'rebuild path is gone, so improving the chunk prompt cannot fix a day already summarized'
 );
 
-console.log('Stella self-check passed (52 assertions).');
+// Two ways the vision path fails SILENTLY, both of which produced the same
+// user-visible symptom ("có nhiều ảnh lắm nhưng nó vẫn báo không thấy ảnh") and
+// neither of which shows up as an error anywhere.
+//
+// 1. The text-only retry must also strip the "look at the attached images"
+//    sentence. Keeping it while removing the pictures leaves the model obeying an
+//    instruction about something no longer in the payload, so it dutifully reports
+//    that it cannot see any image. Losing the pictures is the intended
+//    degradation; a summary that talks ABOUT their absence is the bug.
+assert(
+    aiClient.includes('imageInstruction') && chunkSummarizer.includes('imageInstruction:'),
+    'text-only retry keeps the "look at the images" instruction, so summaries claim they see no image'
+);
+// 2. Image collection must page back through history like the text walk does.
+//    History is newest-first, so a window that closed hours ago sits far behind
+//    the first page — and `/maintenance report rebuild` makes EVERY window a
+//    backfill, which is why a single-page fetch returned zero pictures no matter
+//    how many had been posted.
+assert(
+    imageCollector.includes('page < maxPages') && imageCollector.includes('before'),
+    'image collection is single-page again, so backfilled windows silently find no images'
+);
+assert(
+    scheduler.includes('collectChunkImages(client, target.startMs, target.endMs, maxPages)'),
+    'scheduler no longer passes its page budget to image collection, so backfill uses the live cap and finds nothing'
+);
+
+console.log('Stella self-check passed (55 assertions).');

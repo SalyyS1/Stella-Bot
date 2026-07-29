@@ -38,14 +38,26 @@ function hasImageParts(messages: AiMessage[]): boolean {
 // requiring a capability probe up front, an image request that gets rejected is
 // retried as text. A gateway without vision degrades to the old behaviour rather
 // than losing the report for that window.
-function stripImageParts(messages: AiMessage[]): AiMessage[] {
+//
+// imageInstruction is removed from the system turn at the same time, and that part
+// is not cosmetic. Dropping the pictures while still telling the model "look at
+// the attached images and describe them" leaves it obeying an instruction about
+// something that is no longer in the payload — so it answers exactly that, and the
+// summary comes back saying it cannot see any image. The pictures being absent is
+// the intended degradation; a summary that talks ABOUT their absence is a bug.
+function stripImageParts(messages: AiMessage[], imageInstruction?: string): AiMessage[] {
     return messages.map(m => {
-        if (!Array.isArray(m.content)) return m;
-        const text = m.content
-            .filter((p): p is AiTextPart => p.type === 'text')
-            .map(p => p.text)
-            .join('\n');
-        return { role: m.role, content: text };
+        const content = Array.isArray(m.content)
+            ? m.content
+                .filter((p): p is AiTextPart => p.type === 'text')
+                .map(p => p.text)
+                .join('\n')
+            : m.content;
+        if (!imageInstruction) return { role: m.role, content };
+        // Also covers a caller that glued the instruction on with a space, which is
+        // how the chunk summarizer builds its system turn.
+        const cleaned = content.split(imageInstruction).join('').replace(/[ \t]{2,}/g, ' ').trim();
+        return { role: m.role, content: cleaned };
     });
 }
 
@@ -53,6 +65,10 @@ interface AskOpts {
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;
+    // The exact sentence(s) that tell the model to look at images. Passed in rather
+    // than known here because aiClient is shared by every AI feature and must not
+    // carry any one feature's prompt text. Only used on the text-only retry.
+    imageInstruction?: string;
 }
 
 function getKey(): string | null {
@@ -242,8 +258,11 @@ export async function askAI(messages: AiMessage[], opts: AskOpts = {}): Promise<
     // the gateway refuses is retried as text — so a model without vision still
     // produces the report, just without the pictures.
     if (first.rejected && hasImageParts(messages)) {
-        console.error('[aiClient] retrying without image parts (gateway rejected multimodal payload)');
-        const retry = await attempt(stripImageParts(messages), opts);
+        console.error(
+            '[aiClient] gateway từ chối payload có ảnh — thử lại bằng TEXT (bỏ cả câu dặn xem ảnh). ' +
+            'Bản tóm tắt sẽ không có phần ảnh, nhưng cũng KHÔNG được nói là "không thấy ảnh".'
+        );
+        const retry = await attempt(stripImageParts(messages, opts.imageInstruction), opts);
         return retry.text;
     }
 

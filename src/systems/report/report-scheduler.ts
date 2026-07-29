@@ -162,7 +162,12 @@ async function summarizeSlot(
         // Pictures from the whitelisted channels for this same window. Best-effort:
         // a vision failure must never cost the window its text summary, which is
         // the part the bulletin actually depends on.
-        const images = await collectChunkImages(client, target.startMs, target.endMs)
+        //
+        // maxPages đi cùng, giống bên text. Không truyền thì lượt vá dùng trần live
+        // và không bao giờ lùi đủ xa để tới cửa sổ cần đọc — đó là nửa còn lại của
+        // lỗi "nhiều ảnh mà báo không thấy ảnh", vì `rebuild` biến MỌI khung thành
+        // khung vá.
+        const images = await collectChunkImages(client, target.startMs, target.endMs, maxPages)
             .catch(() => []);
 
         // Lượt AI được đo riêng vì nó là bước đắt nhất và cũng là bước treo lâu

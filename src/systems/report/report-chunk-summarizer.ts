@@ -107,7 +107,16 @@ export async function summarizeChunk(
             { role: 'system', content: system },
             { role: 'user', content }
         ],
-        { maxTokens: config.report.chunk.maxTokens, timeoutMs: config.report.chunk.timeoutMs }
+        {
+            maxTokens: config.report.chunk.maxTokens,
+            timeoutMs: config.report.chunk.timeoutMs,
+            // Cho aiClient biết câu nào phải bỏ nếu nó phải thử lại bằng text. Không
+            // truyền thì lượt retry vẫn mang câu "Hãy XEM ảnh..." trong khi ảnh đã bị
+            // bỏ khỏi payload, và model làm đúng điều được dặn: nó báo là không thấy
+            // ảnh nào. Ghi chép mất phần ảnh là chấp nhận được; ghi chép đi kể rằng
+            // không có ảnh thì sai hẳn.
+            imageInstruction: images.length ? VISION_INSTRUCTION : undefined
+        }
     );
 
     const trimmed = summary?.trim();
