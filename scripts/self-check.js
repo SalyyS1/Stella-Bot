@@ -363,8 +363,8 @@ check(
     'newspaper pipeline tier is not fail-soft, a failing illustration can kill the bulletin'
 );
 check(
-    scheduler.includes('image ?? undefined') && publisher.includes('image?: Buffer'),
-    'report image must stay an optional attachment so a missing newspaper never changes posting behavior'
+    scheduler.includes('images ?? undefined') && publisher.includes('images?: Buffer[]'),
+    'report images must stay optional attachments so a missing newspaper never changes posting behavior'
 );
 // Bài tuần chỉ chạy khi đúng Chủ nhật theo giờ SAIGON — đọc host timezone là
 // làm mất bài tuần vĩnh viễn trên host ≥ UTC+10 (lỗi im lặng).
@@ -394,6 +394,18 @@ check(
 check(
     newspaperCanvas.includes('bandHeight') && newspaperCanvas.includes('headlineMaxHeight'),
     'section band must be bottom-anchored with height-aware headline shrinking'
+);
+// Toàn bộ nội dung bản tin phải được đổ vào nhiều trang ảnh (cột báo) — không
+// chỉ trang nhất; giới hạn LAYOUT.maxPages để không spam Discord.
+check(
+    newspaperCanvas.includes('renderNewspaperPages') &&
+    newspaperCanvas.includes('flowTextToBoxes') &&
+    newspaperCanvas.includes('LAYOUT.maxPages'),
+    'multi-page newspaper rendering (full body into article columns) is missing'
+);
+check(
+    newspaperTextFit.includes('flowTextToBoxes') && newspaperTextFit.includes('Math.floor(maxHeight / lineHeight)'),
+    'column flow must split text by measured height so pages never overflow'
 );
 // Band phải ĐỦ CAO cho label + 2 dòng text ở cỡ mặc định — không có assert này thì
 // hạ bandHeight / tăng text.size sau này tái phát lỗi tràn mà không ai biết.

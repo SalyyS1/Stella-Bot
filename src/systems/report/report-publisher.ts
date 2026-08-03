@@ -21,8 +21,9 @@ function splitForEmbed(text: string): string[] {
 }
 
 // Post the bulletin. Creates a thread for a ForumChannel, else sends a message.
-// `image` (tuỳ chọn) là ảnh tờ báo: đính kèm và hiển thị ở ĐẦU embed — chỉ là phụ
-// kiện, thiếu ảnh thì bản tin chữ vẫn đăng y như cũ.
+// `images` (tuỳ chọn) là các TRANG ẢNH tờ báo: trang 1 hiển thị trên embed đầu,
+// các trang sau thành gallery attachment ngay dưới — chỉ là phụ kiện, thiếu ảnh
+// thì bản tin chữ vẫn đăng y như cũ.
 // `title` (tuỳ chọn) ghi đè tiêu đề thread — bài tuần dùng để đánh dấu "SỐ ĐẶC BIỆT";
 // không truyền thì giữ mặc định "Bản tin Stella — <period>" cho bài ngày.
 // Returns true only when the FIRST chunk landed: that is what the caller uses to
@@ -33,7 +34,7 @@ export async function postReport(
     client: Client,
     period: string,
     body: string,
-    image?: Buffer,
+    images?: Buffer[],
     title?: string
 ): Promise<boolean> {
     const channel = await client.channels.fetch(config.report.forumChannel).catch(() => null);
@@ -41,17 +42,17 @@ export async function postReport(
     const threadTitle = title ?? `Bản tin Stella — ${period}`;
     const chunks = splitForEmbed(body);
     const footer = 'Stella • Bản tin tổng hợp bằng AI (chat được tóm tắt, không lưu trữ)';
-    const attachment = image
-        ? new AttachmentBuilder(image, { name: 'newspaper.png' })
-        : null;
+    const attachments = images
+        ? images.map((img, i) => new AttachmentBuilder(img, { name: `newspaper-${i + 1}.png` }))
+        : [];
     const makeEmbed = (desc: string, first: boolean) => {
         const e = new EmbedBuilder().setColor('#f1c40f').setDescription(desc).setTimestamp();
         if (first) e.setTitle(threadTitle);
-        // Ảnh tờ báo chỉ đi cùng embed đầu (đại diện cho cả bài).
-        if (first && attachment) e.setImage('attachment://newspaper.png');
+        // Trang 1 đại diện cho bài trên embed; trang sau nằm trong files (gallery).
+        if (first && attachments.length) e.setImage('attachment://newspaper-1.png');
         return e.setFooter({ text: footer });
     };
-    const files = attachment ? [attachment] : undefined;
+    const files = attachments.length ? attachments : undefined;
 
     if (channel.type === ChannelType.GuildForum) {
         const forum = channel as ForumChannel;

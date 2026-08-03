@@ -1,10 +1,11 @@
 import { config } from '../../../config';
 import { generateImage, isImageEnabled } from '../../imageGenClient';
 import { extractFrontPage } from './newspaper-extract';
-import { renderNewspaper, FrontPageData } from './newspaper-canvas';
+import { renderNewspaperPages, FrontPageData } from './newspaper-canvas';
 
-// Phối hợp 3 bước thành 1 ảnh tờ báo: trích trang nhất (AI text) → vẽ ảnh minh
-// hoạ (AI image) → render canvas. Fail-soft TỪNG TẦNG, theo thứ tự:
+// Phối hợp các bước thành NHIỀU TRANG ẢNH tờ báo: trích trang nhất (AI text) →
+// vẽ ảnh minh hoạ (AI image) → render canvas (trang 1 trang nhất + trang 2+ cột
+// báo chứa toàn bộ nội dung). Fail-soft TỪNG TẦNG, theo thứ tự:
 //
 //   extract lỗi         → null (bỏ hẳn ảnh, bản tin chữ vẫn đăng)
 //   image gen lỗi/tắt   → vẫn render, ô minh hoạ = hoạ tiết canvas
@@ -16,12 +17,13 @@ export interface NewspaperImageOptions {
     weekly?: boolean; // số đặc biệt tuần: măng-sét đỏ + phụ đề
 }
 
-// Dựng ảnh tờ báo cho một bản tin. Trả PNG Buffer hoặc null (bỏ ảnh).
-export async function buildFrontPageImage(
+// Dựng các trang ảnh tờ báo cho một bản tin. Trả mảng PNG (trang 1, 2, ...) hoặc
+// null (bỏ hẳn ảnh). Nhiều ảnh → publisher đính kèm gallery trong message đầu.
+export async function buildNewspaperImages(
     body: string,
     date: string,
     opts: NewspaperImageOptions = {}
-): Promise<Buffer | null> {
+): Promise<Buffer[] | null> {
     if (!config.report.newspaper.enabled) return null;
 
     const data: FrontPageData | null = await extractFrontPage(body, date).catch(error => {
@@ -43,7 +45,7 @@ export async function buildFrontPageImage(
         data.illustration = illustration ? illustration.data : null;
     }
 
-    return renderNewspaper(data, opts).catch(error => {
+    return renderNewspaperPages(data, body, opts).catch(error => {
         console.error('[report] newspaper render failed:', error);
         return null;
     });

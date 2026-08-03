@@ -25,7 +25,7 @@ import {
 import { composeDailyReport } from './report-daily-composer';
 import { gatherServiceBoard, fetchChangelog } from './report-context-sources';
 import { postReport } from './report-publisher';
-import { buildFrontPageImage } from './newspaper/newspaper-pipeline';
+import { buildNewspaperImages } from './newspaper/newspaper-pipeline';
 import { saveDailyReport, pruneOldDailyReports } from './report-daily-store';
 import { claimWork, releaseWork } from './report-claim';
 import { runWeeklyDigest, isSundaySaigon } from './report-weekly';
@@ -418,17 +418,17 @@ export async function runReport(
         // (trích trang nhất / image gen / render canvas) chỉ làm mất ảnh, bản tin
         // chữ vẫn đăng y như trước khi có tính năng này.
         const imageAt = Date.now();
-        const image = await buildFrontPageImage(body, period).catch(error => {
+        const images = await buildNewspaperImages(body, period).catch(error => {
             console.error('[report] newspaper image failed:', error);
             return null;
         });
         logReport(
-            image
-                ? `bản tin: ảnh tờ báo xong trong ${elapsed(imageAt)}`
+            images && images.length
+                ? `bản tin: ${images.length} trang ảnh tờ báo xong trong ${elapsed(imageAt)}`
                 : `bản tin: không có ảnh tờ báo (trích/image/render lỗi hoặc tắt) — ${elapsed(imageAt)}`
         );
 
-        posted = await postReport(client, period, body, image ?? undefined);
+        posted = await postReport(client, period, body, images ?? undefined);
         if (!posted) {
             console.error('[report] bản tin: ĐĂNG THẤT BẠI (kênh nhật báo sai id hoặc thiếu quyền?)');
         } else {

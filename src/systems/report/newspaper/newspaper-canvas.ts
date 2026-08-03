@@ -1,6 +1,6 @@
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import { NEWSPAPER_WIDTH, NEWSPAPER_HEIGHT, MARGIN, PALETTE, LAYOUT, MC_BLOCKS } from './newspaper-layout';
-import { wrapTextCapped, shrinkToFit, truncate } from './newspaper-text-fit';
+import { wrapTextCapped, shrinkToFit, truncate, flowTextToBoxes } from './newspaper-text-fit';
 
 // Renderer tờ báo nhật báo. Vẽ thuần canvas: măng-sét, headline, sapo, ảnh minh
 // hoạ (AI hoặc hoạ tiết thay thế), lưới chuyên mục. KHÔNG gọi AI — nhận dữ liệu
@@ -242,4 +242,77 @@ export async function renderNewspaper(
     drawSections(ctx, data.sections, sectionsY);
 
     return canvas.toBuffer('image/png');
+}
+
+// Một trang nội dung (trang 2+): măng-sét nhỏ + 2 cột text báo giấy. Nhận sẵn
+// text cột trái/phải (flowTextToBoxes đã chia theo chiều cao) — vẽ thuần, không đo lại.
+function drawArticlePage(ctx: Ctx, data: FrontPageData, leftText: string, rightText: string, pageNo: number, weekly: boolean): void {
+    ctx.fillStyle = PALETTE.paper;
+    ctx.fillRect(0, 0, NEWSPAPER_WIDTH, NEWSPAPER_HEIGHT);
+
+    const a = LAYOUT.article;
+    // kẻ trên + măng-sét nhỏ + ngày + "tiếp theo" + kẻ dưới
+    ctx.fillStyle = PALETTE.rule;
+    ctx.fillRect(MARGIN, a.ruleTop.y, NEWSPAPER_WIDTH - MARGIN * 2, a.ruleTop.h);
+    const mastColor = weekly ? PALETTE.red : PALETTE.ink;
+    drawCentered(ctx, 'BÁO STELLA', a.masthead.y, `bold ${a.masthead.size}px "Noto Serif"`, mastColor);
+    drawCentered(ctx, `NHẬT BÁO · ${data.date}`, a.dateLine.y, `${a.dateLine.size}px "Noto Sans"`, PALETTE.grey);
+    drawCentered(ctx, `TIẾP THEO · TRANG ${pageNo}`, a.pageTag.y, `bold ${a.pageTag.size}px "Noto Sans"`, PALETTE.red);
+    ctx.fillStyle = PALETTE.rule;
+    ctx.fillRect(MARGIN, a.ruleBottom.y, NEWSPAPER_WIDTH - MARGIN * 2, a.ruleBottom.h);
+
+    // 2 cột text
+    const totalW = NEWSPAPER_WIDTH - MARGIN * 2;
+    const colW = (totalW - a.columns.gutter) / a.columns.count;
+    const colH = NEWSPAPER_HEIGHT - a.startY - LAYOUT.bottomMargin;
+    ctx.font = `${a.text.size}px "Noto Sans"`;
+    ctx.fillStyle = PALETTE.ink;
+    ctx.textBaseline = 'top';
+    const lineHeight = a.text.lineHeight;
+    const columns = [leftText, rightText];
+    columns.forEach((text, i) => {
+        const x = MARGIN + i * (colW + a.columns.gutter);
+        const lines = text ? text.split('\n') : [];
+        lines.slice(0, Math.floor(colH / lineHeight)).forEach((line, j) => {
+            ctx.fillText(line, x, a.startY + j * lineHeight);
+        });
+    });
+}
+
+// Render NHIỀU TRANG tờ báo: trang 1 = trang nhất (renderNewspaper), trang 2+ =
+// nội dung đầy đủ dạng cột báo 2 cột. Body dài bao nhiêu thì đổ hết vào ảnh cho
+// tới khi đủ LAYOUT.maxPages trang — phần dư nằm trong embed text (caller giữ nguyên).
+// Trả null khi font chưa đăng ký.
+export async function renderNewspaperPages(
+    data: FrontPageData,
+    body: string,
+    opts: RenderOptions = {}
+): Promise<Buffer[] | null> {
+    const first = await renderNewspaper(data, opts);
+    if (!first) return null;
+
+    const pages: Buffer[] = [first];
+    const contentBudget = LAYOUT.maxPages - 1;
+    const text = (body ?? '').trim();
+    if (contentBudget <= 0 || !text) return pages;
+
+    const weekly = opts.weekly === true;
+    const a = LAYOUT.article;
+    const totalW = NEWSPAPER_WIDTH - MARGIN * 2;
+    const colW = (totalW - a.columns.gutter) / a.columns.count;
+    const colH = NEWSPAPER_HEIGHT - a.startY - LAYOUT.bottomMargin;
+
+    // Đo trên một ctx canvas ảo (cùng font) để chia text thành các hộp cột.
+    const measurer = createCanvas(10, 10).getContext('2d');
+    measurer.font = `${a.text.size}px "Noto Sans"`;
+    const boxes = flowTextToBoxes(measurer, text, colW, colH, a.text.lineHeight);
+
+    const contentPages = Math.min(Math.ceil(boxes.length / a.columns.count), contentBudget);
+    for (let p = 0; p < contentPages; p++) {
+        const canvas = createCanvas(NEWSPAPER_WIDTH, NEWSPAPER_HEIGHT);
+        const ctx = canvas.getContext('2d');
+        drawArticlePage(ctx, data, boxes[p * 2] ?? '', boxes[p * 2 + 1] ?? '', p + 2, weekly);
+        pages.push(canvas.toBuffer('image/png'));
+    }
+    return pages;
 }

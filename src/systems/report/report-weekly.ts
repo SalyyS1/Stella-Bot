@@ -6,7 +6,7 @@ import { periodOffset } from './report-time-window';
 import { loadDailyReports } from './report-daily-store';
 import { composeWeeklyReport } from './report-weekly-composer';
 import { postReport } from './report-publisher';
-import { buildFrontPageImage } from './newspaper/newspaper-pipeline';
+import { buildNewspaperImages } from './newspaper/newspaper-pipeline';
 import { claimWork, releaseWork } from './report-claim';
 
 // Bài TỔNG HỢP TUẦN VỪA QUA — chạy Chủ nhật, trong tick nhật báo ngay sau khi
@@ -82,14 +82,15 @@ export async function runWeeklyDigest(client: Client): Promise<WeeklyOutcome> {
         }
         console.log(`[report] bài tuần: AI gộp xong ${body.length} ký tự trong ${elapsed(startedAt)}`);
 
-        // Ảnh tờ báo "SỐ ĐẶC BIỆT" (weekly=true: măng-sét đỏ). Fail-soft: lỗi thì
-        // đăng bài tuần dạng chữ — giống mọi bước phụ khác của nhật báo.
-        const image = await buildFrontPageImage(body, mondayKey, { weekly: true }).catch(error => {
+        // Ảnh tờ báo "SỐ ĐẶC BIỆT" (weekly=true: măng-sét đỏ) — nhiều trang như
+        // bài ngày. Fail-soft: lỗi thì đăng bài tuần dạng chữ — giống mọi bước phụ
+        // khác của nhật báo.
+        const images = await buildNewspaperImages(body, mondayKey, { weekly: true }).catch(error => {
             console.error('[report] bài tuần: ảnh thất bại (đăng chữ):', error);
             return null;
         });
 
-        posted = await postReport(client, mondayKey, body, image ?? undefined, WEEKLY_TITLE);
+        posted = await postReport(client, mondayKey, body, images ?? undefined, WEEKLY_TITLE);
         if (!posted) {
             console.error('[report] bài tuần: ĐĂNG THẤT BẠI (kênh nhật báo sai id hoặc thiếu quyền?)');
         } else {

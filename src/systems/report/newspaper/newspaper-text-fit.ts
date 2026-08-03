@@ -74,6 +74,25 @@ export function wrapTextCapped(
     return capped;
 }
 
+// Chia text thành các "hộp" (cột/trang), mỗi hộp vừa maxWidth × maxHeight. Toàn
+// bộ text được wrap thành dòng rồi cắt theo số dòng tối đa mỗi hộp — đổ tuần tự
+// cột trái → cột phải → trang sau (báo giấy ngắt giữa câu là chuyện thường).
+export function flowTextToBoxes(
+    ctx: { measureText(text: string): { width: number } },
+    text: string,
+    maxWidth: number,
+    maxHeight: number,
+    lineHeight: number
+): string[] {
+    const lines = wrapText(ctx, text, maxWidth, 0);
+    const maxLinesPerBox = Math.max(1, Math.floor(maxHeight / lineHeight));
+    const boxes: string[] = [];
+    for (let i = 0; i < lines.length; i += maxLinesPerBox) {
+        boxes.push(lines.slice(i, i + maxLinesPerBox).join('\n'));
+    }
+    return boxes;
+}
+
 // Thu nhỏ cỡ font tới khi chuỗi wrap ra ≤ maxLines dòng VÀ tổng chiều cao
 // (dòng × lineHeight × size) ≤ maxHeight. Đo bằng wrapText không giới hạn rồi so,
 // vì wrapText có giới hạn sẽ luôn "vừa". Không còn cách nào vừa ở minSize thì cắt

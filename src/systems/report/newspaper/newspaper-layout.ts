@@ -54,7 +54,20 @@ export const LAYOUT = {
         maxLabelChars: 14,
         maxTextChars: 100
     },
-    bottomMargin: 45
+    bottomMargin: 45,
+    // Trang nội dung (trang 2+): cột báo giấy thật, 2 cột text chảy liên tục.
+    // MAX_PAGES = tổng số ảnh tối đa (trang 1 trang nhất + trang nội dung).
+    maxPages: 6,
+    article: {
+        masthead: { y: 40, size: 64 },
+        dateLine: { y: 112, size: 22 },
+        pageTag: { y: 138, size: 18 },
+        ruleTop: { y: 30, h: 5 },
+        ruleBottom: { y: 162, h: 5 },
+        columns: { count: 2, gutter: 40 },
+        text: { size: 24, lineHeight: 30 },
+        startY: 182
+    }
 };
 
 // Palette "Minecraft vibe" cho ô minh hoạ thay thế (không có ảnh AI) — khối đất,
