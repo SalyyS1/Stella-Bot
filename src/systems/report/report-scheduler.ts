@@ -25,6 +25,10 @@ import {
 import { composeDailyReport } from './report-daily-composer';
 import { gatherServiceBoard, fetchChangelog } from './report-context-sources';
 import { postReport } from './report-publisher';
+import { buildFrontPageImage } from './newspaper/newspaper-pipeline';
+import { saveDailyReport, pruneOldDailyReports } from './report-daily-store';
+import { claimWork, releaseWork } from './report-claim';
+import { runWeeklyDigest, isSundaySaigon } from './report-weekly';
 import { askPendingTerms } from '../knowledge/glossary-question-asker';
 import { getAnsweredTerms } from '../knowledge/glossary-store';
 import { suggestProducts } from './report-owner-suggestion';
@@ -78,21 +82,13 @@ export type ChunkOutcome = 'saved' | 'empty' | 'already' | 'failed' | 'disabled'
 
 // Claim a unit of work. Returns false when another runner already holds it.
 // The unique constraint is the lock: the loser's create throws.
+// Dùng chung cho chunk/bài ngày/bài tuần — xem report-claim.ts.
 async function claim(kind: string, period: string): Promise<boolean> {
-    try {
-        await prisma.maintenanceLog.create({
-            data: { channelId: config.report.forumChannel, kind, period }
-        });
-        return true;
-    } catch {
-        return false;
-    }
+    return claimWork(kind, period);
 }
 
 async function release(kind: string, period: string): Promise<void> {
-    await prisma.maintenanceLog
-        .deleteMany({ where: { channelId: config.report.forumChannel, kind, period } })
-        .catch(() => {});
+    await releaseWork(kind, period);
 }
 
 // Summarize one closed 3h window into a stored chunk. Never posts anything.
@@ -418,7 +414,21 @@ export async function runReport(
         }
         logReport(`bản tin: AI gộp xong ${body.length} ký tự trong ${elapsed(composeAt)}`);
 
-        posted = await postReport(client, period, body);
+        // Ảnh tờ báo — hoàn toàn NGOÀI quyết định `posted`. Lỗi ở bất kỳ tầng nào
+        // (trích trang nhất / image gen / render canvas) chỉ làm mất ảnh, bản tin
+        // chữ vẫn đăng y như trước khi có tính năng này.
+        const imageAt = Date.now();
+        const image = await buildFrontPageImage(body, period).catch(error => {
+            console.error('[report] newspaper image failed:', error);
+            return null;
+        });
+        logReport(
+            image
+                ? `bản tin: ảnh tờ báo xong trong ${elapsed(imageAt)}`
+                : `bản tin: không có ảnh tờ báo (trích/image/render lỗi hoặc tắt) — ${elapsed(imageAt)}`
+        );
+
+        posted = await postReport(client, period, body, image ?? undefined);
         if (!posted) {
             console.error('[report] bản tin: ĐĂNG THẤT BẠI (kênh nhật báo sai id hoặc thiếu quyền?)');
         } else {
@@ -430,6 +440,15 @@ export async function runReport(
             // because it writes to a shared table and is scoped by kind, not by date
             // alone — see pruneOldChunkClaims.
             await pruneOldChunkClaims();
+            // Lưu BÀI đã đăng — nguồn cho bài tổng hợp tuần. Chunk 3h bị prune sau
+            // 7 ngày và không phải bài hoàn chỉnh, nên bài ngày phải lưu riêng.
+            // Fail-soft: lỗi lưu thì tuần đó thiếu 1 ngày, bài tuần vẫn ra được.
+            await saveDailyReport(period, body).catch(error =>
+                console.error('[report] save daily report failed:', error)
+            );
+            await pruneOldDailyReports().catch(error =>
+                console.error('[report] prune daily reports failed:', error)
+            );
             // Owner-facing product ideas, derived from the same chunks the bulletin
             // used. Runs after the public post and never affects its outcome: this
             // is a private nicety, not part of the report contract.
@@ -501,6 +520,14 @@ export function startReportScheduler(client: Client): void {
                 await runReport(client).catch(error =>
                     console.error('[report] daily tick failed:', error)
                 );
+                // Bài tổng hợp tuần — Chủ nhật, sau lượt nhật báo XỬ LÝ XONG (bản
+                // tin CN đăng hay 'empty' đều chạy: tuần đủ ngày là ra bài). Claim
+                // 'report-weekly' chặn đăng trùng. Lỗi ở đây không được làm hỏng tick.
+                if (isSundaySaigon()) {
+                    await runWeeklyDigest(client).catch(error =>
+                        console.error('[report] weekly tick failed:', error)
+                    );
+                }
             }
         } finally {
             running = false;

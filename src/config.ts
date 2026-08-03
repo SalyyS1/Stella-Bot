@@ -450,6 +450,40 @@ export const config = {
             ownerUserId: process.env.OWNER_USER_ID || '',
             maxTokens: 9000,
             timeoutMs: 90_000
+        },
+        // Tờ báo ảnh đăng kèm nhật báo: canvas vẽ khung + chữ (font nhúng để tiếng
+        // Việt chuẩn trên host Linux), AI chỉ vẽ ảnh minh hoạ. Fail-soft mọi tầng:
+        // thiếu font / image gen chết / lượt AI extract lỗi → bỏ ảnh, bản tin chữ
+        // vẫn đăng nguyên vẹn như trước.
+        newspaper: {
+            enabled: true,
+            // Lượt AI trích "trang nhất" từ bản tin (headline, sapo, chuyên mục,
+            // prompt ảnh minh hoạ). Đọc lại body đã gộp xong — KHÔNG đụng prompt
+            // composer chính để giữ giọng bản tin.
+            extractMaxTokens: 2000,
+            extractTimeoutMs: 90_000,
+            // Trần ký tự bản tin bơm vào lượt trích trang nhất. Bản tin thường
+            // vài chục nghìn ký tự — 60k là đủ cho mọi ngày bận mà vẫn giữ request
+            // gọn (lượt này chỉ cần "tóm tắt để làm trang nhất", không cần đọc kỹ).
+            extractMaxChars: 60_000,
+            illustration: {
+                // Vẽ ảnh minh hoạ bằng image gen mỗi ngày; tắt thì canvas vẽ ô
+                // hoạ tiết thay thế (vẫn có ảnh tờ báo, chỉ không có ảnh AI).
+                enabled: true
+            }
+        },
+        // Bài TỔNG HỢP TUẦN VỪA QUA: Chủ nhật, trong tick nhật báo sau khi
+        // runReport xử lý xong, đọc lại các bài ngày ĐÃ ĐĂNG (bảng ReportDaily)
+        // và đăng "SỐ ĐẶC BIỆT" + ảnh măng-sét đỏ. Tuần ít hơn minDays ngày dữ
+        // liệu thì bỏ qua (tuần bot chết gần hết, bài tuần chỉ là rác).
+        weekly: {
+            enabled: true,
+            minDays: 3,
+            maxTokens: 50_000,
+            timeoutMs: 900_000,
+            // Trần ký tự MỖI bài ngày bơm vào prompt gộp tuần. 7 ngày × 6k = ~42k
+            // ký tự — gọn trong cửa sổ model mà vẫn giữ đủ chi tiết từng ngày.
+            maxContextCharsPerDay: 6_000
         }
     },
     // Từ điển thuật ngữ: Stella phát hiện từ lạ trong chat (miễn phí — đi kèm lượt

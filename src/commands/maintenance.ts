@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { AttachmentBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { clearMaintenanceTarget, MaintenanceTarget } from '../systems/maintenanceManager';
 import { config } from '../config';
 import { backfillVotesAndScores } from '../systems/voteBackfillManager';
@@ -7,6 +7,7 @@ import { antiRaidStatus } from '../systems/antiRaidManager';
 import { getManagedChannelIds } from '../utils/managedChannels';
 import { runReport, reportChunkStatus } from '../systems/reportManager';
 import { listTerms, deleteTerm } from '../systems/knowledge/glossary-store';
+import { renderNewspaper, FrontPageData } from '../systems/report/newspaper/newspaper-canvas';
 import prisma from '../lib/prisma';
 
 export default {
@@ -69,6 +70,14 @@ export default {
                         .setDescription('Thuật ngữ cần xoá')
                         .setRequired(true)
                 )
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                // Render thử ảnh tờ báo bằng dữ liệu mẫu và gửi vào kênh hiện tại.
+                // Không tốn AI, không đụng pipeline nhật báo — dùng để xem font/đấu
+                // tiếng Việt và bố cục có ổn không trước khi bản tin thật đăng 21h.
+                .setName('newspaper-preview')
+                .setDescription('Render thử ảnh tờ báo (dữ liệu mẫu) và gửi vào kênh này')
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -212,6 +221,34 @@ export default {
                 published: result.published
             });
             return interaction.editReply(`${config.ui.emojis.success} ${text}`);
+        }
+
+        if (interaction.options.getSubcommand() === 'newspaper-preview') {
+            const sample: FrontPageData = {
+                date: '2026-08-03',
+                headline: 'Cuộc chiến redstone nảy lửa: Long vs Minh kéo cả server vào trận!',
+                sapo: 'Tranh cãi bắt đầu từ một cánh cửa piston ở nhà kho, rồi leo thang thành cuộc đua build máy farm tự động kéo dài 3 tiếng.',
+                sections: [
+                    { label: 'Drama', text: 'Long và Minh cãi nhau vụ redstone, cả server chia hai phe xem.' },
+                    { label: 'Kiến thức', text: 'Mách mọi người cách farm xp bằng cần câu, tiết kiệm nguyên liệu.' },
+                    { label: 'Phiếm', text: 'Cả kênh cười khi Tèo đặt nhầm TNT thay vì đá cuội trước nhà Minh.' },
+                    { label: 'Người mới', text: 'Ba thành viên mới gia nhập server, được cả nhóm chào đón.' }
+                ]
+            };
+            if (!interaction.channel?.isSendable()) {
+                return interaction.editReply(`${config.ui.emojis.error} Kênh này không gửi được tin nhắn.`);
+            }
+            const png = await renderNewspaper(sample).catch(error => {
+                console.error('[maintenance] newspaper preview render failed:', error);
+                return null;
+            });
+            if (!png) {
+                return interaction.editReply(`${config.ui.emojis.error} Không render được tờ báo — xem log [maintenance]/[report] newspaper.`);
+            }
+            await interaction.channel.send({
+                files: [new AttachmentBuilder(png, { name: 'newspaper-preview.png' })]
+            });
+            return interaction.editReply(`${config.ui.emojis.success} Đã gửi ảnh preview ở kênh này.`);
         }
 
         const target = interaction.options.getString('target', true);

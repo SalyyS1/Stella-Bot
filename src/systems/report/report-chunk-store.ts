@@ -116,11 +116,12 @@ export async function pruneOldChunkClaims(nowMs = Date.now()): Promise<void> {
     // Two period shapes share this column: 'YYYY-MM-DD' for the daily post and
     // 'YYYY-MM-DD#slot' for a chunk. A lexicographic `lt` is correct for both, and
     // it keeps the cutoff day itself: '2026-07-21#5' < '2026-07-22' is true, while
-    // '2026-07-22#0' < '2026-07-22' is false because a prefix sorts first.
+    // '2026-07-22#0' < '2026-07-22' is false because a prefix sorts first. The
+    // weekly claim uses a plain Monday 'YYYY-MM-DD' period — same comparison works.
     await prisma.maintenanceLog.deleteMany({
         where: {
             channelId: config.report.forumChannel,
-            kind: { in: ['report-chunk', 'report'] },
+            kind: { in: ['report-chunk', 'report', 'report-weekly'] },
             period: { lt: cutoff }
         }
     }).catch(error => console.error('[report] pruneOldChunkClaims failed:', error));

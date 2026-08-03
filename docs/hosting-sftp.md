@@ -8,10 +8,14 @@ Tài liệu này dùng cho hosting Node.js/shared hosting. Không lưu hostname,
 - Không commit hoặc upload nhầm `.env`, backup DB, log cũ, file zip deploy.
 - Music cần Lavalink remote nếu hosting không hỗ trợ Docker/Java service chạy nền.
 - Database nên là Postgres cloud hoặc provider bền hơn SQLite local.
+- **Mọi mốc thời gian bot tính theo `config.maintenance.timezone` (Asia/Saigon), KHÔNG
+  phụ thuộc timezone của host** — nhật báo 21h, bài tuần chủ nhật, lời nhắc đều quy
+  về giờ Saigon bằng `Intl.DateTimeFormat` với `timeZone` chỉ định. Đặt `TZ` của host
+  thế nào cũng được, bot không đọc.
 
 ## File Nên Upload
 
-- `src/`
+- `src/` (bao gồm `src/assets/` — font tiếng Việt nhúng sẵn, host không cần cài font)
 - `prisma/` trừ file SQLite local
 - `docs/` nếu muốn giữ hướng dẫn trên host
 - `lavalink/` và `docker-compose.lavalink.yml` chỉ cần nếu host/VPS chạy được Docker

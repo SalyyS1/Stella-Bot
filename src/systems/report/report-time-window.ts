@@ -139,3 +139,14 @@ export function chunkLockPeriod(period: string, slot: number): string {
 export function periodDaysAgo(days: number, nowMs = Date.now()): string {
     return saigonParts(new Date(nowMs - days * 86_400_000)).period;
 }
+
+// Ngày Saigon cách basePeriod một số ngày (âm = về trước, dương = ra sau).
+// Dùng cho bài tổng hợp tuần: từ khoá tuần (thứ Hai) sinh đủ 7 period T2→CN.
+// Saigon = UTC+7 cố định (không DST) nên trừ 7h để mốc "bắt đầu ngày" rơi đúng
+// ranh giới ngày Saigon, khớp với cách period được gán trong toàn hệ.
+export function periodOffset(basePeriod: string, offsetDays: number): string {
+    const [y, m, d] = basePeriod.split('-').map(Number);
+    if (!y || !m || !d) return basePeriod;
+    const startUtc = Date.UTC(y, m - 1, d) - 7 * 3600_000 + offsetDays * 86_400_000;
+    return saigonParts(new Date(startUtc)).period;
+}

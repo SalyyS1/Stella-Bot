@@ -464,6 +464,17 @@ model ReportChunk {
   @@index([period])
 }
 
+// BÀI nhật báo ĐÃ ĐĂNG (bản tin ngày hoàn chỉnh, không phải chunk trung gian).
+// Chunk 3h bị prune sau 7 ngày và không phải là bài hoàn chỉnh — bài tổng hợp
+// tuần (report-weekly) cần đọc lại các bài ngày, nên bài đăng xong phải được lưu
+// riêng ở đây. Prune 35 ngày (xem report-daily-store.ts) — 1 row/ngày, không lo phình.
+model ReportDaily {
+  id        Int      @id @default(autoincrement())
+  period    String   @unique // ngày theo timezone cấu hình, yyyy-MM-dd
+  body      String
+  createdAt DateTime @default(now())
+}
+
 // Lời nhắc do member nhờ Stella ping hộ, đặt bằng câu nói thường trong `!s`.
 //
 // Vì sao phải lưu DB chứ không setTimeout: một lời nhắc "3h chiều nay" đặt lúc

@@ -13,12 +13,20 @@ import { startShowcaseScheduler } from '../systems/showcaseManager';
 import { startWeeklyRewardScheduler } from '../systems/weekly-reward-manager';
 import { startBirthdayScheduler } from '../systems/birthday-manager';
 import { startReminderScheduler } from '../systems/reminder/reminder-scheduler';
+import { registerFonts } from '../systems/report/newspaper/newspaper-fonts';
 
 export default {
     name: Events.ClientReady,
     once: true,
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag}`);
+        // Font tờ báo nhật báo — đăng ký NGAY khi bot lên, trước khi tick đầu tiên
+        // của scheduler (21h) có thể cần render. Fail mềm: thiếu font chỉ mất ảnh.
+        try {
+            registerFonts();
+        } catch (error) {
+            console.error('[ready] newspaper font registration failed:', error);
+        }
         initLavalink(client);
         startMaintenanceScheduler(client);
         startGiveawayScheduler(client);

@@ -2,6 +2,7 @@ import { Message } from 'discord.js';
 import { config } from '../../config';
 import { askAI } from '../aiClient';
 import { resolveAlias } from './reminder-alias-store';
+import { extractJson } from '../../utils/extract-json';
 
 // Đọc một câu tiếng Việt tự nhiên thành lời nhắc. Dùng AI thay vì regex vì cách
 // người ta nói giờ quá nhiều biến thể ("3h chiều nay", "1 giờ trưa", "tối 9h",
@@ -41,15 +42,8 @@ export interface ParsedReminder {
     message: string;
 }
 
-// Cắt phần rào quanh JSON nếu model vẫn bọc ```json dù đã bị dặn.
-function extractJson(raw: string): string {
-    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const body = fenced ? fenced[1] : raw;
-    const start = body.indexOf('{');
-    const end = body.lastIndexOf('}');
-    if (start < 0 || end <= start) return '';
-    return body.slice(start, end + 1);
-}
+// Cắt phần rào quanh JSON nếu model vẫn bọc ```json dù đã bị dặn — dùng chung
+// ở src/utils/extract-json.ts (trang nhất tờ báo cũng dùng).
 
 // Trước khi gọi AI: câu này có dấu hiệu nhờ nhắc không. Lọc rẻ tiền, chỉ để
 // những câu tán gẫu bình thường không phải tốn một lượt gọi AI thứ hai — mọi

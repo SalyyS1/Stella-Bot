@@ -4,6 +4,14 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+// Đếm số assertion đã chạy — đưa vào dòng kết luận để một block bị bỏ sót (source
+// trả rỗng, file đổi tên...) hiện ra ngay thay vì lặng lẽ in "passed".
+let assertionsRun = 0;
+const check = (cond, message) => {
+    assertionsRun++;
+    assert(cond, message);
+};
+
 const root = path.resolve(__dirname, '..');
 const source = relative => fs.readFileSync(path.join(root, 'src', relative), 'utf8');
 
@@ -52,76 +60,76 @@ const backup = fs.readFileSync(path.join(root, 'scripts', 'backup-db.js'), 'utf8
 const restore = fs.readFileSync(path.join(root, 'scripts', 'restore-db.js'), 'utf8');
 const sqliteImport = fs.readFileSync(path.join(root, 'scripts', 'import-sqlite-to-postgres.js'), 'utf8');
 
-assert(interaction.includes("cmdName !== 'panel'"), 'panel restricted-channel exception missing');
-assert(panel.includes("setName('channel')") && panel.includes('PermissionFlagsBits.EmbedLinks'), 'panel target/permission checks missing');
-assert(!ads.includes('directMinecraftStatus'), 'direct Minecraft status SSRF fallback remains');
-assert(message.includes('if (await guardEveryoneMention(message)) return;'), 'anti-raid message fallthrough remains');
-assert(showcase.includes('allowedMentions: { users: [post.authorId]'), 'showcase mention allowlist missing');
-assert(vote.indexOf('await lockVoteScores(tx)') < vote.indexOf('const existing = await tx.vote.findUnique'), 'vote snapshot is read before lock');
-assert(game.indexOf('settleScoinWager(') < game.indexOf("const frames = ['Đồng xu"), 'coinflip settles after animation');
-assert(game.includes("from 'crypto'") && giveaway.includes("from 'crypto'"), 'secure random source missing');
-assert(scoin.includes('scoinBalance: { gte: -amount }') && scoin.includes('scoinBalance: { gte: bet }'), 'atomic Scoin debit missing');
-assert(daily.includes('Lock this user') && daily.includes('adjustScoinTx(tx'), 'atomic daily claim missing');
-assert(xp.includes('levelScoinReward(newLevel)') && !message.includes('await adjustScoin(message.author.id'), 'level reward is not atomic');
-assert(giveaway.includes('MAX_GIVEAWAY_DURATION_MS') && giveaway.includes('prisma.giveaway.delete'), 'giveaway bounds/rollback missing');
-assert(antiRaid.includes("markInternalAntiRaidAction('roleUpdate'") && antiRaid.includes('count: current'), 'anti-raid internal action accounting missing');
-assert(maintenance.includes("setName('status')"), 'maintenance status command missing');
-assert(music.match(/existingPlayer\.voiceChannelId !== member!/g)?.length === 2, 'music queue channel isolation missing');
-assert(backfill.includes('tx.requestReview.groupBy') && backfill.includes('requestRatings'), 'request rating score preservation missing');
-assert(requests.includes('await lockVoteScores(tx)'), 'request rating/backfill serialization missing');
-assert(events.includes('Promise.resolve(event.execute'), 'async event rejection boundary missing');
-assert(backfill.includes('votes += result.synced') && !backfill.includes('const votes = await prisma.vote.count()'), 'vote backfill reports total rows instead of mutations');
-assert(antiRaid.includes('AuditLogEvent.WebhookUpdate') && antiRaid.includes('AuditLogEvent.WebhookDelete'), 'webhook audit attribution is create-only');
-assert(antiRaid.includes('isConsumedWebhookAuditEntry') && antiRaid.includes('WEBHOOK_AUDIT_RETRY_DELAYS_MS') && antiRaid.includes('fetchRecentAudits(channel.guild!, action.type, 100)'), 'webhook audit entries can be reused or missed during propagation');
-assert(antiRaid.includes("return attempted ? 'punishment-failed' : 'no-permission'"), 'anti-raid punishment can claim false success');
-assert(backup.includes("isolationLevel: 'RepeatableRead'"), 'backup is not a repeatable-read snapshot');
-assert(restore.includes('await clearExistingData(tx)') && restore.includes('await resetSequences(tx)'), 'restore is not atomic');
-assert(sqliteImport.includes('return result.count'), 'SQLite import reports attempted rows');
+check(interaction.includes("cmdName !== 'panel'"), 'panel restricted-channel exception missing');
+check(panel.includes("setName('channel')") && panel.includes('PermissionFlagsBits.EmbedLinks'), 'panel target/permission checks missing');
+check(!ads.includes('directMinecraftStatus'), 'direct Minecraft status SSRF fallback remains');
+check(message.includes('if (await guardEveryoneMention(message)) return;'), 'anti-raid message fallthrough remains');
+check(showcase.includes('allowedMentions: { users: [post.authorId]'), 'showcase mention allowlist missing');
+check(vote.indexOf('await lockVoteScores(tx)') < vote.indexOf('const existing = await tx.vote.findUnique'), 'vote snapshot is read before lock');
+check(game.indexOf('settleScoinWager(') < game.indexOf("const frames = ['Đồng xu"), 'coinflip settles after animation');
+check(game.includes("from 'crypto'") && giveaway.includes("from 'crypto'"), 'secure random source missing');
+check(scoin.includes('scoinBalance: { gte: -amount }') && scoin.includes('scoinBalance: { gte: bet }'), 'atomic Scoin debit missing');
+check(daily.includes('Lock this user') && daily.includes('adjustScoinTx(tx'), 'atomic daily claim missing');
+check(xp.includes('levelScoinReward(newLevel)') && !message.includes('await adjustScoin(message.author.id'), 'level reward is not atomic');
+check(giveaway.includes('MAX_GIVEAWAY_DURATION_MS') && giveaway.includes('prisma.giveaway.delete'), 'giveaway bounds/rollback missing');
+check(antiRaid.includes("markInternalAntiRaidAction('roleUpdate'") && antiRaid.includes('count: current'), 'anti-raid internal action accounting missing');
+check(maintenance.includes("setName('status')"), 'maintenance status command missing');
+check(music.match(/existingPlayer\.voiceChannelId !== member!/g)?.length === 2, 'music queue channel isolation missing');
+check(backfill.includes('tx.requestReview.groupBy') && backfill.includes('requestRatings'), 'request rating score preservation missing');
+check(requests.includes('await lockVoteScores(tx)'), 'request rating/backfill serialization missing');
+check(events.includes('Promise.resolve(event.execute'), 'async event rejection boundary missing');
+check(backfill.includes('votes += result.synced') && !backfill.includes('const votes = await prisma.vote.count()'), 'vote backfill reports total rows instead of mutations');
+check(antiRaid.includes('AuditLogEvent.WebhookUpdate') && antiRaid.includes('AuditLogEvent.WebhookDelete'), 'webhook audit attribution is create-only');
+check(antiRaid.includes('isConsumedWebhookAuditEntry') && antiRaid.includes('WEBHOOK_AUDIT_RETRY_DELAYS_MS') && antiRaid.includes('fetchRecentAudits(channel.guild!, action.type, 100)'), 'webhook audit entries can be reused or missed during propagation');
+check(antiRaid.includes("return attempted ? 'punishment-failed' : 'no-permission'"), 'anti-raid punishment can claim false success');
+check(backup.includes("isolationLevel: 'RepeatableRead'"), 'backup is not a repeatable-read snapshot');
+check(restore.includes('await clearExistingData(tx)') && restore.includes('await resetSequences(tx)'), 'restore is not atomic');
+check(sqliteImport.includes('return result.count'), 'SQLite import reports attempted rows');
 for (const model of ['GuildSettings', 'StarItemStack', 'RequestPost', 'RequestClaim', 'RequestReview']) {
     assert(dbUtils.includes(`name: '${model}'`), `backup table ${model} missing`);
 }
-assert(!fs.readFileSync(path.join(root, 'package.json'), 'utf8').includes('minecraft-server-util'), 'removed SSRF dependency remains');
+check(!fs.readFileSync(path.join(root, 'package.json'), 'utf8').includes('minecraft-server-util'), 'removed SSRF dependency remains');
 
 // Kotlin must be RECOGNISED and then refused, never merely unmatched. The runner
 // compiles Java only, so a .kt file that slips through is copied in, never
 // compiled, and Gradle still succeeds — a jar missing code under the studio's
 // name. Dropping .kt from NAME_LINE would make it invisible instead of skipped,
 // which is what re-opens that hole.
-assert(/NAME_LINE\s*=.*\bkt\b/.test(pluginParser), 'parser no longer recognises .kt, so a Kotlin file becomes invisible instead of skipped');
-assert(!/ALLOWED\s*=.*\bkt\b/.test(pluginParser), 'parser accepts .kt, which the Java-only runner cannot compile');
-assert(pluginParser.includes('không phải Java'), 'parser does not tell the member why a .kt file was dropped');
-assert(pluginCmd.includes('parsed.skipped.length === 0'), 'build gate ignores dropped files, so a jar can ship missing code');
-assert(/\\\.kt\$\/i\.test\(base\)/.test(buildWorkflow) && buildWorkflow.includes('process.exit(1)'), 'runner does not fail hard on Kotlin source');
-assert(!buildWorkflow.includes("-name '*.kt'"), 'runner still copies .kt into a Java-only Gradle project');
+check(/NAME_LINE\s*=.*\bkt\b/.test(pluginParser), 'parser no longer recognises .kt, so a Kotlin file becomes invisible instead of skipped');
+check(!/ALLOWED\s*=.*\bkt\b/.test(pluginParser), 'parser accepts .kt, which the Java-only runner cannot compile');
+check(pluginParser.includes('không phải Java'), 'parser does not tell the member why a .kt file was dropped');
+check(pluginCmd.includes('parsed.skipped.length === 0'), 'build gate ignores dropped files, so a jar can ship missing code');
+check(/\\\.kt\$\/i\.test\(base\)/.test(buildWorkflow) && buildWorkflow.includes('process.exit(1)'), 'runner does not fail hard on Kotlin source');
+check(!buildWorkflow.includes("-name '*.kt'"), 'runner still copies .kt into a Java-only Gradle project');
 
 // A poll that fails after the run was located must not downgrade it to
 // run-not-found: that loses the log URL the member needs to see why a build died.
-assert(buildClient.includes('if (found) run = found;'), 'a transient poll failure discards an already-located run');
+check(buildClient.includes('if (found) run = found;'), 'a transient poll failure discards an already-located run');
 // GitHub's 65,535-char cap on a workflow_dispatch input surfaces as a bare 422,
 // indistinguishable from a bad ref, so it has to be caught before dispatching.
-assert(buildClient.includes("reason: 'payload-too-big'"), 'oversized payload is left for GitHub to reject opaquely');
+check(buildClient.includes("reason: 'payload-too-big'"), 'oversized payload is left for GitHub to reject opaquely');
 
 // An empty window may only be recorded when the walk proved it empty. Storing an
 // unproven one stamps a busy evening as quiet, permanently.
-assert(chunkCollector.includes('reachedStart') && scheduler.includes('if (!chat.reachedStart)'), 'quiet-window proof is gone, so an out-of-budget walk can be stored as empty');
+check(chunkCollector.includes('reachedStart') && scheduler.includes('if (!chat.reachedStart)'), 'quiet-window proof is gone, so an out-of-budget walk can be stored as empty');
 // MaintenanceLog is shared: pruning it unscoped would delete other systems' locks.
-assert(chunkStore.includes("kind: { in: ['report-chunk', 'report'] }"), 'chunk-claim pruning is not scoped to the report kinds');
+check(chunkStore.includes("kind: { in: ['report-chunk', 'report', 'report-weekly'] }"), 'chunk-claim pruning is not scoped to the report kinds');
 // The gateway fetches image URLs itself, so Discord's signed query must survive.
-assert(imageCollector.includes('image_url: { url: attachment.url }'), 'image URL is rewritten, which strips the Discord CDN signature');
+check(imageCollector.includes('image_url: { url: attachment.url }'), 'image URL is rewritten, which strips the Discord CDN signature');
 
 // The daily post window is one hour wide, but chunk+backfill in a single tick can
 // now run ~30 minutes (three AI calls at a 10-minute ceiling each). Reading the
 // clock AFTER that work means a tick starting at 21:45 checks at 22:15 and drops
 // the whole day's bulletin, after paying for every chunk. The hour must be
 // sampled before the slow work, and the decision kept in a variable.
-assert(
+check(
     scheduler.indexOf('const dueForDaily') < scheduler.indexOf('await runChunk(client)'),
     'tick samples the hour after chunk work, so a slow run can miss the daily post window entirely'
 );
 // The admin path must rebuild missing windows before reducing, or `/maintenance
 // report` just folds whatever happens to be in the DB — which on the first day is
 // nothing, and the admin pressed the command precisely to review the last 24h.
-assert(
+check(
     scheduler.includes('backfillAllSlots') && scheduler.includes('if (force)'),
     'admin report no longer rebuilds missing windows, so it cannot actually review the last 24h'
 );
@@ -136,8 +144,8 @@ assert(
 const GATEWAY_MAX_TOKENS = 128_000;
 const tokenBudgets = [...config_ts.matchAll(/maxTokens:\s*([\d_]+)/g)]
     .map(m => Number(m[1].replace(/_/g, '')));
-assert(tokenBudgets.length > 0, 'no maxTokens budgets found in config.ts — pattern moved');
-assert(
+check(tokenBudgets.length > 0, 'no maxTokens budgets found in config.ts — pattern moved');
+check(
     tokenBudgets.every(n => n <= GATEWAY_MAX_TOKENS),
     `a maxTokens budget exceeds the measured gateway ceiling (${GATEWAY_MAX_TOKENS}): ` +
     `${tokenBudgets.filter(n => n > GATEWAY_MAX_TOKENS).join(', ')} — re-probe before raising`
@@ -148,19 +156,19 @@ assert(
 // symptom is a missing bulletin at 21h — i.e. after the day is already lost. The
 // heartbeat line is what makes silence itself diagnostic, so it has to survive:
 // an open/close pair per tick distinguishes a slow tick from one hung mid-step.
-assert(
+check(
     scheduler.includes('tick #${tickCount}: đang sống'),
     'per-tick heartbeat log is gone, so a dead scheduler looks identical to an idle one'
 );
-assert(
+check(
     scheduler.includes('tick #${tickCount}: xong sau'),
     'tick completion log is gone, so a tick hung mid-step cannot be told from a slow one'
 );
-assert(
+check(
     scheduler.includes('lượt trước còn đang chạy'),
     'skipped-tick log is gone, so a hung run silently swallows every later beat'
 );
-assert(
+check(
     scheduler.includes('scheduler bật:'),
     'startup log is gone, so a disabled config looks the same as code that never ran'
 );
@@ -168,20 +176,20 @@ assert(
 // The glossary write gate is the anti-poisoning lock: a wrong definition is
 // reused in EVERY later bulletin. It must read the role allowlist, never fall
 // back to "any member", and must sit before any DB work.
-assert(
+check(
     glossaryAsker.includes('config.roles.knowledgeTeachers'),
     'glossary write gate no longer reads the teacher-role allowlist'
 );
 // Path 2 (ping/reply anywhere) is only safe because being addressed to the bot
 // is REQUIRED. Without that check every "abc = xyz" line in every channel — including
 // two members explaining things to each other — becomes a lesson Stella believes.
-assert(
+check(
     glossaryAsker.includes('isAddressedToBot') && glossaryAsker.includes('mentions.users.has(selfId)'),
     'glossary accepts lessons without being addressed to the bot, so any channel chatter can teach it'
 );
 // collectAnswer must run before the Q&A block: that block returns early, so a
 // lesson typed in the Q&A channel would be swallowed as a question instead.
-assert(
+check(
     message.indexOf('collectAnswer(message)') < message.indexOf('handleAiQa(message)'),
     'glossary collection runs after Q&A, so a lesson in the Q&A channel is eaten as a question'
 );
@@ -189,18 +197,18 @@ assert(
 // over what) rather than a status report. Both prompt tiers have to ask for names
 // and specifics: the reduce step never sees the raw chat, so a chunk that says
 // "lively discussion" leaves nothing to retell, permanently.
-assert(
+check(
     chunkSummarizer.includes('TÊN NGƯỜI') && chunkSummarizer.includes('xỉa xói'),
     'chunk prompt no longer demands names and specifics, so conflicts vanish into generalities'
 );
-assert(
+check(
     !chunkSummarizer.includes('không trích nguyên văn hội thoại riêng tư'),
     'the blanket privacy clause is back; it covers public chat too and is why bulletins read as vague'
 );
 // rebuild=true is the only way a prompt change reaches a day already summarized,
 // since stored chunks are what the reduce reads and they were written by the old
 // prompt. Losing it means prompt fixes silently do nothing for today.
-assert(
+check(
     scheduler.includes('rebuild') && maintenance.includes("getBoolean('rebuild')"),
     'rebuild path is gone, so improving the chunk prompt cannot fix a day already summarized'
 );
@@ -214,7 +222,7 @@ assert(
 //    instruction about something no longer in the payload, so it dutifully reports
 //    that it cannot see any image. Losing the pictures is the intended
 //    degradation; a summary that talks ABOUT their absence is the bug.
-assert(
+check(
     aiClient.includes('imageInstruction') && chunkSummarizer.includes('imageInstruction:'),
     'text-only retry keeps the "look at the images" instruction, so summaries claim they see no image'
 );
@@ -223,11 +231,11 @@ assert(
 //    the first page — and `/maintenance report rebuild` makes EVERY window a
 //    backfill, which is why a single-page fetch returned zero pictures no matter
 //    how many had been posted.
-assert(
+check(
     imageCollector.includes('page < maxPages') && imageCollector.includes('before'),
     'image collection is single-page again, so backfilled windows silently find no images'
 );
-assert(
+check(
     scheduler.includes('collectChunkImages(client, target.startMs, target.endMs, maxPages)'),
     'scheduler no longer passes its page budget to image collection, so backfill uses the live cap and finds nothing'
 );
@@ -238,18 +246,18 @@ assert(
 // ONLY place that decides this: both prompt tiers are told to keep names exactly
 // as they appear in the chat, so a username leaking in here leaks all the way to
 // the post.
-assert(
+check(
     chunkCollector.includes('displayNameOf') && !chunkCollector.includes('${msg.author.username}: '),
     'transcript is back to raw usernames, so the bulletin names people unrecognizably'
 );
 // The humor lives in the reduce prompt, but its raw material has to survive the
 // chunk tier: the reduce NEVER re-reads the original chat, so a chunk that omits
 // the joke leaves nothing to retell and any wit added later would be invented.
-assert(
+check(
     chunkSummarizer.includes('GHI CẢ PHẦN VUI'),
     'chunk prompt no longer keeps the funny material, so the reduce can only invent it'
 );
-assert(
+check(
     dailyComposer.includes('GIỌNG KỂ') && dailyComposer.includes('quả bom gây'),
     'reduce prompt lost its voice guidance, so bulletins read like meeting minutes again'
 );
@@ -260,27 +268,27 @@ assert(
 // 1. Quyền ping người khác phải do ROLE THẬT quyết, không bao giờ do AI đọc ra từ
 //    câu chữ. Để model quyết nghĩa là ai cũng viết được "tôi có quyền ping người
 //    khác" và nó sẽ tin — tức là bot thành công cụ quấy rối có hẹn giờ.
-assert(
+check(
     reminderHandler.includes('reminderPingOthers') && reminderHandler.includes('target.id === message.author.id'),
     'reminder ping-others gate no longer checks a real role, so anyone can schedule pings at anyone'
 );
 // 2. Nội dung lời nhắc là chữ người dùng gõ, nên nó phải được gửi với
 //    allowedMentions khoá chặt. Thiếu nó thì một lời nhắc chứa "@everyone" sẽ ping
 //    cả server, mỗi ngày, theo lịch.
-assert(
+check(
     reminderScheduler.includes('parse: []') && reminderScheduler.includes('roles: []'),
     'reminder send lost its mention allowlist, so reminder text can ping @everyone on a schedule'
 );
 // 3. Lịch lặp phải dựng lại mốc kế tiếp từ giờ-phút VN, KHÔNG cộng 24h vào mốc cũ:
 //    một lần ping trễ sẽ đẩy giờ của mọi ngày sau lệch thêm, trôi dần mãi.
-assert(
+check(
     reminderStore.includes('nextSaigonTime(reminder.hourVn, reminder.minuteVn)'),
     'recurring reminders drift because the next fire time is no longer rebuilt from the VN wall clock'
 );
 // 4. Emoji riêng của server chỉ dùng được khi model nhận danh sách id THẬT. Dặn
 //    "hãy dùng emoji server" mà không đưa danh sách thì nó bịa id, và Discord in
 //    nguyên chuỗi `<:abc:123>` ra giữa câu — trông như bot lỗi.
-assert(
+check(
     emojiPalette.includes('buildEmojiHint') && emojiPalette.includes('animated'),
     'emoji palette no longer emits real server emoji ids, so Stella prints broken emoji text'
 );
@@ -289,7 +297,7 @@ assert(
 //    server. Mở cho mọi người thì một người có role ping-người-khác chỉ cần biết
 //    alias là ping được người lạ mà không phải tìm họ trong danh sách — tức là hạ
 //    đúng cái ma sát đang bảo vệ người bị ping.
-assert(
+check(
     reminderParser.includes('ownerUserId') && reminderParser.includes('resolveAlias'),
     'reminder alias lookup is no longer owner-only, so it becomes a shortcut around the ping gate'
 );
@@ -299,7 +307,7 @@ assert(
 // Chốt là KIỂU TRẢ VỀ `Promise<string>` chứ không phải "không có chữ null trong
 // file": nhánh `.catch` của lượt gọi AI trả null là đúng và cần thiết. Điều phải
 // giữ là mọi nhánh đó đều rơi về fallback() trước khi ra khỏi hàm.
-assert(
+check(
     reminderVoice.includes('function fallback')
     && reminderVoice.includes('Promise<string>')
     && !reminderVoice.includes('Promise<string | null>'),
@@ -308,7 +316,7 @@ assert(
 // 7. Giọng nhắc do AI viết phải bị tước mention trước khi gửi. allowedMentions đã
 //    chặn ping thật, nhưng để nguyên chuỗi `@everyone` trong nội dung thì người đọc
 //    vẫn thấy nó và tưởng cả server bị gọi.
-assert(
+check(
     reminderVoice.includes('stripMentions'),
     'reminder voice no longer strips mentions, so AI-written text can display a fake @everyone'
 );
@@ -318,7 +326,7 @@ assert(
 //    Q&A và Stella trả lời là mình không ping được — tính năng có mà như hỏng, và
 //    người dùng không có cách nào biết vì sao. Một từ dư chỉ tốn một lượt AI oan;
 //    một từ thiếu làm cả một cách nói hợp lệ bị phớt lờ.
-assert(
+check(
     ['kêu', 'nhắc', 'ping', 'gọi', 'réo', 'nhớ'].every(v => reminderParser.includes(v)),
     'reminder intent filter dropped a real way of asking, so those requests fall through to Q&A'
 );
@@ -329,11 +337,76 @@ assert(
 // Thứ bắt buộc có là câu phản bác ngay sau nó, và thứ tự đó là cả điểm: model đọc
 // câu chặn tool rộng thành "tôi không làm được gì", nên lời phản bác phải đứng
 // liền kề mới đè được.
-assert(
+check(
     qaManager.includes('Stella CÓ hệ nhắc nhở thật')
     && qaManager.includes('không nói "Stella không ping được"')
     && qaManager.indexOf('KHÔNG có công cụ nào') < qaManager.indexOf('Stella CÓ hệ nhắc nhở thật'),
     'Q&A persona claims it cannot schedule pings, which teaches users the feature does not exist'
 );
 
-console.log('Stella self-check passed (67 assertions).');
+// ---- Nhật báo: ảnh tờ báo + bài tuần (phần bổ sung của feature này) ----
+const newspaperCanvas = source('systems/report/newspaper/newspaper-canvas.ts');
+const newspaperLayout = source('systems/report/newspaper/newspaper-layout.ts');
+const newspaperTextFit = source('systems/report/newspaper/newspaper-text-fit.ts');
+const newspaperPipeline = source('systems/report/newspaper/newspaper-pipeline.ts');
+const newspaperExtract = source('systems/report/newspaper/newspaper-extract.ts');
+const publisher = source('systems/report/report-publisher.ts');
+const weekly = source('systems/report/report-weekly.ts');
+const weeklyComposer = source('systems/report/report-weekly-composer.ts');
+const claimModule = source('systems/report/report-claim.ts');
+const dailyStore = source('systems/report/report-daily-store.ts');
+
+// Ảnh là phụ kiện: mọi tầng (extract/image/render) phải fail-soft, không được
+// ném lỗi vào runReport hay quyết định `posted`.
+check(
+    newspaperPipeline.includes('.catch(error =>') && newspaperPipeline.includes('return null'),
+    'newspaper pipeline tier is not fail-soft, a failing illustration can kill the bulletin'
+);
+check(
+    scheduler.includes('image ?? undefined') && publisher.includes('image?: Buffer'),
+    'report image must stay an optional attachment so a missing newspaper never changes posting behavior'
+);
+// Bài tuần chỉ chạy khi đúng Chủ nhật theo giờ SAIGON — đọc host timezone là
+// làm mất bài tuần vĩnh viễn trên host ≥ UTC+10 (lỗi im lặng).
+check(
+    weekly.includes("timeZone: config.maintenance.timezone"),
+    'isSundaySaigon must read Saigon time, not the host timezone'
+);
+// Bài tuần phải tự đánh dấu là "số đặc biệt" qua tiêu đề thread — nếu để mặc
+// định, thread mang ngày thứ Hai trông như bản tin ngày bị lệch 6 ngày.
+check(
+    weekly.includes('WEEKLY_TITLE') && publisher.includes('title?: string'),
+    'weekly digest must use its own thread title, not the daily "Bản tin Stella — <date>"'
+);
+// Chốt chống trùng dùng chung (claim) — scheduler không được tự claim một kiểu
+// riêng cho bài tuần.
+check(
+    claimModule.includes('kind: string') && scheduler.includes("import { claimWork"),
+    'weekly claims must go through the shared MaintenanceLog lock'
+);
+// Chữ bị cắt phải có '…' (wrapTextCapped) — cắt câm làm người đọc tưởng renderer hỏng.
+check(
+    newspaperTextFit.includes('wrapTextCapped') && newspaperTextFit.includes("'…'"),
+    'truncated canvas text must show an ellipsis, not vanish silently'
+);
+// Band chuyên mục neo vào đáy cố định + headline thu theo chiều cao — trước đây
+// headline 2 dòng ngắn làm band biến mất (weekly) hoặc text tràn viền (daily).
+check(
+    newspaperCanvas.includes('bandHeight') && newspaperCanvas.includes('headlineMaxHeight'),
+    'section band must be bottom-anchored with height-aware headline shrinking'
+);
+// Band phải ĐỦ CAO cho label + 2 dòng text ở cỡ mặc định — không có assert này thì
+// hạ bandHeight / tăng text.size sau này tái phát lỗi tràn mà không ai biết.
+check(
+    newspaperLayout.includes('bandHeight: 130') &&
+    newspaperLayout.includes('label: { size: 30') &&
+    newspaperLayout.includes('text: { size: 24, maxLines: 2'),
+    'section band constants changed — recheck that bandHeight >= label height + 2 text lines + padding'
+);
+// Lưu bài ngày: nguồn duy nhất cho bài tuần (chunk 3h bị prune sau 7 ngày).
+check(
+    dailyStore.includes('reportDaily.upsert') && scheduler.includes('saveDailyReport(period, body)'),
+    'posted daily bulletin must be persisted for the weekly digest'
+);
+
+console.log(`Stella self-check passed (${assertionsRun} assertions).`);
