@@ -72,6 +72,14 @@ export function calculateDailyXp(streak: number): number {
     return Math.min(30 + streak * 12, 200);
 }
 
+// Hệ số XP của buff mua ở shop. Tra từ catalog thay vì hardcode để giá và hệ số
+// nằm cùng một chỗ — đổi hệ số mà quên đổi giá là cách nhanh nhất làm lệch kinh tế.
+// Buff lạ (catalog đã bỏ món đó nhưng buff cũ còn hiệu lực) → nhân 1, không phải lỗi.
+function shopXpMultiplier(buffKey: string): number {
+    const item = config.shop.items.find(i => i.buffKey === buffKey);
+    return item?.multiplier ?? 1;
+}
+
 /**
  * Xử lý XP khi người dùng gửi tin nhắn
  * Trả về { leveledUp, newLevel, xpGained } hoặc null nếu cooldown
@@ -82,8 +90,8 @@ export async function processMessageXp(userId: string, content: string, guild: G
     const lastXp = xpCooldowns.get(userId) || 0;
     if (now - lastXp < config.xp.cooldownMs) return null;
 
-    const xpGained = calculateMessageXp(content);
-    if (xpGained === 0) return null;
+    const baseXp = calculateMessageXp(content);
+    if (baseXp === 0) return null;
 
     // Cập nhật cooldown
     xpCooldowns.set(userId, now);
@@ -91,6 +99,14 @@ export async function processMessageXp(userId: string, content: string, guild: G
     const result = await prisma.$transaction(async tx => {
         await tx.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
         await tx.user.update({ where: { id: userId }, data: { scoinBalance: { increment: 0 } } });
+        // Buff XP mua ở shop. Đọc TRONG transaction để một buff vừa hết hạn không
+        // còn được tính; nếu buff hết hạn thì không có dòng nào khớp và nhân 1.
+        const boost = await tx.starBuff.findFirst({
+            where: { userId, key: { startsWith: 'shop:xp' }, expiresAt: { gt: new Date(now) } },
+            orderBy: { expiresAt: 'desc' }
+        });
+        const multiplier = boost ? shopXpMultiplier(boost.key) : 1;
+        const xpGained = baseXp * multiplier;
         const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
         const currentXp = user.xp + xpGained;
         const xpNeeded = xpToNextLevel(user.level);

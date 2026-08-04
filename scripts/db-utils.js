@@ -135,6 +135,49 @@ const tables = [
         key: row => ({ requestId_reviewerId: { requestId: row.requestId, reviewerId: row.reviewerId } }),
         dateFields: ['createdAt'],
         sequence: '"RequestReview_id_seq"'
+    },
+    // Các bảng dưới đây từng bị bỏ sót. Việc bỏ sót không phải "không được backup"
+    // mà tệ hơn: restore --replace xoá User trước, cascade quét sạch chúng, rồi
+    // restore chỉ dựng lại những bảng có trong danh sách này. Một lần restore là
+    // mất hẳn sổ đơn hàng, trí nhớ của Stella, và tiến độ tuần của mọi người.
+    {
+        name: 'ShopPurchase',
+        client: 'shopPurchase',
+        key: row => ({ id: row.id }),
+        dateFields: ['createdAt', 'deliveredAt'],
+        sequence: '"ShopPurchase_id_seq"'
+    },
+    {
+        name: 'ShopColorRole',
+        client: 'shopColorRole',
+        key: row => ({ key: row.key }),
+        dateFields: ['createdAt']
+    },
+    {
+        name: 'MemberFact',
+        client: 'memberFact',
+        key: row => ({ id: row.id }),
+        dateFields: ['createdAt'],
+        sequence: '"MemberFact_id_seq"'
+    },
+    {
+        name: 'WeeklyActivity',
+        client: 'weeklyActivity',
+        key: row => ({ userId_weekKey: { userId: row.userId, weekKey: row.weekKey } }),
+        dateFields: []
+    },
+    {
+        name: 'DailyQuest',
+        client: 'dailyQuest',
+        key: row => ({ id: row.id }),
+        dateFields: [],
+        sequence: '"DailyQuest_id_seq"'
+    },
+    {
+        name: 'Birthday',
+        client: 'birthday',
+        key: row => ({ userId: row.userId }),
+        dateFields: ['createdAt', 'updatedAt']
     }
 ];
 

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { config } from '../config';
 import { getScoinBalance } from '../systems/scoinManager';
-import { buyColorRole, listOwnedColorKey } from '../systems/shop-manager';
+import { buyColorRole, listOwnedColorKey, buyShopItem, listPurchaseHistory } from '../systems/shop-manager';
 
 // /shop — Scoin shop for buying color roles
 //   xem    → view catalog, balance, owned color (ephemeral)
@@ -26,7 +26,23 @@ export default {
                     option.addChoices({ name: color.label, value: color.key });
                 }
                 return option;
-            })),
+            }))
+        .addSubcommand(sub => sub
+            .setName('vatpham')
+            .setDescription('Mua vật phẩm (XP boost...) bằng Scoin')
+            .addStringOption(option => {
+                option
+                    .setName('mon')
+                    .setDescription('Chọn vật phẩm')
+                    .setRequired(true);
+                for (const item of config.shop.items) {
+                    option.addChoices({ name: `${item.label} — ${item.price} Scoin`, value: item.key });
+                }
+                return option;
+            }))
+        .addSubcommand(sub => sub
+            .setName('history')
+            .setDescription('Lịch sử mua hàng của bạn')),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -129,6 +145,47 @@ export default {
                     .setFooter({ text: `Scoin còn lại: ${(await getScoinBalance(userId)).toLocaleString('vi-VN')}` })
                     .setTimestamp();
 
+                return interaction.editReply({ embeds: [embed] });
+            }
+
+            if (sub === 'vatpham') {
+                if (!config.shop.enabled) {
+                    return interaction.editReply({ content: `${emojis.error} Shop hiện đang đóng cửa.` });
+                }
+                const itemKey = interaction.options.getString('mon', true);
+                const bought = await buyShopItem(userId, itemKey);
+                const embed = new EmbedBuilder()
+                    .setColor('#9b59b6')
+                    .setTitle(`${emojis.success} Đã mua ${bought.label}`)
+                    .setDescription(`Hiệu lực đến <t:${Math.floor(bought.expiresAt.getTime() / 1000)}:R>.`)
+                    .setFooter({ text: `Scoin còn lại: ${(await getScoinBalance(userId)).toLocaleString('vi-VN')}` })
+                    .setTimestamp();
+                return interaction.editReply({ embeds: [embed] });
+            }
+
+            if (sub === 'history') {
+                // Chỉ đơn của chính người gọi, và reply đã ephemeral từ deferReply:
+                // đơn hàng cho biết ai tiêu gì, đó là chuyện riêng của họ.
+                const rows = await listPurchaseHistory(userId);
+                if (!rows.length) {
+                    return interaction.editReply({
+                        content: `${emojis.error} Bạn chưa mua gì ở shop. Xem \`/shop xem\` để bắt đầu.`
+                    });
+                }
+                const labelOf = (key: string) =>
+                    config.shop.items.find(i => i.key === key)?.label
+                    || config.shop.colors.find(c => c.key === key)?.label
+                    || key;
+                const lines = rows.map(r =>
+                    `• **${labelOf(r.itemKey)}** — ${r.price.toLocaleString('vi-VN')} Scoin · <t:${Math.floor(r.createdAt.getTime() / 1000)}:d>`
+                    + (r.status === 'REFUNDED' ? ' *(đã hoàn xu)*' : '')
+                );
+                const embed = new EmbedBuilder()
+                    .setColor('#9b59b6')
+                    .setTitle('Lịch sử mua hàng')
+                    .setDescription(lines.join('\n'))
+                    .setFooter({ text: `${rows.length} đơn gần nhất` })
+                    .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
 

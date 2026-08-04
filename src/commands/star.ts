@@ -92,7 +92,12 @@ async function getState(userId: string) {
     const [inventory, tools, buffs, items] = await Promise.all([
         prisma.starInventory.findUniqueOrThrow({ where: { userId } }),
         prisma.starTool.findMany({ where: { userId } }),
-        prisma.starBuff.findMany({ where: { userId, expiresAt: { gt: new Date() } } }),
+        // Buff mua ở shop (key có tiền tố "shop:") không thuộc minigame này — hiện
+        // nó ở đây thì người chơi thấy một dòng buff mà /star không giải thích được
+        // và BUFF_SHOP cũng không có tên cho nó.
+        prisma.starBuff.findMany({
+            where: { userId, expiresAt: { gt: new Date() }, NOT: { key: { startsWith: 'shop:' } } }
+        }),
         prisma.starItemStack.findMany({ where: { userId, quantity: { gt: 0 } } })
     ]);
     return { inventory, tools, buffs, items };

@@ -295,6 +295,33 @@ export const config = {
     shop: {
         enabled: true,
         colorRolePrice: 200,
+        // Vật phẩm ngoài role màu. Giá đặt cao hơn role màu vì đây là thứ giữ được
+        // giá trị lâu hơn — xu chỉ có sức nặng khi có món đáng để dành.
+        //
+        // xpBoost dùng lại StarBuff (đã có sẵn cơ chế buff hết hạn) với key mang tiền
+        // tố "shop:" để nó không lẫn vào danh sách buff của minigame /star.
+        items: [
+            {
+                key: 'xp_boost_2x_1h',
+                label: 'XP x2 (1 giờ)',
+                price: 600,
+                kind: 'xpBoost' as const,
+                buffKey: 'shop:xp2x',
+                durationMs: 60 * 60_000,
+                multiplier: 2,
+                description: 'Nhân đôi XP nhận được trong 1 giờ.'
+            },
+            {
+                key: 'xp_boost_2x_3h',
+                label: 'XP x2 (3 giờ)',
+                price: 1500,
+                kind: 'xpBoost' as const,
+                buffKey: 'shop:xp2x',
+                durationMs: 3 * 60 * 60_000,
+                multiplier: 2,
+                description: 'Nhân đôi XP nhận được trong 3 giờ.'
+            }
+        ],
         colors: [
             { key: "ruby",     label: "Ruby Đỏ",      hex: "#e74c3c" },
             { key: "coral",    label: "San Hô",       hex: "#ff7f50" },

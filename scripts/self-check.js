@@ -428,6 +428,46 @@ check(
     'dead config.digest / TriviaWin model is back, which reads as a live feature to the next maintainer'
 );
 
+// ---- Shop: mua vật phẩm phải là MỘT khối, và sổ đơn phải sống sót restore ----
+const shopManager = source('systems/shop-manager.ts');
+const xpMgr = source('systems/xpManager.ts');
+
+// Giữa hai transaction rời rạc, bot có thể chết sau khi trừ xu và trước khi món
+// được ghi: người dùng mất xu, không có món, không có dòng đơn nào để biết. Vì vậy
+// khoá dòng, trừ xu và ghi đơn phải nằm trong CÙNG một $transaction.
+const buyItemBody = shopManager.slice(shopManager.indexOf('export async function buyShopItem'));
+const txStart = buyItemBody.indexOf('prisma.$transaction');
+check(
+    txStart >= 0
+    && buyItemBody.indexOf('lockUser(tx', txStart) > txStart
+    && buyItemBody.indexOf('debitIfEnough(tx', txStart) > buyItemBody.indexOf('lockUser(tx', txStart)
+    && buyItemBody.indexOf('recordPurchase(tx', txStart) > buyItemBody.indexOf('debitIfEnough(tx', txStart),
+    'buyShopItem does not lock, debit and record the order inside one transaction, so a crash mid-purchase loses the money with no trace'
+);
+// Không khoá dòng thì hai lần mua đồng thời cùng đọc một số dư và cùng trừ được.
+check(
+    shopManager.includes('scoinBalance: { increment: 0 }')
+    && shopManager.includes('scoinBalance: { gte: amount }'),
+    'the item purchase path lost its row lock or conditional debit, which allows double-spend on a double click'
+);
+// Bảng không nằm trong danh sách này bị cascade xoá khi restore --replace xoá User,
+// rồi KHÔNG được dựng lại — mất hẳn, không phải "chỉ là thiếu backup".
+check(
+    ['ShopPurchase', 'MemberFact', 'WeeklyActivity', 'DailyQuest', 'Birthday', 'ShopColorRole']
+        .every(t => dbUtils.includes(`name: '${t}'`)),
+    'a user-data table is missing from the backup list, so restore --replace erases it permanently'
+);
+// Món bán ra mà không có ai đọc hiệu lực thì người mua trả xu để nhận một dòng DB.
+check(
+    xpMgr.includes("key: { startsWith: 'shop:xp' }") && xpMgr.includes('shopXpMultiplier'),
+    'the shop XP boost is never read by xpManager, so buying it changes nothing'
+);
+// Buff shop hiện trong /star là một dòng mà minigame không giải thích được.
+check(
+    source('commands/star.ts').includes("NOT: { key: { startsWith: 'shop:' } }"),
+    'shop buffs leak into the /star buff list where BUFF_SHOP has no name for them'
+);
+
 // ---- Nhật báo: ảnh tờ báo + bài tuần (phần bổ sung của feature này) ----
 const newspaperCanvas = source('systems/report/newspaper/newspaper-canvas.ts');
 const newspaperLayout = source('systems/report/newspaper/newspaper-layout.ts');

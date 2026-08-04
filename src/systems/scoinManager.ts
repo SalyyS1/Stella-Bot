@@ -129,11 +129,15 @@ export async function adjustScoinTx(
         });
         if (debited.count === 0) throw new Error('Not enough Scoin.');
     } else {
+        // Hoàn tiền không phải "kiếm được": scoinEarnedTotal là thước đo thu nhập
+        // cả đời và là tiêu chí phụ xếp hạng /scoin top, nên cộng tiền hoàn vào đó
+        // biến một lần mua thất bại thành điểm thành tích.
+        const isRefund = source.endsWith(':refund');
         await tx.user.update({
             where: { id: userId },
             data: {
                 scoinBalance: { increment: amount },
-                scoinEarnedTotal: amount > 0 ? { increment: amount } : undefined
+                scoinEarnedTotal: amount > 0 && !isRefund ? { increment: amount } : undefined
             }
         });
     }

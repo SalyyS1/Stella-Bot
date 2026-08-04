@@ -4,6 +4,94 @@ import { config } from '../config';
 import { adjustScoin, getScoinBalance } from './scoinManager';
 import { markInternalAntiRaidAction } from './antiRaidManager';
 
+// Ghi món đã mua vào sổ đơn. Tách ra vì cả đường mua role màu và đường mua vật
+// phẩm đều cần, và cả hai đều phải ghi TRONG transaction đã trừ xu.
+async function recordPurchase(tx: any, userId: string, itemKey: string, price: number): Promise<void> {
+    await tx.shopPurchase.create({
+        data: { userId, itemKey, price, status: 'DELIVERED', deliveredAt: new Date() }
+    });
+}
+
+// Khoá dòng User để hai lần mua đồng thời không cùng đọc một số dư. Increment 0
+// không đổi giá trị nhưng vẫn lấy row lock của Postgres.
+async function lockUser(tx: any, userId: string): Promise<void> {
+    await tx.user.upsert({ where: { id: userId }, update: {}, create: { id: userId } });
+    await tx.user.update({ where: { id: userId }, data: { scoinBalance: { increment: 0 } } });
+}
+
+// Trừ xu có điều kiện: chỉ trừ khi số dư còn đủ, và biết được mình có trừ được hay
+// không qua count. Đây là chỗ chặn số dư âm mà không cần đọc-rồi-ghi.
+async function debitIfEnough(
+    tx: any, userId: string, amount: number, reason: string, source: string, metadata?: string
+): Promise<void> {
+    const charged = await tx.user.updateMany({
+        where: { id: userId, scoinBalance: { gte: amount } },
+        data: { scoinBalance: { decrement: amount } }
+    });
+    if (charged.count === 0) throw new Error('Not enough Scoin.');
+    await tx.scoinTransaction.create({ data: { userId, amount: -amount, reason, source, metadata } });
+}
+
+// Mua một vật phẩm trong config.shop.items.
+//
+// Mọi thao tác nằm trong MỘT transaction: khoá dòng, trừ xu, ghi hiệu lực món, ghi
+// đơn. Lý do không tách ra như buyColorRole: giữa hai transaction rời rạc, bot có
+// thể chết (hoặc DB ngắt) sau khi đã trừ xu và trước khi món được ghi — người dùng
+// mất xu, không có món, và không có dòng đơn nào để ai biết chuyện đó từng xảy ra.
+// Cấp role Discord buộc phải nằm ngoài DB nên buyColorRole không có lựa chọn; vật
+// phẩm thì hoàn toàn nằm trong DB, nên nó phải là một khối.
+export async function buyShopItem(userId: string, itemKey: string): Promise<{ label: string; expiresAt: Date }> {
+    if (!config.shop.enabled) throw new Error('Shop hiện đang đóng cửa.');
+    const item = config.shop.items.find(i => i.key === itemKey);
+    if (!item) throw new Error(`Vật phẩm "${itemKey}" không tồn tại.`);
+
+    try {
+        return await prisma.$transaction(async tx => {
+            await lockUser(tx, userId);
+
+            const now = new Date();
+            // Mua tiếp khi buff còn hiệu lực thì GIA HẠN, không mở buff thứ hai —
+            // hai buff cùng loại chạy song song là trả tiền hai lần cho một hiệu ứng.
+            const active = await tx.starBuff.findFirst({
+                where: { userId, key: item.buffKey, expiresAt: { gt: now } },
+                orderBy: { expiresAt: 'desc' }
+            });
+
+            await debitIfEnough(tx, userId, item.price, `Mua ${item.label}`, 'shop:item', item.key);
+
+            const base = active ? active.expiresAt.getTime() : now.getTime();
+            const expiresAt = new Date(Math.max(base, now.getTime()) + item.durationMs);
+            if (active) {
+                await tx.starBuff.update({ where: { id: active.id }, data: { expiresAt } });
+            } else {
+                await tx.starBuff.create({ data: { userId, key: item.buffKey, expiresAt } });
+            }
+
+            await recordPurchase(tx, userId, item.key, item.price);
+            return { label: item.label, expiresAt };
+        });
+    } catch (error) {
+        if (error instanceof Error && error.message === 'Not enough Scoin.') {
+            const balance = await getScoinBalance(userId);
+            throw new Error(
+                `Không đủ Scoin. Bạn có **${balance.toLocaleString('vi-VN')}**, cần **${item.price.toLocaleString('vi-VN')}**.`
+            );
+        }
+        throw error;
+    }
+}
+
+// Lịch sử mua của CHÍNH người gọi. Chỉ trả về đơn của userId được truyền vào —
+// không có tham số nào cho phép xem đơn của người khác, vì đơn hàng là chuyện
+// riêng: nó cho biết ai tiêu gì, và sau này là ai đã mua sản phẩm nào.
+export async function listPurchaseHistory(userId: string, take = 15) {
+    return prisma.shopPurchase.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take
+    }).catch(() => []);
+}
+
 // Ensure a shop color role exists in the guild. If the role is missing or was
 // deleted, create it with anti-raid internal allow. Position is set ONLY at
 // creation time — Discord clamps it to bot's highest role automatically. NEVER

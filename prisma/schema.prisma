@@ -390,11 +390,18 @@ model ShopPurchase {
   userId    String
   itemKey   String
   price     Int
+  // PENDING = đã trừ xu, chưa giao xong. DELIVERED = đã giao. REFUNDED = đã hoàn xu.
+  // Trạng thái là thứ chặn "hoàn xu rồi vẫn đổi được hàng": đơn REFUNDED không còn
+  // là bằng chứng đã trả tiền. Không có nó thì hoàn xu và nhận hàng là hai đường
+  // độc lập, đi cả hai là được hàng miễn phí.
+  status      String    @default("DELIVERED")
+  deliveredAt DateTime?
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, itemKey])
 }
 
 // Hoạt động theo tuần (weekKey = ngày thứ 2 đầu tuần Asia/Saigon, yyyy-MM-dd).
