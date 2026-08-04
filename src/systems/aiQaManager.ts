@@ -89,11 +89,58 @@ const SYSTEM_PROMPT =
     'Nếu ai nhờ nhắc/ping vào một mốc giờ mà câu đó tới được tay bạn, nghĩa là hệ nhắc nhở ' +
     'chưa đọc ra được giờ — TUYỆT ĐỐI không nói "Stella không ping được" hay bảo họ tự đặt ' +
     'báo thức. Hãy nói là bạn LÀM ĐƯỢC và nhờ họ nói lại rõ mốc giờ hơn, ví dụ ' +
-    '"!s 20h nhắc Ri gửi bản release" (ghi giờ dạng số + chữ "nhắc").';
+    '"!s 20h nhắc Ri gửi bản release" (ghi giờ dạng số + chữ "nhắc"). ' +
+    // Kênh Q&A là kênh CÔNG KHAI. Người ta chụp màn hình rồi ném vào đây mà không
+    // nghĩ tới việc bot sẽ đọc to nội dung ra cho cả kênh nghe — và ảnh đó có thể
+    // là tin nhắn riêng của người khác, giấy tờ, hay mặt người thật. Mô tả giúp
+    // một tấm như thế là tự tay phát tán thứ mà chủ của nó không hề đồng ý.
+    'VỀ ẢNH: nếu ảnh chứa giấy tờ tuỳ thân/CMND/thẻ học sinh, thông tin cá nhân (địa chỉ, số điện thoại, ' +
+    'email, tài khoản), ảnh chụp mặt người thật, hay ảnh chụp tin nhắn/DM riêng tư của người khác — ' +
+    'TUYỆT ĐỐI không mô tả nội dung đó. Nói ngắn gọn rằng bạn không đọc giúp loại ảnh này và mời họ ' +
+    'hỏi bằng chữ. Ảnh build Minecraft, ảnh lỗi/log, ảnh code, screenshot game, meme thì mô tả bình thường.';
+
+// Câu dặn xem ảnh. Là const dùng chung vì nó phải vào system turn VÀ được truyền
+// xuống askAI: khi gateway từ chối ảnh, stripImageParts dùng đúng chuỗi này để xoá
+// câu dặn khỏi payload retry. Hai bản khác nhau nghĩa là câu dặn sống sót sau khi
+// ảnh đã bị bỏ, và model sẽ trả lời về việc "không thấy ảnh" thay vì trả lời câu hỏi.
+const IMAGE_INSTRUCTION =
+    'Người dùng gửi kèm ảnh trong câu này. Hãy XEM ảnh và trả lời dựa trên nội dung ảnh. ' +
+    'Nhớ áp dụng đúng phần "VỀ ẢNH" ở trên.';
 
 export interface QaGateResult {
     ok: boolean;
-    reason?: 'cooldown' | 'inflight' | 'busy' | 'disabled';
+    reason?: 'cooldown' | 'inflight' | 'busy' | 'disabled' | 'image-quota' | 'image-cooldown';
+}
+
+// Hạn mức ảnh theo NGÀY (Asia/Saigon), giữ trong RAM. Cooldown một mình không đủ:
+// 20s/lượt vẫn cho hàng nghìn ảnh/ngày, và cooldown là per-user nên nhiều người
+// cùng lúc thì không có trần nào. Mất khi restart — chấp nhận được: đây là phanh
+// chống spam, không phải hạn mức tính tiền, và bot không restart mỗi giờ.
+const imageUsage = new Map<string, { dayKey: string; count: number }>();
+const imageCooldownUntil = new Map<string, number>();
+
+function saigonDayKey(now: number): string {
+    return new Date(now + 7 * 3600_000).toISOString().slice(0, 10);
+}
+
+// Số ảnh người này còn được hỏi hôm nay. Dùng để báo cho người dùng biết còn bao
+// nhiêu, thay vì để họ đoán khi bị chặn.
+export function remainingImageQuota(userId: string): number {
+    const dayKey = saigonDayKey(Date.now());
+    const used = imageUsage.get(userId);
+    const count = used && used.dayKey === dayKey ? used.count : 0;
+    return Math.max(0, config.ai.qaImage.maxPerUserPerDay - count);
+}
+
+function noteImageUse(userId: string): void {
+    const now = Date.now();
+    const dayKey = saigonDayKey(now);
+    const used = imageUsage.get(userId);
+    imageUsage.set(userId, {
+        dayKey,
+        count: used && used.dayKey === dayKey ? used.count + 1 : 1
+    });
+    imageCooldownUntil.set(userId, now + config.ai.qaImage.cooldownMs);
 }
 
 // Atomic test-AND-reserve: checks the gates and, if clear, immediately claims the
@@ -101,15 +148,26 @@ export interface QaGateResult {
 // This is what makes the caps real: a burst of `!s`/`/ask` from one user can't all
 // pass a read-only check before any of them reserves. On ok=true the caller MUST
 // call answerQuestion (which releases in its finally). On ok=false nothing is held.
-export function reserveQaSlot(userId: string): QaGateResult {
+//
+// hasImages: câu hỏi có kèm ảnh hay không. Ảnh đi qua thêm 2 cổng riêng (cooldown
+// ảnh + hạn mức ngày) và được TÍNH NGAY tại đây, cùng chỗ với việc giữ slot — nếu
+// tính sau thì một loạt câu kèm ảnh gửi cùng lúc đều qua được cổng trước khi ai
+// kịp cộng bộ đếm, đúng cái race mà reserveQaSlot tồn tại để chặn.
+export function reserveQaSlot(userId: string, hasImages = false): QaGateResult {
     const now = Date.now();
     const until = cooldownUntil.get(userId) || 0;
     if (until > now) return { ok: false, reason: 'cooldown' };
     if (inFlight.has(userId)) return { ok: false, reason: 'inflight' };
     if (activeCount >= config.ai.qaMaxConcurrent) return { ok: false, reason: 'busy' };
+    if (hasImages) {
+        const imageUntil = imageCooldownUntil.get(userId) || 0;
+        if (imageUntil > now) return { ok: false, reason: 'image-cooldown' };
+        if (remainingImageQuota(userId) <= 0) return { ok: false, reason: 'image-quota' };
+    }
     // Reserve synchronously, before returning, so concurrent handlers can't race.
     inFlight.add(userId);
     activeCount++;
+    if (hasImages) noteImageUse(userId);
     return { ok: true };
 }
 
@@ -145,6 +203,8 @@ export function gateMessage(reason: QaGateResult['reason']): string {
         case 'cooldown': return `${config.ui.emojis.error} Hỏi hơi nhanh — chờ vài giây rồi thử lại nhé.`;
         case 'inflight': return `${config.ui.emojis.error} Bạn đang có 1 câu hỏi đang xử lý, chờ Stella trả lời xong đã.`;
         case 'busy': return `${config.ui.emojis.error} Stella đang bận trả lời người khác, thử lại sau vài giây nhé.`;
+        case 'image-cooldown': return `${config.ui.emojis.error} Gửi ảnh hơi dồn — chờ khoảng 1 phút rồi gửi tiếp nhé.`;
+        case 'image-quota': return `${config.ui.emojis.error} Hôm nay bạn đã hết lượt hỏi kèm ảnh (${config.ai.qaImage.maxPerUserPerDay} lượt/ngày). Mai lại nhé, hoặc hỏi bằng chữ.`;
         default: return `${config.ui.emojis.error} Tính năng AI đang tắt.`;
     }
 }
@@ -167,7 +227,10 @@ export async function answerQuestion(
     // Danh sách emoji THẬT của server, dựng bởi caller (nơi có Guild). Truyền vào
     // thay vì đọc ở đây để module này không cần biết tới discord.js — nó vẫn chỉ
     // là tầng gọi AI. Rỗng thì Stella dùng emoji Unicode, vẫn ổn.
-    emojiHint = ''
+    emojiHint = '',
+    // URL ảnh đã được LỌC SẴN bởi caller (discord-image-filter). Nhận URL string
+    // chứ không nhận Attachment vì lý do trên: module này không import discord.js.
+    imageUrls: string[] = []
 ): Promise<string> {
     // Slot already reserved by reserveQaSlot (atomic). We only run + release here.
     try {
@@ -205,15 +268,42 @@ export async function answerQuestion(
         // same topic keeps context instead of being answered as a fresh, standalone question.
         for (const turn of getHistory(userId, channelId)) messages.push(turn);
 
-        messages.push({ role: 'user' as const, content: question.slice(0, 1500) });
+        // Câu hỏi kèm ảnh: turn user cuối mang cả text và ảnh. Cùng một chuỗi
+        // IMAGE_INSTRUCTION vừa vào system turn vừa truyền xuống askAI — nếu hai
+        // chỗ lệch nhau thì lúc gateway từ chối ảnh, stripImageParts xoá ảnh mà câu
+        // dặn vẫn ở lại, và model sẽ trả lời rằng nó không thấy ảnh nào.
+        const hasImages = imageUrls.length > 0;
+        if (hasImages) {
+            messages.push({ role: 'system' as const, content: IMAGE_INSTRUCTION });
+            messages.push({
+                role: 'user' as const,
+                content: [
+                    { type: 'text' as const, text: question.slice(0, 1500) },
+                    ...imageUrls.map(url => ({
+                        type: 'image_url' as const,
+                        image_url: { url }
+                    }))
+                ]
+            });
+        } else {
+            messages.push({ role: 'user' as const, content: question.slice(0, 1500) });
+        }
 
-        const answer = await askAI(messages);
+        const answer = await askAI(messages, hasImages ? { imageInstruction: IMAGE_INSTRUCTION } : {});
         if (!answer) return `${config.ui.emojis.error} Stella chưa trả lời được lúc này, thử lại sau nhé.`;
         // Remember this exchange for the next follow-up in the same lane.
         recordTurn(userId, channelId, question.slice(0, 1500), answer);
         // Extract a durable fact in the background — must not block or delay the reply.
         // The slot is released in finally regardless, so this fire-and-forget is safe.
-        extractFact(userId, question.slice(0, 1500), answer).catch(() => {});
+        //
+        // KHÔNG trích fact từ câu có ảnh. Khi có ảnh thì `answer` LÀ mô tả nội dung
+        // ảnh, nên trích fact sẽ biến thứ trong ảnh thành dòng text lưu vĩnh viễn
+        // trong MemberFact — rồi nhật báo đăng nó ra kênh công khai. Ảnh chỉ được
+        // đi qua một lượt gọi AI rồi mất, không có đường nào biến nó thành dữ liệu
+        // lưu trữ.
+        if (!hasImages) {
+            extractFact(userId, question.slice(0, 1500), answer).catch(() => {});
+        }
         // Return the FULL answer (config/skill samples can be long). Callers split
         // it into ≤2000-char Discord messages via splitForDiscord — do NOT truncate here.
         return answer;

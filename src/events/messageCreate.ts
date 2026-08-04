@@ -17,6 +17,7 @@ import { handleTriviaAnswer } from '../systems/trivia-manager';
 import { collectAnswer } from '../systems/knowledge/glossary-question-asker';
 import { handleReminderRequest } from '../systems/reminder/reminder-handler';
 import { buildEmojiHint, buildStickerHint, extractSticker } from '../systems/emoji-palette';
+import { pickImageUrls } from '../systems/discord-image-filter';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -53,7 +54,16 @@ async function handleAiQa(message: Message): Promise<boolean> {
     }
 
     if (!question) return false;
-    if (question.length < 2) {
+    // Ảnh kèm câu hỏi: lọc ở đây vì đây là nơi có Attachment của discord.js.
+    // aiQaManager chỉ nhận URL string (nó cố ý không biết tới discord.js).
+    const imageUrls = pickImageUrls(
+        message.attachments.values(),
+        config.ai.qaImage.maxPerQuestion,
+        config.ai.qaImage.maxBytesPerImage
+    );
+    // "!s cái này là gì" chỉ dài 3 chữ nhưng kèm ảnh thì vẫn là câu hỏi hợp lệ —
+    // ngưỡng 2 ký tự chỉ để chặn "!s" trống. Có ảnh thì ảnh chính là nội dung.
+    if (question.length < 2 && !imageUrls.length) {
         await message.reply(`${config.ui.emojis.error} Câu hỏi hơi ngắn, thử hỏi rõ hơn nhé.`).catch(() => {});
         return true;
     }
@@ -72,7 +82,9 @@ async function handleAiQa(message: Message): Promise<boolean> {
     }
 
     // Atomic reserve: claims the slot in the same sync call so a burst can't bypass the cap.
-    const gate = reserveQaSlot(message.author.id);
+    // hasImages đi vào đây để cổng ảnh (cooldown + hạn mức ngày) được tính cùng lúc
+    // với việc giữ slot, không phải sau đó.
+    const gate = reserveQaSlot(message.author.id, imageUrls.length > 0);
     if (!gate.ok) {
         await message.reply(gateMessage(gate.reason)).catch(() => {});
         return true;
@@ -87,7 +99,7 @@ async function handleAiQa(message: Message): Promise<boolean> {
     const palette = [buildEmojiHint(message.guild), buildStickerHint(message.guild)]
         .filter(Boolean)
         .join('\n');
-    const raw = await answerQuestion(message.author.id, question, message.channelId, palette);
+    const raw = await answerQuestion(message.author.id, question, message.channelId, palette, imageUrls);
     // Tách marker [[sticker:tên]] TRƯỚC khi chia đoạn: model được dặn đặt nó ở cuối,
     // nên chia trước thì marker rơi vào đoạn cuối và đoạn đầu (đoạn được reply) mất
     // sticker — còn nếu tên sai thì marker phải bị xoá khỏi text bằng mọi giá.

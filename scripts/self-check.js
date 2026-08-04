@@ -344,6 +344,50 @@ check(
     'Q&A persona claims it cannot schedule pings, which teaches users the feature does not exist'
 );
 
+// ---- Vision trong chat: ảnh không được biến thành dữ liệu lưu trữ ----
+const imageFilter = source('systems/discord-image-filter.ts');
+
+// Khi câu hỏi có ảnh thì câu trả lời LÀ mô tả nội dung ảnh. Trích fact từ nó biến
+// thứ trong ảnh thành dòng text lưu vĩnh viễn, rồi nhật báo đăng ra kênh công khai —
+// đúng thứ mà lời hứa "ảnh chỉ đi qua một lượt gọi AI rồi mất" loại trừ.
+check(
+    /if \(!hasImages\) \{\s*\n\s*extractFact\(/.test(qaManager),
+    'a question with images still feeds extractFact, so image content becomes a stored MemberFact and reaches the public bulletin'
+);
+// Câu dặn xem ảnh phải là MỘT chuỗi dùng ở cả hai chỗ. Hai bản khác nhau nghĩa là
+// khi gateway từ chối ảnh, stripImageParts xoá ảnh nhưng câu dặn sống sót, và model
+// trả lời về việc không thấy ảnh thay vì trả lời câu hỏi.
+check(
+    qaManager.includes('imageInstruction: IMAGE_INSTRUCTION')
+    && qaManager.includes('content: IMAGE_INSTRUCTION'),
+    'the look-at-image instruction is not the same constant in the prompt and in askOpts, so a text-only retry keeps an orphaned instruction'
+);
+// Kênh Q&A là kênh công khai: mô tả hộ ảnh CMND hay screenshot DM của người khác là
+// phát tán thứ chủ của nó không đồng ý.
+check(
+    qaManager.includes('VỀ ẢNH:') && qaManager.includes('không mô tả nội dung đó'),
+    'Q&A persona has no clause refusing private images (IDs, faces, other people DMs) even though it can now see attachments'
+);
+// Cooldown một mình cho phép hàng nghìn ảnh/ngày/người và là per-user, nên nhiều
+// người cùng lúc là không có trần nào.
+check(
+    qaManager.includes('maxPerUserPerDay') && qaManager.includes('remainingImageQuota'),
+    'image questions have no per-day quota, so a cooldown alone leaves image spend unbounded'
+);
+// Whitelist host là chỗ duy nhất quyết định request của gateway đi tới đâu (SSRF).
+// Hai bản copy sẽ lệch nhau ngay lần đầu ai đó sửa một bên.
+check(
+    imageFilter.includes('cdn.discordapp.com')
+    && !source('systems/report/report-image-collector.ts').includes("'cdn.discordapp.com'"),
+    'the image host whitelist is duplicated instead of shared, so the two copies will drift'
+);
+// 429 nói về hạn mức, không về payload. Coi nó là "payload bị từ chối" khiến bot bỏ
+// ảnh VÀ bắn ngay request thứ hai vào gateway vừa xin giảm nhịp.
+check(
+    aiClient.includes('res.status !== 429'),
+    'a 429 is treated as a rejected payload, so rate limiting silently drops images and doubles the request rate'
+);
+
 // ---- Nhật báo: ảnh tờ báo + bài tuần (phần bổ sung của feature này) ----
 const newspaperCanvas = source('systems/report/newspaper/newspaper-canvas.ts');
 const newspaperLayout = source('systems/report/newspaper/newspaper-layout.ts');

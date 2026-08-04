@@ -170,6 +170,18 @@ export const config = {
         qaChannel: '1530093732500869231',
         qaCooldownMs: 20_000,   // light per-user cooldown to blunt spam
         qaMaxConcurrent: 3,     // global cap so simultaneous askers don't overload
+        // Câu hỏi KÈM ẢNH. Ảnh đắt hơn text nhiều lần và là thứ dễ spam nhất
+        // (kéo-thả một lúc chục tấm), nên có hạn mức riêng ngoài cooldown chung.
+        //
+        // Cooldown một mình không đủ: 20s/lượt vẫn cho ~4.300 lượt/ngày/người, và
+        // cooldown là per-user nên nhiều người cùng lúc là không có trần nào cả.
+        // maxPerUserPerDay mới là thứ chặn thật; cooldown chỉ làm chậm nhịp.
+        qaImage: {
+            maxPerQuestion: 2,      // số ảnh tối đa đọc trong MỘT câu hỏi
+            maxPerUserPerDay: 30,   // trần mỗi người mỗi ngày (Asia/Saigon)
+            maxBytesPerImage: 8 * 1024 * 1024,
+            cooldownMs: 60_000      // cooldown riêng, nặng hơn câu text thường
+        },
         // AI image generation. OpenAI-compatible endpoint (/v1/images/generations),
         // separate provider/key from the text endpoint above. Fail-closed: /imagine
         // stays OFF until IMAGE_API_KEY + baseUrl + model are set. Gated like Q&A

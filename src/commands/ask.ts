@@ -3,6 +3,7 @@ import { config } from '../config';
 import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
 import { buildEmojiHint, extractSticker } from '../systems/emoji-palette';
+import { pickImageUrls } from '../systems/discord-image-filter';
 
 // /ask <question> — AI Q&A usable in any channel. Pings the caller in the answer
 // so the reply-ownership check in the Q&A channel works on the next turn.
@@ -10,7 +11,10 @@ export default {
     data: new SlashCommandBuilder()
         .setName('ask')
         .setDescription('Hỏi Stella AI một câu (plugin, config, Minecraft...)')
-        .addStringOption(o => o.setName('question').setDescription('Câu hỏi của bạn').setRequired(true)),
+        .addStringOption(o => o.setName('question').setDescription('Câu hỏi của bạn').setRequired(true))
+        // Slash command chỉ nhận được 1 attachment mỗi option, nên `/ask` cho 1 ảnh.
+        // Muốn hỏi nhiều ảnh một lúc thì dùng `!s` kèm nhiều file.
+        .addAttachmentOption(o => o.setName('anh').setDescription('Ảnh muốn Stella xem (tuỳ chọn)').setRequired(false)),
 
     async execute(interaction: ChatInputCommandInteraction) {
         if (!isAiEnabled()) {
@@ -18,11 +22,15 @@ export default {
         }
 
         const question = interaction.options.getString('question', true);
+        const attachment = interaction.options.getAttachment('anh');
+        const imageUrls = attachment
+            ? pickImageUrls([attachment], config.ai.qaImage.maxPerQuestion, config.ai.qaImage.maxBytesPerImage)
+            : [];
         // Defer FIRST, then reserve — so there is no awaited gap between reserving
         // the slot and calling answerQuestion (which releases it). A reserve that
         // isn't followed by answerQuestion would leak the slot forever.
         await interaction.deferReply();
-        const gate = reserveQaSlot(interaction.user.id);
+        const gate = reserveQaSlot(interaction.user.id, imageUrls.length > 0);
         if (!gate.ok) {
             return interaction.editReply({ content: gateMessage(gate.reason) }).catch(() => {});
         }
@@ -33,7 +41,8 @@ export default {
             interaction.user.id,
             question,
             interaction.channelId,
-            buildEmojiHint(interaction.guild)
+            buildEmojiHint(interaction.guild),
+            imageUrls
         );
         // Cố tình KHÔNG truyền sticker hint: interaction reply không gửi được
         // sticker, nên xin nó ở đây là xin một thứ không có đường thực hiện.

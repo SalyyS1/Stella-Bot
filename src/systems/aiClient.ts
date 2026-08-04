@@ -204,7 +204,15 @@ async function attempt(messages: AiMessage[], opts: AskOpts): Promise<Attempt> {
             // A 4xx means the gateway understood the request and refused it — an
             // unsupported image part lands here. 5xx/transport errors are not
             // attributable to the payload, so they are not retried differently.
-            return { text: null, rejected: res.status >= 400 && res.status < 500 };
+            //
+            // 429/401/403 are excluded: they say something about the KEY or the rate
+            // budget, not about the payload. Treating them as "payload refused" made
+            // the caller strip the images and immediately fire a second request at a
+            // gateway that just asked us to slow down — losing the pictures and
+            // doubling the load, for a reason that had nothing to do with them.
+            const payloadRefused = res.status >= 400 && res.status < 500
+                && res.status !== 429 && res.status !== 401 && res.status !== 403;
+            return { text: null, rejected: payloadRefused };
         }
         if (!json) {
             // 200 OK but body isn't JSON — log the raw head so the actual gateway

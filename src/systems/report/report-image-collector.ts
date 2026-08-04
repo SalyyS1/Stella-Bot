@@ -1,6 +1,7 @@
 import { Client, TextChannel } from 'discord.js';
 import { config } from '../../config';
 import { AiImagePart } from '../aiClient';
+import { isAllowedImageUrl } from '../discord-image-filter';
 import { displayNameOf } from './report-chunk-collector';
 
 // Collects member-posted images from ONE time window so the chunk summarizer can
@@ -12,31 +13,13 @@ import { displayNameOf } from './report-chunk-collector';
 // screenshots (DMs, personal photos) that nobody uploaded expecting a machine to
 // describe them. And the per-window count is capped because each image costs far
 // more than the text around it.
+//
+// Đường quyết định host nào được phép nằm ở discord-image-filter — dùng chung với
+// chat Q&A để hai nơi không lệch whitelist.
 
 // Discord serves attachments from its own CDN. Anything else is refused: the URL
-// is handed to a third-party AI to fetch, so this is the one place that decides
-// what host that request can reach.
-const ALLOWED_IMAGE_HOSTS = new Set([
-    'cdn.discordapp.com',
-    'media.discordapp.net'
-]);
-
-const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-
-function isAllowedImageUrl(raw: string): boolean {
-    try {
-        const url = new URL(raw);
-        if (url.protocol !== 'https:') return false;
-        if (!ALLOWED_IMAGE_HOSTS.has(url.hostname.toLowerCase())) return false;
-        // Extension is checked on the PATH, not the full URL: Discord CDN links
-        // carry query parameters (?ex=&is=&hm=) that would otherwise defeat a
-        // naive endsWith on the whole string.
-        const path = url.pathname.toLowerCase();
-        return IMAGE_EXTENSIONS.some(ext => path.endsWith(ext));
-    } catch {
-        return false;
-    }
-}
+// is handed to a third-party AI to fetch, so discord-image-filter is the one place
+// that decides what host that request can reach.
 
 export interface CollectedImage {
     part: AiImagePart;
@@ -100,9 +83,6 @@ async function collectChannelImages(
 
             for (const attachment of msg.attachments.values()) {
                 if (out.length >= remaining) break;
-                const isImage = attachment.contentType?.startsWith('image/')
-                    || isAllowedImageUrl(attachment.url);
-                if (!isImage) continue;
                 if (!isAllowedImageUrl(attachment.url)) continue;
                 if (attachment.size > config.report.vision.maxBytesPerImage) continue;
 
