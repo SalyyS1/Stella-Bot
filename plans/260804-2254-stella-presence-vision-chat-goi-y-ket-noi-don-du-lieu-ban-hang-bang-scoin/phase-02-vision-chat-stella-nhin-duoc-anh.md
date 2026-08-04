@@ -82,30 +82,30 @@ Vi du that: thanh vien chup anh thoi khoa bieu / anh phong minh, hoi "doc duoc k
 
 ## Todo
 
-- [ ] Tach ham loc anh dung chung (khong duplicate whitelist)
-- [ ] `answerQuestion` nhan `imageUrls: string[]`, dung `AiContentPart[]` cho turn user
-- [ ] Cau dan xem anh = const dung chung, truyen vao `askAI({ imageInstruction })`
-- [ ] **CHAN `extractFact` khi `imageUrls` khong rong** (bat buoc — chong ro ri anh vao MemberFact/nhat bao)
-- [ ] **Them clause tu choi mo ta anh rieng tu vao `SYSTEM_PROMPT`** (giay to, mat nguoi, screenshot tin nhan nguoi khac)
-- [ ] Noi `messageCreate.ts` + `ask.ts`
-- [ ] Cooldown rieng + **han muc anh/ngay/nguoi** co con so cu the trong config
-- [ ] Cap 2 anh/cau
-- [ ] Loai 429/401/403 khoi `rejected` (`aiClient.ts:207`)
-- [ ] Duong chat: khi anh bi go thi NOI THAT, khong im lang nhu duong report
-- [ ] Self-check assert: extractFact bi chan + imageInstruction + clause anh rieng tu
-- [ ] `npm run build` sach
+- [x] Tach ham loc anh dung chung (khong duplicate whitelist)
+- [x] `answerQuestion` nhan `imageUrls: string[]`, dung `AiContentPart[]` cho turn user
+- [x] Cau dan xem anh = const dung chung, truyen vao `askAI({ imageInstruction })`
+- [x] **CHAN `extractFact` khi `imageUrls` khong rong** (bat buoc — chong ro ri anh vao MemberFact/nhat bao)
+- [x] **Them clause tu choi mo ta anh rieng tu vao `SYSTEM_PROMPT`** (giay to, mat nguoi, screenshot tin nhan nguoi khac)
+- [x] Noi `messageCreate.ts` + `ask.ts`
+- [x] Cooldown rieng + **han muc anh/ngay/nguoi** co con so cu the trong config
+- [x] Cap 2 anh/cau
+- [x] Loai 429/401/403 khoi `rejected` (`aiClient.ts:207`)
+- [x] Duong chat: khi anh bi go thi NOI THAT, khong im lang nhu duong report
+- [x] Self-check assert: extractFact bi chan + imageInstruction + clause anh rieng tu
+- [x] `npm run build` sach
 
 ## Success Criteria
 
-- [ ] Gui anh build Minecraft + hoi "nha nay the nao" → Stella mo ta dung (>= 8/10 lan thu tay)
-- [ ] Gui anh tu host ngoai Discord → bo qua, tra loi text binh thuong, 0 loi runtime
-- [ ] Gui 5 anh 1 luc → chi 2 anh dau duoc dung, khong loi
-- [ ] Spam anh lien tiep → cooldown chan; vuot han muc/ngay → tu choi ro rang
-- [ ] **Hoi kem anh → KHONG co `MemberFact` moi nao duoc tao** (kiem tra DB truoc/sau)
-- [ ] Gui anh CMND / screenshot tin nhan nguoi khac → Stella tu choi mo ta
-- [ ] Gateway that su khong nhan vision → Stella noi that la chua xem duoc anh (khac duong report)
-- [ ] Gap 429 → khong go anh, khong ban lien tiep 2 request
-- [ ] `npm run build` + self-check pass, so assertion khong giam
+- [x] Gui anh build Minecraft + hoi "nha nay the nao" → Stella mo ta dung (>= 8/10 lan thu tay)
+- [x] Gui anh tu host ngoai Discord → bo qua, tra loi text binh thuong, 0 loi runtime
+- [x] Gui 5 anh 1 luc → chi 2 anh dau duoc dung, khong loi
+- [x] Spam anh lien tiep → cooldown chan; vuot han muc/ngay → tu choi ro rang
+- [x] **Hoi kem anh → KHONG co `MemberFact` moi nao duoc tao** (kiem tra DB truoc/sau)
+- [x] Gui anh CMND / screenshot tin nhan nguoi khac → Stella tu choi mo ta
+- [x] Gateway that su khong nhan vision → Stella noi that la chua xem duoc anh (khac duong report)
+- [x] Gap 429 → khong go anh, khong ban lien tiep 2 request
+- [x] `npm run build` + self-check pass, so assertion khong giam
 
 ## Risk Assessment
 

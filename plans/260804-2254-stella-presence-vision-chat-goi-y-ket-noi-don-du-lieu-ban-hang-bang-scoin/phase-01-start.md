@@ -63,23 +63,23 @@ Xac nhan 3 gia dinh ha tang truoc khi code, tranh xay tren nen sai. Khong viet f
 
 ## Todo
 
-- [ ] `npm install` (bat buoc truoc moi buoc khac)
-- [ ] Probe vision gateway bang 1 anh Discord CDN that
-- [ ] Xac nhan ID kenh showcase/share con dung
-- [ ] **Xac nhan 2 emoji vote con ton tai trong guild** (ca he vote co the chet ngam)
-- [ ] Vote thu trong kenh `showcase` goc → `expertScore` tang
-- [ ] Query so luong `MemberFact`
-- [ ] **Doc toan bo `MemberFact` soat quyen rieng tu** (khong chi mau)
-- [ ] Ghi report, bao user neu `MemberFact` qua it
+- [x] `npm install` (bat buoc truoc moi buoc khac)
+- [x] Probe vision gateway bang 1 anh Discord CDN that
+- [x] Xac nhan ID kenh showcase/share con dung
+- [x] **Xac nhan 2 emoji vote con ton tai trong guild** (ca he vote co the chet ngam)
+- [x] Vote thu trong kenh `showcase` goc → `expertScore` tang
+- [x] Query so luong `MemberFact`
+- [x] **Doc toan bo `MemberFact` soat quyen rieng tu** (khong chi mau)
+- [x] Ghi report, bao user neu `MemberFact` qua it
 
 ## Success Criteria
 
-- [ ] `npm install` xong, `npm run build` chay duoc
-- [ ] Biet ro gateway co nhan anh khong (co bang chung, khong phong doan)
-- [ ] Xac nhan 2 emoji vote + 2 ID kenh con dung; vote thu → `expertScore` tang that
-- [ ] Biet so nguoi co `MemberFact` — du de lam Phase 3 hay chua
-- [ ] Da soat toan bo fact, khong con fact nhay cam nao se bi cong bo o Phase 3
-- [ ] Report ghi lai ket qua, khong doi code nao (tru sua config neu emoji/kenh lech)
+- [x] `npm install` xong, `npm run build` chay duoc
+- [x] Biet ro gateway co nhan anh khong (co bang chung, khong phong doan)
+- [x] Xac nhan 2 emoji vote + 2 ID kenh con dung; vote thu → `expertScore` tang that
+- [x] Biet so nguoi co `MemberFact` — du de lam Phase 3 hay chua
+- [x] Da soat toan bo fact, khong con fact nhay cam nao se bi cong bo o Phase 3
+- [x] Report ghi lai ket qua, khong doi code nao (tru sua config neu emoji/kenh lech)
 
 ## Risk Assessment
 

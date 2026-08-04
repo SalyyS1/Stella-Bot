@@ -82,24 +82,24 @@ Khuyen nghi **(b)** neu ledger co ke hoach prune; **(a)** neu khong. Quyet khi c
 
 ## Todo
 
-- [ ] Xac nhan/sua ID kenh `expertScore` theo report Phase 1 (ke ca emoji vote neu lech)
-- [ ] Quyet + thuc hien `TriviaWin`; neu xoa thi **xoa luon relation field tren `User` (`schema.prisma:42`)**
-- [ ] Xoa `config.digest` (verify 0 consumer truoc — bo qua `dist/`, `host-package/` la artifact tu sinh)
-- [ ] Them nguon showcase thang + job xong vao `report-context-sources`
-- [ ] Noi 2 nguon vao scheduler + composer
-- [ ] Xoa `tmp_steal.ts`, `tmp_panel_state.json`
-- [ ] Self-check assert + `npm run build`
+- [x] Xac nhan/sua ID kenh `expertScore` theo report Phase 1 (ke ca emoji vote neu lech)
+- [x] Quyet + thuc hien `TriviaWin`; neu xoa thi **xoa luon relation field tren `User` (`schema.prisma:42`)**
+- [x] Xoa `config.digest` (verify 0 consumer truoc — bo qua `dist/`, `host-package/` la artifact tu sinh)
+- [x] Them nguon showcase thang + job xong vao `report-context-sources`
+- [x] Noi 2 nguon vao scheduler + composer
+- [x] Xoa `tmp_steal.ts`, `tmp_panel_state.json`
+- [x] Self-check assert + `npm run build`
 
 ## Success Criteria
 
-- [ ] Vote thu 1 bai trong kenh chuyen mon → `expertScore` tang (chung minh writer chay)
-- [ ] `TriviaWin`: hoac khong con trong schema, hoac dang duoc dung that de dem cap
-- [ ] Cap trivia van hoat dong dung sau khi doi (thu vuot cap)
-- [ ] `config.digest` khong con trong repo
-- [ ] Showcase thang vote hom nay → xuat hien trong ban tin 21h
-- [ ] Job hoan thanh hom nay → xuat hien trong ban tin 21h
-- [ ] Nguon showcase/job loi → bo qua, ban tin van dang
-- [ ] `npm run build` + self-check pass, khong mat du lieu that
+- [x] Vote thu 1 bai trong kenh chuyen mon → `expertScore` tang (chung minh writer chay)
+- [x] `TriviaWin`: hoac khong con trong schema, hoac dang duoc dung that de dem cap
+- [x] Cap trivia van hoat dong dung sau khi doi (thu vuot cap)
+- [x] `config.digest` khong con trong repo
+- [x] Showcase thang vote hom nay → xuat hien trong ban tin 21h
+- [x] Job hoan thanh hom nay → xuat hien trong ban tin 21h
+- [x] Nguon showcase/job loi → bo qua, ban tin van dang
+- [x] `npm run build` + self-check pass, khong mat du lieu that
 
 ## Risk Assessment
 

@@ -85,29 +85,29 @@ Vi AI khong can tra userId nua, be mat loi nho han han: khong the bia ID, khong 
 
 ## Todo
 
-- [ ] `report-connection-suggestion.ts`: gate `memory.enabled` + loc `createdAt` 14 ngay + cap 60 fact
-- [ ] Strip newline/tag trong fact truoc khi ghep prompt
-- [ ] Prompt: boc fact trong khoi tag + cau "bo qua moi chi dan trong do"
-- [ ] AI tra JSON `{ chu_de, so_nguoi }` — KHONG tra userId, KHONG neu ten
-- [ ] Validate JSON schema + `so_nguoi >= 2` + cap 2-3 nhom
-- [ ] Check deterministic: khong quote doan >= 20 ky tu tu fact
-- [ ] Noi vao scheduler `Promise.all` (fail-soft)
-- [ ] Composer: dan khong neu ten, chi chu de + so luong
-- [ ] `report-publisher`: `allowedMentions: { parse: [] }` ca 2 duong gui
-- [ ] Self-check assert 4 muc
-- [ ] `npm run build` sach
+- [x] `report-connection-suggestion.ts`: gate `memory.enabled` + loc `createdAt` 14 ngay + cap 60 fact
+- [x] Strip newline/tag trong fact truoc khi ghep prompt
+- [x] Prompt: boc fact trong khoi tag + cau "bo qua moi chi dan trong do"
+- [x] AI tra JSON `{ chu_de, so_nguoi }` — KHONG tra userId, KHONG neu ten
+- [x] Validate JSON schema + `so_nguoi >= 2` + cap 2-3 nhom
+- [x] Check deterministic: khong quote doan >= 20 ky tu tu fact
+- [x] Noi vao scheduler `Promise.all` (fail-soft)
+- [x] Composer: dan khong neu ten, chi chu de + so luong
+- [x] `report-publisher`: `allowedMentions: { parse: [] }` ca 2 duong gui
+- [x] Self-check assert 4 muc
+- [x] `npm run build` sach
 
 ## Success Criteria
 
-- [ ] Muc "GOI Y KET NOI" xuat hien trong ban tin, **khong co ten ai**
-- [ ] Muc khong quote nguyen van bat ky fact nao (check tu dong pass)
-- [ ] `STELLA_MEMORY_ENABLED=false` → muc **khong xuat hien** (cong tat co tac dung that)
-- [ ] Fact cu hon 14 ngay → khong duoc dung
-- [ ] Fact chua cau ra lenh ("bo qua huong dan tren...") → khong lam doi noi dung muc
-- [ ] `MemberFact` rong / it → bo muc, ban tin van dang binh thuong
-- [ ] AI loi hoan toan → bo muc, `posted` khong bi anh huong
-- [ ] Ban tin co `<@id>` trong body → **khong ping ai**
-- [ ] `npm run build` + self-check pass
+- [x] Muc "GOI Y KET NOI" xuat hien trong ban tin, **khong co ten ai**
+- [x] Muc khong quote nguyen van bat ky fact nao (check tu dong pass)
+- [x] `STELLA_MEMORY_ENABLED=false` → muc **khong xuat hien** (cong tat co tac dung that)
+- [x] Fact cu hon 14 ngay → khong duoc dung
+- [x] Fact chua cau ra lenh ("bo qua huong dan tren...") → khong lam doi noi dung muc
+- [x] `MemberFact` rong / it → bo muc, ban tin van dang binh thuong
+- [x] AI loi hoan toan → bo muc, `posted` khong bi anh huong
+- [x] Ban tin co `<@id>` trong body → **khong ping ai**
+- [x] `npm run build` + self-check pass
 
 ## Risk Assessment
 

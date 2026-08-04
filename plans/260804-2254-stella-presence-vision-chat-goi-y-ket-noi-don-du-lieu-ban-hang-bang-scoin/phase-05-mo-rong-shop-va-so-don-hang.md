@@ -90,29 +90,29 @@ Cap role Discord la **side effect ngoai DB** → khong the nam trong transaction
 
 ## Todo
 
-- [ ] Migration: `ShopPurchase.status` + `deliveredAt` + `@@unique([userId, itemKey])`
-- [ ] Them `ShopPurchase` vao `db-utils.js` + self-check model loop (**truoc khi co don that**)
-- [ ] Catalog mon moi trong config
-- [ ] Ham mua theo mau `star.ts`: lock + 1 transaction (KHONG theo `buyColorRole`)
-- [ ] Refund khong tang `scoinEarnedTotal`
-- [ ] XP boost: tai dung `StarBuff` + prefix key de khong hien trong `/star`
-- [ ] `listPurchaseHistory` + `/shop history` (self-only, ephemeral, khong hien link)
-- [ ] `/shop` hien catalog nhom theo loai
-- [ ] Self-check assert cau truc (create trong transaction, lock truoc debit)
-- [ ] `npm run build` + test tay 4 tinh huong (co double-click)
+- [x] Migration: `ShopPurchase.status` + `deliveredAt` + `@@unique([userId, itemKey])`
+- [x] Them `ShopPurchase` vao `db-utils.js` + self-check model loop (**truoc khi co don that**)
+- [x] Catalog mon moi trong config
+- [x] Ham mua theo mau `star.ts`: lock + 1 transaction (KHONG theo `buyColorRole`)
+- [x] Refund khong tang `scoinEarnedTotal`
+- [x] XP boost: tai dung `StarBuff` + prefix key de khong hien trong `/star`
+- [x] `listPurchaseHistory` + `/shop history` (self-only, ephemeral, khong hien link)
+- [x] `/shop` hien catalog nhom theo loai
+- [x] Self-check assert cau truc (create trong transaction, lock truoc debit)
+- [x] `npm run build` + test tay 4 tinh huong (co double-click)
 
 ## Success Criteria
 
-- [ ] Mua mon moi khi du xu → tru dung gia, nhan duoc mon, don ghi `ShopPurchase` voi `status`
-- [ ] Mua khi thieu xu → tu choi, **khong tru dong nao**
-- [ ] Mua trung mon da so huu → tu choi (chan boi unique constraint + check trong transaction)
-- [ ] **Double-click mua → tru dung 1 lan** (day la tieu chi mau `buyColorRole` khong dat duoc)
-- [ ] Cap mon that bai → xu duoc hoan, don `REFUNDED`
-- [ ] Refund → `scoinEarnedTotal` khong tang
-- [ ] `npm run db:backup` roi `db:restore --replace` → **so don van con** (truoc khi sua se mat sach)
-- [ ] `/shop history` chi xem duoc cua chinh minh, ephemeral
-- [ ] XP boost mua o shop → khong hien trong UI `/star`
-- [ ] `npm run build` + self-check pass
+- [x] Mua mon moi khi du xu → tru dung gia, nhan duoc mon, don ghi `ShopPurchase` voi `status`
+- [x] Mua khi thieu xu → tu choi, **khong tru dong nao**
+- [x] Mua trung mon da so huu → tu choi (chan boi unique constraint + check trong transaction)
+- [x] **Double-click mua → tru dung 1 lan** (day la tieu chi mau `buyColorRole` khong dat duoc)
+- [x] Cap mon that bai → xu duoc hoan, don `REFUNDED`
+- [x] Refund → `scoinEarnedTotal` khong tang
+- [x] `npm run db:backup` roi `db:restore --replace` → **so don van con** (truoc khi sua se mat sach)
+- [x] `/shop history` chi xem duoc cua chinh minh, ephemeral
+- [x] XP boost mua o shop → khong hien trong UI `/star`
+- [x] `npm run build` + self-check pass
 
 ## Risk Assessment
 

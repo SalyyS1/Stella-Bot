@@ -92,31 +92,31 @@ tx2 DM loi:     hoan xu + don -> REFUNDED   [CUNG 1 transaction]
 
 ## Todo
 
-- [ ] Quyet cho luu link (env), kiem tra `.gitignore`
-- [ ] Catalog hang so + gia + dong chinh sach khong hoan xu
-- [ ] Ham mua 2 pha dung `ShopPurchase.status` (PENDING → DELIVERED/REFUNDED)
-- [ ] DM loi → throw error DA LAM SACH (khong mang payload chua link)
-- [ ] Hoan xu + set `REFUNDED` trong CUNG transaction
-- [ ] Sweeper don `PENDING` treo luc khoi dong
-- [ ] `/shop redeem` chi `DELIVERED`, ephemeral, chan `REFUNDED`
-- [ ] Rà `interactionCreate.ts:154,161` — duong mua khong log error goc
-- [ ] Redact URL host giao hang trong `report-chunk-collector`
-- [ ] Self-check assert 4 muc
-- [ ] `npm run build` + test tay 5 tinh huong
+- [x] Quyet cho luu link (env), kiem tra `.gitignore`
+- [x] Catalog hang so + gia + dong chinh sach khong hoan xu
+- [x] Ham mua 2 pha dung `ShopPurchase.status` (PENDING → DELIVERED/REFUNDED)
+- [x] DM loi → throw error DA LAM SACH (khong mang payload chua link)
+- [x] Hoan xu + set `REFUNDED` trong CUNG transaction
+- [x] Sweeper don `PENDING` treo luc khoi dong
+- [x] `/shop redeem` chi `DELIVERED`, ephemeral, chan `REFUNDED`
+- [x] Rà `interactionCreate.ts:154,161` — duong mua khong log error goc
+- [x] Redact URL host giao hang trong `report-chunk-collector`
+- [x] Self-check assert 4 muc
+- [x] `npm run build` + test tay 5 tinh huong
 
 ## Success Criteria
 
-- [ ] Mua plugin du xu → tru dung gia, nhan DM co link, don `DELIVERED`
-- [ ] Mua khi thieu xu → tu choi, khong tru, khong DM
-- [ ] **Mua khi tat DM → xu duoc hoan, don `REFUNDED`; bat DM lai roi `/shop redeem` → BI TU CHOI** (khong duoc nhan plugin mien phi)
-- [ ] Mua trung mon da so huu → bi chan, huong sang `/shop redeem` mien phi
-- [ ] Nguoi CHUA mua goi `/shop redeem` → tu choi, khong lo link
-- [ ] Bot chet giua 2 pha → sweoper luc khoi dong xu ly don `PENDING`, nguoi dung khong mat xu
-- [ ] **DM that bai → grep log host: khong co link nao** (ke ca trong stack trace)
-- [ ] **Dan link vao kenh chat → ban tin 21h khong dang lai link do**
-- [ ] Link that khong bi commit vao git
-- [ ] `npm run db:restore --replace` → don hang van con (nho Phase 5)
-- [ ] `npm run build` + self-check pass
+- [x] Mua plugin du xu → tru dung gia, nhan DM co link, don `DELIVERED`
+- [x] Mua khi thieu xu → tu choi, khong tru, khong DM
+- [x] **Mua khi tat DM → xu duoc hoan, don `REFUNDED`; bat DM lai roi `/shop redeem` → BI TU CHOI** (khong duoc nhan plugin mien phi)
+- [x] Mua trung mon da so huu → bi chan, huong sang `/shop redeem` mien phi
+- [x] Nguoi CHUA mua goi `/shop redeem` → tu choi, khong lo link
+- [x] Bot chet giua 2 pha → sweoper luc khoi dong xu ly don `PENDING`, nguoi dung khong mat xu
+- [x] **DM that bai → grep log host: khong co link nao** (ke ca trong stack trace)
+- [x] **Dan link vao kenh chat → ban tin 21h khong dang lai link do**
+- [x] Link that khong bi commit vao git
+- [x] `npm run db:restore --replace` → don hang van con (nho Phase 5)
+- [x] `npm run build` + self-check pass
 
 ## Risk Assessment
 
