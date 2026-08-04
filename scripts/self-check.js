@@ -415,6 +415,19 @@ check(
     'the grouping prompt trusts MemberFact as instructions, so one crafted note can steer the bulletin'
 );
 
+// Board chỉ có việc đang mở thì người làm xong không bao giờ được nhắc tới — bản
+// tin kể chuyện còn dở mà không kể ai vừa hoàn thành.
+check(
+    source('systems/report/report-context-sources.ts').includes("status: 'DONE'"),
+    'the service board ignores completed work, so finishing a job is never mentioned in the bulletin'
+);
+// Cấu hình/model chết: giữ lại chỉ làm người đọc sau tưởng chúng đang được dùng.
+check(
+    !config_ts.includes('digest:')
+    && !fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8').includes('model TriviaWin'),
+    'dead config.digest / TriviaWin model is back, which reads as a live feature to the next maintainer'
+);
+
 // ---- Nhật báo: ảnh tờ báo + bài tuần (phần bổ sung của feature này) ----
 const newspaperCanvas = source('systems/report/newspaper/newspaper-canvas.ts');
 const newspaperLayout = source('systems/report/newspaper/newspaper-layout.ts');

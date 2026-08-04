@@ -39,7 +39,6 @@ model User {
   requestClaims RequestClaim[]
   requestReviews RequestReview[] @relation("RequestReviewer")
   receivedRequestReviews RequestReview[] @relation("RequestReviewTarget")
-  triviaWins TriviaWin[]
   memberFacts MemberFact[]
   dailyQuests DailyQuest[]
   shopPurchases ShopPurchase[]
@@ -346,19 +345,6 @@ model WikiEntry {
   addedBy   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
-
-model TriviaWin {
-  id         Int      @id @default(autoincrement())
-  userId     String
-  questionId String
-  reward     Int
-  createdAt  DateTime @default(now())
-
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([createdAt])
 }
 
 model MemberFact {

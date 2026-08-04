@@ -84,16 +84,8 @@ export const config = {
         // mà là Discord từ chối — tức là ID sai/kênh đã mất, không phải bug code.
         botLog: "1532000288825671830",
         rate: "1512109752895930460",
-        // Kênh đăng digest định kỳ (mặc định dùng kênh chat; đổi sang kênh highlight riêng nếu muốn).
-        digest: "943893730123980881",
         // Kênh nội bộ: Stella hỏi thuật ngữ lạ ở đây và ping chủ server gợi ý sản phẩm.
         knowledge: "1195351127596736552",
-    },
-    // Digest định kỳ: gom request đang mở + showcase mới, đăng 1 embed. Bỏ qua khi rỗng.
-    digest: {
-        // "weekly" (khuyến nghị cho server 50-300) hoặc "daily".
-        cadence: "weekly" as "weekly" | "daily",
-        maxItems: 10
     },
     ui: {
         emojis: {
