@@ -14,6 +14,23 @@ export interface CollectedChat {
     reachedStart: boolean;
 }
 
+// Xoá link tải hàng đã bán khỏi transcript trước khi nó thành ReportChunk.
+//
+// Kênh chat nằm trong report.sourceChannels, và bản tin được đăng ra forum công
+// khai rồi in vào ảnh PNG — nên một người mua dán "cảm ơn, tải được rồi: <link>"
+// vào chat là đủ để bot tự tay phát link cho cả server. Ảnh đã đăng thì không
+// redact lại được, nên phải chặn ngay ở bước đọc.
+function redactPaidLinks(text: string): string {
+    if (!text) return text;
+    let out = text;
+    for (const good of config.shop.digitalGoods) {
+        const link = process.env[good.linkEnv];
+        if (!link || !link.trim()) continue;
+        out = out.split(link.trim()).join('[link đã ẩn]');
+    }
+    return out;
+}
+
 // Tên để gọi người trong bản tin. Thứ tự có lý do: nickname trong server là cái
 // người ta tự đặt cho chỗ này và là cái người khác gọi nhau hằng ngày; globalName
 // là tên hiển thị Discord; username (`abc_1234`) là thứ cuối cùng nên dùng vì
@@ -82,7 +99,7 @@ async function collectChannel(
             // that slot would then summarize them a second time.
             if (msg.createdTimestamp < sinceMs) continue;
             if (msg.createdTimestamp >= untilMs) continue;
-            const content = msg.content.replace(/\s+/g, ' ').trim();
+            const content = redactPaidLinks(msg.content.replace(/\s+/g, ' ').trim());
             // Trần độ dài mỗi tin đọc từ config, không hardcode: cắt quá ngắn là mất
             // đúng loại tin đáng đọc nhất — tin dài thường là tranh luận hoặc giải
             // thích, tức là phần mang thông tin chứ không phải phần chào hỏi.

@@ -468,6 +468,55 @@ check(
     'shop buffs leak into the /star buff list where BUFF_SHOP has no name for them'
 );
 
+// ---- Hàng số: hoàn xu không được thành đường lấy hàng miễn phí ----
+
+// Không có trạng thái đơn thì hoàn xu và nhận hàng là hai đường độc lập: tắt DM →
+// mua → hoàn xu → bật DM → redeem = có hàng, trả 0 xu, lặp được với mọi món.
+check(
+    shopManager.includes("status: 'DELIVERED'")
+    && shopManager.includes("status: 'PENDING'")
+    && shopManager.includes("data: { status: 'REFUNDED' }"),
+    'digital orders have no status transitions, so refund + redeem yields the goods for free'
+);
+// redeem phải lọc DELIVERED: đơn PENDING chưa giao xong, đơn REFUNDED đã hoàn xu.
+const redeemBody = shopManager.slice(shopManager.indexOf('export async function redeemDigitalGood'));
+check(
+    redeemBody.slice(0, redeemBody.indexOf('return item.label')).includes("status: 'DELIVERED'"),
+    'redeem accepts any order regardless of status, which hands the link to someone who was refunded'
+);
+// Hoàn xu và đánh dấu REFUNDED phải cùng transaction: tách rời nghĩa là có lúc xu
+// đã hoàn mà đơn vẫn PENDING — vừa có tiền lại vừa còn đơn chờ giao.
+const refundBody = shopManager.slice(shopManager.indexOf('async function refundDigitalOrder'));
+check(
+    refundBody.indexOf('prisma.$transaction') < refundBody.indexOf('adjustScoinTx')
+    && refundBody.indexOf('adjustScoinTx') < refundBody.indexOf("status: 'REFUNDED'"),
+    'the refund credits scoin outside the transaction that marks the order refunded'
+);
+// Error của discord.js mang requestBody.json = cả payload = cả link. console.error
+// (error) ở tầng trên in nguyên nó ra log, và handler còn gửi stack vào botLog.
+check(
+    shopManager.includes('class DmFailedError')
+    && shopManager.includes('throw new DmFailedError(error?.code)'),
+    'a DM failure rethrows the raw discord.js error, whose requestBody carries the paid link into the logs'
+);
+// Bot chết giữa lúc trừ xu và lúc gửi link để lại người mua mất xu, không nhận gì.
+check(
+    shopManager.includes('sweepPendingDigitalOrders')
+    && source('events/ready.ts').includes('sweepPendingDigitalOrders'),
+    'nothing sweeps PENDING digital orders on startup, so a mid-purchase crash loses the buyer money silently'
+);
+// Kênh chat nằm trong sourceChannels và bản tin đăng ra forum + in vào ảnh PNG:
+// một người mua dán link vào chat là bot tự phát link cho cả server.
+check(
+    chunkCollector.includes('redactPaidLinks'),
+    'paid download links pasted in chat flow into the public bulletin and its rendered images'
+);
+// Link nằm trong config là link nằm trong git: ai clone repo cũng có.
+check(
+    config_ts.includes('linkEnv') && !config_ts.includes('https://drive.google.com'),
+    'a paid download link is hardcoded in config instead of read from env, so it ships inside the repo'
+);
+
 // ---- Nhật báo: ảnh tờ báo + bài tuần (phần bổ sung của feature này) ----
 const newspaperCanvas = source('systems/report/newspaper/newspaper-canvas.ts');
 const newspaperLayout = source('systems/report/newspaper/newspaper-layout.ts');

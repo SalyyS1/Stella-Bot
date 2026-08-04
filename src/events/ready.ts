@@ -6,6 +6,7 @@ import { initLavalink } from '../systems/musicManager';
 import { ensureSkillRoles } from '../systems/skillRoleManager';
 import { startReportScheduler } from '../systems/reportManager';
 import { reconcilePendingCrossPosts } from '../systems/facebookCrossPostManager';
+import { sweepPendingDigitalOrders } from '../systems/shop-manager';
 import { ensureVerifiedRole } from '../systems/freelancerManager';
 import { seedWikis } from '../systems/wikiManager';
 import { startTriviaScheduler } from '../systems/trivia-scheduler';
@@ -55,5 +56,10 @@ export default {
         // Recover any FB cross-post stuck mid-publish across a restart (flags for
         // manual review — never blind re-posts, to avoid duplicate Page posts).
         await reconcilePendingCrossPosts(client).catch(error => console.error('FB cross-post reconcile failed:', error));
+        // Đơn hàng số kẹt PENDING: bot chết giữa lúc trừ xu và lúc gửi link để lại
+        // người mua mất xu mà chưa nhận gì. Không dọn thì mất vĩnh viễn và không ai biết.
+        await sweepPendingDigitalOrders()
+            .then(n => { if (n) console.error(`[shop] đã hoàn xu ${n} đơn hàng số kẹt PENDING`); })
+            .catch(error => console.error('Pending digital-order sweep failed:', error));
     },
 };

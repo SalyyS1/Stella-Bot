@@ -322,6 +322,32 @@ export const config = {
                 description: 'Nhân đôi XP nhận được trong 3 giờ.'
             }
         ],
+        // Hàng số của chủ server: plugin tự dev, docs. Bán bằng scoin, bot DM link
+        // tải ngay sau khi mua.
+        //
+        // LINK ĐỌC TỪ ENV, không đặt trong file này. Link là thứ có giá trị — commit
+        // nó vào git nghĩa là ai clone repo cũng có, kể cả người chưa trả xu. Món
+        // không có link trong env sẽ không hiện trong shop (fail-closed).
+        //
+        // Giá cao hơn hẳn role màu/XP boost vì đây là thứ có giá trị thật ngoài
+        // Discord. Không giới hạn số lượng (hàng số copy vô hạn), nên giá là đòn điều
+        // tiết duy nhất: theo dõi "xu tiêu vào hàng thật/tháng", bằng 0 thì hạ giá.
+        digitalGoods: [
+            {
+                key: 'plugin_stella_utils',
+                label: 'Plugin: Stella Utils',
+                price: 1200,
+                description: 'Bộ plugin tiện ích cho server Paper/Purpur do Saly tự dev.',
+                linkEnv: 'SHOP_LINK_PLUGIN_STELLA_UTILS'
+            },
+            {
+                key: 'docs_server_setup',
+                label: 'Docs: Dựng server từ đầu',
+                price: 400,
+                description: 'Tài liệu dựng server Minecraft từ đầu: host, plugin, tối ưu, backup.',
+                linkEnv: 'SHOP_LINK_DOCS_SERVER_SETUP'
+            }
+        ],
         colors: [
             { key: "ruby",     label: "Ruby Đỏ",      hex: "#e74c3c" },
             { key: "coral",    label: "San Hô",       hex: "#ff7f50" },

@@ -1,7 +1,10 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { config } from '../config';
 import { getScoinBalance } from '../systems/scoinManager';
-import { buyColorRole, listOwnedColorKey, buyShopItem, listPurchaseHistory } from '../systems/shop-manager';
+import {
+    buyColorRole, listOwnedColorKey, buyShopItem, listPurchaseHistory,
+    buyDigitalGood, redeemDigitalGood, isDmFailure
+} from '../systems/shop-manager';
 
 // /shop — Scoin shop for buying color roles
 //   xem    → view catalog, balance, owned color (ephemeral)
@@ -42,7 +45,27 @@ export default {
             }))
         .addSubcommand(sub => sub
             .setName('history')
-            .setDescription('Lịch sử mua hàng của bạn')),
+            .setDescription('Lịch sử mua hàng của bạn'))
+        .addSubcommand(sub => sub
+            .setName('hangso')
+            .setDescription('Mua plugin/docs bằng Scoin (bot DM link tải)')
+            .addStringOption(option => {
+                option.setName('mon').setDescription('Chọn món').setRequired(true);
+                for (const good of config.shop.digitalGoods) {
+                    option.addChoices({ name: `${good.label} — ${good.price} Scoin`, value: good.key });
+                }
+                return option;
+            }))
+        .addSubcommand(sub => sub
+            .setName('redeem')
+            .setDescription('Lấy lại link món bạn đã mua')
+            .addStringOption(option => {
+                option.setName('mon').setDescription('Món đã mua').setRequired(true);
+                for (const good of config.shop.digitalGoods) {
+                    option.addChoices({ name: good.label, value: good.key });
+                }
+                return option;
+            })),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -189,7 +212,47 @@ export default {
                 return interaction.editReply({ embeds: [embed] });
             }
 
+            if (sub === 'hangso') {
+                if (!config.shop.enabled) {
+                    return interaction.editReply({ content: `${emojis.error} Shop hiện đang đóng cửa.` });
+                }
+                const itemKey = interaction.options.getString('mon', true);
+                const result = await buyDigitalGood(interaction.user, itemKey);
+                if (result.alreadyOwned) {
+                    return interaction.editReply({
+                        content: `${emojis.error} Bạn đã mua **${result.label}** rồi. Dùng \`/shop redeem\` để lấy lại link (miễn phí).`
+                    });
+                }
+                const embed = new EmbedBuilder()
+                    .setColor('#9b59b6')
+                    .setTitle(`${emojis.success} Đã mua ${result.label}`)
+                    .setDescription('Link tải đã được gửi vào tin nhắn riêng của bạn.')
+                    .setFooter({ text: `Scoin còn lại: ${(await getScoinBalance(userId)).toLocaleString('vi-VN')}` })
+                    .setTimestamp();
+                return interaction.editReply({ embeds: [embed] });
+            }
+
+            if (sub === 'redeem') {
+                const itemKey = interaction.options.getString('mon', true);
+                const label = await redeemDigitalGood(interaction.user, itemKey);
+                return interaction.editReply({
+                    content: `${emojis.success} Đã gửi lại link **${label}** vào tin nhắn riêng của bạn.`
+                });
+            }
+
         } catch (error) {
+            // DM thất bại: KHÔNG log error gốc. Với đường hàng số, error của
+            // discord.js mang theo requestBody.json — tức là cả link tải. In nó ra
+            // log (hoặc gửi stack vào kênh botLog như handler interaction đang làm)
+            // là để link rò ra chỗ người chưa trả xu đọc được.
+            if (isDmFailure(error)) {
+                console.error('[shop] không gửi được DM cho người mua (đã hoàn xu nếu là đơn mua)');
+                return interaction.editReply({
+                    content: `${emojis.error} Không gửi được tin nhắn riêng cho bạn — bạn đang tắt DM từ người trong server.\n`
+                        + `Hãy bật **Cho phép tin nhắn riêng** trong cài đặt server rồi thử lại.\n`
+                        + `Nếu đây là lần mua, **xu đã được hoàn lại** đầy đủ.`
+                });
+            }
             console.error('Shop command error:', error);
             const errorMsg = error instanceof Error
                 ? error.message
