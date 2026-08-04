@@ -23,7 +23,17 @@ Don 3 cho du lieu chet/sai va noi 2 he thong da co (showcase, job board) vao nha
 
 ## Architecture
 
-## KET QUA PHASE 1 — `expertScore` DANG CHAY, KHONG SUA GI
+## SUA LAI KHI COOK — showcase/job DA VAO BAO SAN
+
+Kiem tra code that (`report-context-sources.ts:10-33`): `gatherServiceBoard()` **da doc `RequestPost` (OPEN/CLAIMED, 15 dong) va `ShowcasePost` (PUBLISHED, 10 dong)**, di qua `report-scheduler.ts:359` `Promise.all` → `report-daily-composer.ts:117` `<SERVICE_BOARD>` → vao prompt ban tin.
+
+→ **Viec "noi showcase/job vao bao" da xong tu truoc.** Claim cua scout/red-team ("showcase thang khong len bao tru khi co nguoi chat ve no") la SAI.
+
+Con thieu that su, nho hon nhieu:
+- `ShowcasePost` chi lay `status: PUBLISHED`, khong uu tien bai **thang vote cao**
+- `RequestPost` chi lay OPEN/CLAIMED — **job DONE trong ngay khong duoc nhac**, nen khong ai duoc khen khi lam xong viec
+
+→ Doi pham vi phase: khong phai "noi vao bao" ma la "bo sung 2 tin hieu con thieu vao nguon da co".
 
 Da query DB that (`reports/phase-01-ha-tang-xac-nhan-report.md`):
 

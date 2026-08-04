@@ -53,27 +53,33 @@ export async function postReport(
         return e.setFooter({ text: footer });
     };
     const files = attachments.length ? attachments : undefined;
+    // Bản tin do AI viết từ chat của thành viên, nên bất kỳ chuỗi <@id> hay
+    // @everyone lọt vào đó đều là nội dung người dùng ảnh hưởng được. Không set
+    // cái này thì mỗi tối bot có thể ping thật một loạt người từ chính chữ nó vừa
+    // sinh ra. Bản tin cần được ĐỌC, không cần đánh thức ai.
+    const allowedMentions = { parse: [] as never[] };
 
     if (channel.type === ChannelType.GuildForum) {
         const forum = channel as ForumChannel;
         const thread = await forum.threads.create({
             name: threadTitle.slice(0, 100),
-            message: { embeds: [makeEmbed(chunks[0], true)], files }
+            message: { embeds: [makeEmbed(chunks[0], true)], files, allowedMentions }
         }).catch(() => null);
         if (!thread) return false;
         for (const chunk of chunks.slice(1)) {
-            await thread.send({ embeds: [makeEmbed(chunk, false)] }).catch(() => {});
+            await thread.send({ embeds: [makeEmbed(chunk, false)], allowedMentions }).catch(() => {});
         }
         return true;
     }
     if (channel.isTextBased() && 'send' in channel) {
         const sent = await (channel as TextChannel).send({
             embeds: [makeEmbed(chunks[0], true)],
-            files
+            files,
+            allowedMentions
         }).catch(() => null);
         if (!sent) return false;
         for (const chunk of chunks.slice(1)) {
-            await (channel as TextChannel).send({ embeds: [makeEmbed(chunk, false)] }).catch(() => {});
+            await (channel as TextChannel).send({ embeds: [makeEmbed(chunk, false)], allowedMentions }).catch(() => {});
         }
         return true;
     }

@@ -467,6 +467,15 @@ export const config = {
         // Việt chuẩn trên host Linux), AI chỉ vẽ ảnh minh hoạ. Fail-soft mọi tầng:
         // thiếu font / image gen chết / lượt AI extract lỗi → bỏ ảnh, bản tin chữ
         // vẫn đăng nguyên vẹn như trước.
+        // Mục "GỢI Ý KẾT NỐI": nhóm chủ đề nhiều người cùng quan tâm, KHÔNG nêu tên.
+        // Nêu tên + ghép đôi là chuyện khác hẳn — server có trẻ vị thành niên và
+        // không có tín hiệu tuổi nào, nên bot không đứng ra giới thiệu ai với ai.
+        connectSuggest: {
+            enabled: true,
+            maxFacts: 60,        // trần số ghi chú đưa vào prompt
+            maxGroups: 3,        // trần số chủ đề in ra bản tin
+            factMaxAgeDays: 14   // ghi chú cũ hơn không còn là sở thích hiện tại
+        },
         newspaper: {
             enabled: true,
             // Lượt AI trích "trang nhất" từ bản tin (headline, sapo, chuyên mục,

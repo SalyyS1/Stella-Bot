@@ -24,6 +24,7 @@ import {
 } from './report-chunk-store';
 import { composeDailyReport } from './report-daily-composer';
 import { gatherServiceBoard, fetchChangelog } from './report-context-sources';
+import { buildConnectionSuggestion } from './report-connection-suggestion';
 import { postReport } from './report-publisher';
 import { buildNewspaperImages } from './newspaper/newspaper-pipeline';
 import { saveDailyReport, pruneOldDailyReports } from './report-daily-store';
@@ -356,14 +357,17 @@ export async function runReport(
         }
 
         const wanted = slotsForDailyReport();
-        const [chunks, board, changelog, glossary] = await Promise.all([
+        const [chunks, board, changelog, glossary, connectSuggest] = await Promise.all([
             loadChunks(wanted),
             gatherServiceBoard(),
             fetchChangelog(),
             // Community-taught vocabulary, so the bulletin can use the server's own
             // jargon instead of guessing at it. Best-effort: a glossary failure must
             // not stop the report.
-            getAnsweredTerms().catch(() => [])
+            getAnsweredTerms().catch(() => []),
+            // Chủ đề nhiều người cùng quan tâm (không nêu tên ai). Fail-soft như mọi
+            // nguồn phụ khác: mục biến mất, bản tin vẫn đăng.
+            buildConnectionSuggestion().catch(() => null)
         ]);
 
         logReport(
@@ -404,7 +408,8 @@ export async function runReport(
             period,
             config.report.chunk.slotHours,
             glossary,
-            research
+            research,
+            connectSuggest
         );
         if (!body) {
             console.error(
