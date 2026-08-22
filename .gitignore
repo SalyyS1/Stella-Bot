@@ -28,3 +28,10 @@ host-package/
 
 # Local database backups
 backups/*.json
+
+# Lavalink runtime artifacts downloaded on first start
+Lavalink.jar
+lavalink/plugins/
+lavalink/logs/
+lavalink-host/plugins/
+lavalink-host/logs/
