@@ -4,7 +4,7 @@ server:
 
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       snapshot: false
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.1"
       repository: "https://maven.lavalink.dev/releases"
@@ -31,8 +31,8 @@ lavalink:
       channelMix: true
       lowPass: true
     bufferDurationMs: 400
-    frameBufferDurationMs: 5000
-    opusEncodingQuality: 10
+    frameBufferDurationMs: 2000
+    opusEncodingQuality: 5
     resamplingQuality: LOW
     trackStuckThresholdMs: 10000
     useSeekGhosting: true
@@ -47,8 +47,22 @@ plugins:
     allowDirectPlaylistIds: true
     clients:
       - MUSIC
+      - TV
+      - ANDROID_VR
       - WEB
-      - TVHTML5_SIMPLY
+      - WEBEMBEDDED
+    oauth:
+      # YouTube chan IP datacenter nen playback bat buoc phai co request da dang nhap.
+      # Lan start dau tien (chua co token) log se in link google.com/device + code de authorize,
+      # xong no in refreshToken ra log. Dat token do vao env YOUTUBE_REFRESH_TOKEN de khong
+      # phai lam lai flow moi lan restart. Dung account rac, khong dung account chinh.
+      enabled: true
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+    remoteCipher:
+      # Bo giai ma signature noi bo cua plugin khong theo kip player script cua YouTube,
+      # nen day phan deciphering sang yt-cipher. Public instance khong can password.
+      url: "https://cipher.kikkia.dev/"
+      userAgent: "stella-bot"
   lavasrc:
     providers:
       - "ytsearch:\"%ISRC%\""
@@ -82,3 +96,4 @@ logging:
   level:
     root: INFO
     lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
