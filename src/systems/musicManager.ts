@@ -14,6 +14,11 @@ import prisma from '../lib/prisma';
 
 const DEFAULT_PREFIX = process.env.MUSIC_PREFIX || 's!';
 const MAX_PLAYLIST_TRACKS = 20;
+// lavalink-client mac dinh chi thu 5 lan cach nhau 10s roi bo han node.
+// Bot va Lavalink chay o 2 deployment rieng nen bot thuong start truoc khi
+// Lavalink kip tai jar/plugin; thu lai lau hon de khoi phai restart bot bang tay.
+const NODE_RETRY_AMOUNT = 30;
+const NODE_RETRY_DELAY_MS = 15_000;
 const playCooldown = new Map<string, number>();
 
 type LavalinkNodeConfig = {
@@ -123,7 +128,7 @@ export function setupLavalink(client: Client) {
     if (getLavalink(client)) return;
 
     (client as any).lavalink = new LavalinkManager({
-        nodes,
+        nodes: nodes.map(node => ({ ...node, retryAmount: NODE_RETRY_AMOUNT, retryDelay: NODE_RETRY_DELAY_MS })),
         sendToShard: (guildId: string, payload: any) => client.guilds.cache.get(guildId)?.shard?.send(payload),
         autoSkip: true,
         client: {
