@@ -111,8 +111,9 @@ export async function handleMusicComponent(interaction: ButtonInteraction | Stri
         }
 
         const session = await controlMusic(member, action);
-        // Update nhe: giu nguyen card cu, chi doi embed + nut.
-        const payload = action === 'stop' ? musicPanelForSession(null) : musicPanelForSession(session, { cardAttached: true });
+        // Card chua ca trang thai pause/volume/loop nen phai ve lai, khong thi
+        // card noi nguoc voi embed (bam pause ma card van "DANG PHAT").
+        const payload = action === 'stop' ? musicPanelForSession(null) : await buildMusicPanel(session);
         await interaction.editReply(payload).catch(() => {});
     } catch (error: any) {
         await safeInteractionReply(interaction, {

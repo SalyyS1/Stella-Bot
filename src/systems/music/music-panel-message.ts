@@ -1,6 +1,6 @@
 import { Message } from 'discord.js';
 import { getMainMusicEntry } from './music-client-pool';
-import { buildMusicPanel, musicPanelForSession } from './music-panel';
+import { buildMusicPanel } from './music-panel';
 import { MusicSession } from './music-session-router';
 
 // ============================================================
@@ -30,10 +30,10 @@ export function forgetPanelMessage(entryKey: string, guildId: string) {
 }
 
 /**
- * Cap nhat panel dang hien thi cua session.
- * newCard = true khi doi bai (render lai anh card), false khi chi doi trang thai.
+ * Cap nhat panel dang hien thi cua session. Luon ve lai card: card chua ca
+ * trang thai (pause/volume/queue) nen giu card cu la de panel noi hai giong.
  */
-export async function refreshSessionPanel(session: MusicSession, options: { newCard?: boolean } = {}) {
+export async function refreshSessionPanel(session: MusicSession) {
     const ref = panels.get(panelKey(session));
     const main = getMainMusicEntry();
     if (!ref || !main) return;
@@ -47,8 +47,5 @@ export async function refreshSessionPanel(session: MusicSession, options: { newC
         return;
     }
 
-    const payload = options.newCard
-        ? await buildMusicPanel(session)
-        : musicPanelForSession(session, { cardAttached: true });
-    await message.edit(payload).catch(() => {});
+    await message.edit(await buildMusicPanel(session)).catch(() => {});
 }

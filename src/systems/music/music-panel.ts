@@ -1,6 +1,6 @@
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, Client, EmbedBuilder } from 'discord.js';
 import { config } from '../../config';
-import { listMusicEntries } from './music-client-pool';
+import { getMainMusicEntry, listMusicEntries } from './music-client-pool';
 import { formatDuration, prettySourceName, trackInfo, trackLink, truncate } from './music-format';
 import { getLavalinkNodes, getMusicPrefix, lavalinkConfigured } from './music-node-config';
 import { NOW_PLAYING_CARD_FILENAME, renderNowPlayingCard } from './music-now-playing-card';
@@ -10,9 +10,9 @@ import { findPrimarySession, MusicSession } from './music-session-router';
 // ============================================================
 //  MUSIC PANEL — embed now-playing + queue
 // ============================================================
-// Panel kieu hybrid: doi bai (hoac bam Refresh) thi render lai card anh,
-// cac update nhe (pause/volume/loop) chi sua embed va giu nguyen card cu —
-// edit message ma khong truyen files/attachments thi Discord giu attachment.
+// Phan cong: card anh ganh phan nhin (anh bia, ten bai, tien do, chip trang
+// thai), embed chi con link bai bam duoc, mot dong trang thai va danh sach bai
+// ke tiep. Khong lap lai thong tin giua hai ben cho panel do roi mat.
 
 export type MusicPanelPayload = {
     embeds: EmbedBuilder[];
@@ -20,17 +20,6 @@ export type MusicPanelPayload = {
     files?: AttachmentBuilder[];
     attachments?: any[];
 };
-
-/**
- * Progress bar bang ky tu. player.position chi duoc Lavalink cap nhat theo
- * playerUpdateInterval (5s) nen bar co the lech toi 5s — du dung de nhin.
- */
-function renderProgressBar(position: number, duration: number, slots = config.music.progressBarSlots) {
-    if (!duration || duration <= 0) return '';
-    const ratio = Math.min(1, Math.max(0, position / duration));
-    const knob = Math.round(ratio * (slots - 1));
-    return `${'▬'.repeat(knob)}🔘${'▬'.repeat(Math.max(0, slots - 1 - knob))}`;
-}
 
 function accentColor(sourceName: string) {
     const key = (sourceName || '').toLowerCase();
@@ -41,6 +30,28 @@ function queueDurationText(tracks: any[]) {
     const total = tracks.reduce((sum, track) => sum + Number(track?.info?.duration || 0), 0);
     if (!total) return '';
     return ` • còn ${formatDuration(total)}`;
+}
+
+function loopLabel(repeatMode: string) {
+    if (repeatMode === 'track') return '1 bài';
+    if (repeatMode === 'queue') return 'Cả queue';
+    return 'Tắt';
+}
+
+/**
+ * Mot dong trang thai gon thay cho 6 field roi rac: card da ve anh bia, tien do
+ * va cac chip, nen embed chi con nhiem vu liet ke bai ke tiep + link bai.
+ */
+function statusLine(session: MusicSession | null, tracks: any[]) {
+    const player = session?.player;
+    const parts = [
+        `Âm lượng **${player?.volume ?? 100}%**`,
+        `Lặp **${loopLabel(String(player?.repeatMode || 'off'))}**`,
+        `Queue **${tracks.length} bài**${queueDurationText(tracks)}`
+    ];
+    if (session?.voiceChannelId) parts.push(`<#${session.voiceChannelId}>`);
+    if (session && listMusicEntries().length > 1) parts.push(session.entry.label);
+    return parts.join(' • ');
 }
 
 export function musicPanelForSession(session: MusicSession | null, options: { cardAttached?: boolean } = {}): MusicPanelPayload {
@@ -60,35 +71,16 @@ export function musicPanelForSession(session: MusicSession | null, options: { ca
     }
 
     const info = trackInfo(current);
-    const position = Number(player?.position || 0);
-    const lines = [
-        trackLink(current),
-        info.author ? `${info.author} • ${prettySourceName(info.sourceName)}` : prettySourceName(info.sourceName)
-    ];
-    const bar = renderProgressBar(position, info.duration || 0);
-    if (bar) lines.push(`${bar} \`${formatDuration(position)} / ${formatDuration(info.duration, info.isStream)}\``);
-    else lines.push(`\`${formatDuration(info.duration, info.isStream)}\``);
-
     embed
         .setColor(accentColor(info.sourceName))
-        .setTitle(player?.paused ? 'Đang tạm dừng' : 'Đang phát')
-        .setDescription(lines.join('\n'))
-        .addFields(
-            { name: 'Queue', value: `${tracks.length} bài${queueDurationText(tracks)}`, inline: true },
-            { name: 'Lặp', value: player?.repeatMode === 'track' ? '1 bài' : player?.repeatMode === 'queue' ? 'Cả queue' : 'Tắt', inline: true },
-            { name: 'Âm lượng', value: `${player?.volume ?? 100}%`, inline: true }
-        );
-
-    if (info.requesterId) embed.addFields({ name: 'Người yêu cầu', value: `<@${info.requesterId}>`, inline: true });
-    if (session?.voiceChannelId) embed.addFields({ name: 'Kênh', value: `<#${session.voiceChannelId}>`, inline: true });
-    if (session && listMusicEntries().length > 1) embed.addFields({ name: 'Loa', value: session.entry.label, inline: true });
+        .setDescription(`${player?.paused ? '⏸' : '▶'} ${trackLink(current)}\n${statusLine(session, tracks)}`);
 
     if (tracks.length) {
         const preview = tracks.slice(0, 3).map((track, index) => {
             const next = trackInfo(track);
-            return `\`${index + 1}.\` ${next.title.slice(0, 60)} \`${formatDuration(next.duration, next.isStream)}\``;
+            return `\`${index + 1}.\` ${truncate(next.title, 58)} \`${formatDuration(next.duration, next.isStream)}\``;
         });
-        if (tracks.length > 3) preview.push(`… và ${tracks.length - 3} bài nữa`);
+        if (tracks.length > 3) preview.push(`_…và ${tracks.length - 3} bài nữa_`);
         embed.addFields({ name: 'Bài kế tiếp', value: preview.join('\n').slice(0, 1000) });
     }
 
@@ -99,13 +91,16 @@ export function musicPanelForSession(session: MusicSession | null, options: { ca
 
 /**
  * Panel day du: render card anh moi. Dung khi doi bai, khi tra ket qua play,
- * hoac khi nguoi dung bam Refresh. Card loi thi tu dong tra panel khong anh.
+ * hoac khi nguoi dung bam nut dieu khien (nut doi volume/pause/loop nen card
+ * phai ve lai, khong thi card noi nguoc voi embed). Card loi thi tu dong tra
+ * panel khong anh.
  */
 export async function buildMusicPanel(session: MusicSession | null): Promise<MusicPanelPayload> {
     const current = session?.player?.queue?.current;
     if (!session || !current) return musicPanelForSession(session);
 
     const info = trackInfo(current);
+    const entries = listMusicEntries();
     const card = await renderNowPlayingCard({
         title: info.title,
         author: info.author,
@@ -118,7 +113,11 @@ export async function buildMusicPanel(session: MusicSession | null): Promise<Mus
         accentColor: String(accentColor(info.sourceName)),
         requesterName: info.requesterName,
         requesterAvatarUrl: info.requesterAvatarUrl,
-        cacheKey: info.identifier || info.uri || info.title
+        cacheKey: info.identifier || info.uri || info.title,
+        volume: Number(session.player.volume ?? 100),
+        queueCount: (session.player.queue?.tracks || []).length,
+        loopLabel: loopLabel(String(session.player.repeatMode || 'off')),
+        speakerLabel: entries.length > 1 ? session.entry.label : ''
     });
 
     if (!card) return musicPanelForSession(session);
@@ -143,28 +142,60 @@ export function asNewMessagePayload(payload: MusicPanelPayload) {
 
 /** Danh sach ket qua search + select menu de chon bai. Khong hien URL. */
 export function musicSearchPanel(query: string, searchId: string, tracks: any[]): MusicPanelPayload {
-    const lines = tracks.slice(0, 24).map((track, index) => {
+    // Chi in 10 dong: select menu ben duoi van giu du 24 ket qua, in het ra
+    // embed thi panel dai loang thoang chang ai doc.
+    const listed = tracks.slice(0, 10);
+    const lines = listed.map((track, index) => {
         const info = trackInfo(track);
         const meta = [info.author, prettySourceName(info.sourceName)].filter(Boolean).join(' • ');
-        return `\`${index + 1}.\` **${truncate(info.title, 70)}** \`${formatDuration(info.duration, info.isStream)}\`\n${meta}`;
+        return `**${index + 1}.** ${truncate(info.title, 62)} \`${formatDuration(info.duration, info.isStream)}\`${meta ? `\n ${truncate(meta, 64)}` : ''}`;
     });
+    const rest = tracks.length - listed.length;
 
     const embed = new EmbedBuilder()
-        .setColor(accentColor('default'))
-        .setTitle('Kết quả tìm kiếm')
-        .setDescription(`Từ khóa: **${truncate(query, 80)}**\n\n${lines.join('\n')}`.slice(0, 4000))
+        .setColor(accentColor(trackInfo(tracks[0]).sourceName))
+        .setTitle(`Kết quả cho “${truncate(query, 70)}”`)
+        .setDescription(`${lines.join('\n')}${rest > 0 ? `\n\n_Còn ${rest} kết quả nữa trong menu bên dưới._` : ''}`.slice(0, 4000))
         .setThumbnail(config.music.panelGif)
         .setFooter({ text: 'Chọn một bài ở menu bên dưới • kết quả hết hạn sau 5 phút' });
 
     return { embeds: [embed], components: [searchResultRow(searchId, tracks)] };
 }
 
+/** Source quan trong nhat khi debug: thieu source nao thi link do bao loi. */
+const WATCHED_SOURCES = ['youtube', 'spotify', 'soundcloud', 'applemusic', 'deezer', 'http'];
+
+/**
+ * Doc info that tu node dang ket noi. `/music health` phai tra loi duoc cau
+ * "vi sao link Spotify bao khong duoc" — cau tra loi nam o day.
+ */
+function liveNodeLines(revealNodeAddresses: boolean) {
+    const nodes: any[] = [...(getMainMusicEntry()?.lavalink?.nodeManager?.nodes?.values?.() ?? [])];
+    if (!nodes.length) return { nodeLines: '', sourceLines: '' };
+
+    const nodeLines = nodes.map(node => {
+        const where = revealNodeAddresses ? ` - ${node.options?.host}:${node.options?.port}` : '';
+        return `**${node.id}**${where} - ${node.connected ? 'đã kết nối' : 'chưa kết nối'}`;
+    }).join('\n');
+
+    const sourceLines = nodes.map(node => {
+        const managers: string[] = node.info?.sourceManagers || [];
+        if (!managers.length) return `**${node.id}**: chưa lấy được info từ node.`;
+        const marks = WATCHED_SOURCES.map(source => `${managers.includes(source) ? '✅' : '❌'} ${source}`).join(' • ');
+        const plugins = (node.info?.plugins || []).map((plugin: any) => `${plugin.name} ${plugin.version}`).join(', ');
+        return `**${node.id}**\n${marks}${plugins ? `\nPlugin: ${plugins}` : ''}`;
+    }).join('\n\n');
+
+    return { nodeLines, sourceLines };
+}
+
 export function musicHealthPanel(client: Client, revealNodeAddresses = false) {
     const nodes = getLavalinkNodes();
     const entries = listMusicEntries();
-    const nodeLines = nodes.length
-        ? nodes.map(node => revealNodeAddresses ? `**${node.id}** - ${node.host}:${node.port}${node.secure ? ' TLS' : ''}` : `**${node.id}** - configured`).join('\n')
-        : 'Chưa cấu hình node Lavalink.';
+    const live = liveNodeLines(revealNodeAddresses);
+    const nodeLines = live.nodeLines || (nodes.length
+        ? nodes.map(node => revealNodeAddresses ? `**${node.id}** - ${node.host}:${node.port}${node.secure ? ' TLS' : ''}` : `**${node.id}** - đã cấu hình, chưa kết nối`).join('\n')
+        : 'Chưa cấu hình node Lavalink.');
     const botLines = entries.length
         ? entries.map(entry => {
             const players: any[] = [...(entry.lavalink?.players?.values?.() ?? [])];
@@ -178,18 +209,22 @@ export function musicHealthPanel(client: Client, revealNodeAddresses = false) {
         : 'Chưa có bot nhạc nào được khởi tạo.';
     const playerCount = entries.reduce((sum, entry) => sum + (entry.lavalink?.players?.size ?? 0), 0);
 
-    return {
-        embeds: [new EmbedBuilder()
-            .setColor(nodes.length && entries.length ? '#2ecc71' : '#e67e22')
-            .setTitle('Music Health')
-            .setDescription(entries.length ? 'Music manager đã khởi tạo.' : 'Music manager chưa khởi tạo hoặc thiếu Lavalink env.')
-            .addFields(
-                { name: 'Node configured', value: String(nodes.length), inline: true },
-                { name: 'Players', value: String(playerCount), inline: true },
-                { name: 'Prefix', value: getMusicPrefix(), inline: true },
-                { name: 'Nodes', value: nodeLines.slice(0, 1000) },
-                { name: 'Bot nhạc', value: botLines.slice(0, 1000) }
-            )
-            .setFooter({ text: 'Không hiển thị password/token trong health check.' })]
-    };
+    const embed = new EmbedBuilder()
+        .setColor(nodes.length && entries.length ? '#2ecc71' : '#e67e22')
+        .setTitle('Music Health')
+        .setDescription(entries.length ? 'Music manager đã khởi tạo.' : 'Music manager chưa khởi tạo hoặc thiếu Lavalink env.')
+        .addFields(
+            { name: 'Node configured', value: String(nodes.length), inline: true },
+            { name: 'Players', value: String(playerCount), inline: true },
+            { name: 'Prefix', value: getMusicPrefix(), inline: true },
+            { name: 'Nodes', value: nodeLines.slice(0, 1000) },
+            { name: 'Bot nhạc', value: botLines.slice(0, 1000) }
+        )
+        .setFooter({ text: 'Không hiển thị password/token trong health check.' });
+
+    if (live.sourceLines) {
+        embed.addFields({ name: 'Source node đang bật', value: live.sourceLines.slice(0, 1000) });
+    }
+
+    return { embeds: [embed] };
 }

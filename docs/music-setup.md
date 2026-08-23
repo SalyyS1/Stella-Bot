@@ -107,7 +107,7 @@ Slash command:
 /music filter preset:nightcore
 ```
 
-Panel now-playing có ảnh card (ảnh bìa + progress bar + người yêu cầu), 2 hàng nút điều khiển và một select menu để nhảy tới bài bất kỳ trong queue. Panel chỉ hiện **tên bài**, không hiện link thô.
+Panel now-playing gồm một ảnh card (ảnh bìa, tên bài tối đa 2 dòng, progress bar, và các chip: âm lượng, số bài còn trong queue, chế độ lặp, người yêu cầu, loa đang phát), phần embed bên dưới chỉ còn tên bài bấm được + danh sách bài kế tiếp, 2 hàng nút điều khiển và một select menu để nhảy tới bài bất kỳ trong queue. Panel chỉ hiện **tên bài**, không hiện link thô. Mỗi lần bấm nút, card được vẽ lại nên card không bao giờ nói ngược với embed.
 
 Filter dùng được: `bassboost`, `nightcore`, `vaporwave`, `karaoke`, `8d`, `clear` (tắt hết). Filter chạy trên Lavalink nên có cooldown 5s mỗi server.
 
@@ -121,9 +121,11 @@ Mỗi người có playlist riêng, lưu trong database nên sống qua mọi l�
 
 ```text
 /music playlist create name:Chill mô tả + link ảnh bìa (tuỳ chọn)
+/music playlist create name:Chill from:<link playlist Spotify/YouTube>
 /music playlist list
 /music playlist view name:Chill
 /music playlist add name:Chill query:tên bài
+/music playlist add name:Chill query:<link cả playlist/album>
 /music playlist save name:Chill          # lưu bài đang phát
 /music playlist play name:Chill shuffle:true
 /music playlist remove name:Chill position:3
@@ -135,7 +137,11 @@ Mỗi người có playlist riêng, lưu trong database nên sống qua mọi l�
 /music playlist delete name:Chill
 ```
 
-Ô `name` có autocomplete: gõ vài chữ là Stella gợi ý playlist của chính bạn.
+Ô `name` có autocomplete: gõ vài chữ là Stella gợi ý playlist của chính bạn. Gõ tay cũng được, không phân biệt hoa/thường.
+
+**Nạp cả một playlist có sẵn:** dán link playlist/album (Spotify, YouTube, SoundCloud...) vào `query` của `add`, hoặc vào `from` của `create`. Bot lấy **toàn bộ** bài trong link đó, không phải chỉ bài đầu. Bài nào đã có trong playlist thì bỏ qua (dán 2 lần không bị nhân đôi), và khi vượt trần bài/playlist thì bot báo rõ còn bao nhiêu bài chưa vào.
+
+Link Spotify chỉ chạy khi **node Lavalink** có bật Spotify — xem mục 6 và kiểm tra bằng `/music health`. Thiếu là bot nói luôn cần sửa gì, không báo lỗi tiếng Anh khó hiểu.
 
 Giới hạn (sửa ở `src/config.ts`, khối `music.playlist`): 5 playlist/người, 100 bài/playlist, mỗi lần `play` nạp tối đa 50 bài. Trần 50 bài/lần là có chủ ý — mỗi bài là một lượt resolve qua Lavalink, nạp 100 bài một lượt bắt node làm việc rất lâu chỉ cho một lệnh.
 
@@ -161,6 +167,7 @@ Các bước:
 2. Copy Client ID + Client Secret.
 3. Đặt vào environment của Lavalink như trên.
 4. Restart Lavalink (`docker compose -f docker-compose.lavalink.yml restart` hoặc restart service ở panel).
+5. Kiểm tra bằng `/music health`: mục **Source node đang bật** phải có `✅ spotify`. Còn `❌ spotify` nghĩa là plugin/keys chưa vào — link Spotify sẽ không dùng được, kể cả khi bot vẫn phát nhạc YouTube bình thường.
 
 Có Client ID/Secret là dùng được: search `spsearch:`, link track, album, playlist, artist top tracks.
 
@@ -244,6 +251,9 @@ Lưu ý: bản SponsorBlock mới nhất là 3.0.1 (2024), khá lâu không có 
 - `/music playlist` báo "Playlist v2 chưa có trong database": chưa chạy `npm run db:migrate`.
 - Upload ảnh bìa báo thiếu `MUSIC_ASSET_CHANNEL_ID`: đặt env đó, hoặc dùng option `url` để dán link ảnh.
 - Spotify không chạy: kiểm tra `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` có mặt ở **nơi Lavalink chạy** (mục 6), rồi restart Lavalink.
+- Dán link playlist Spotify vào `/music playlist add` mà bot nói node chưa bật Spotify: đúng như vậy — node chưa có LavaSrc/keys. Sửa theo mục 6 rồi xem lại `/music health`.
+- `/music health` báo `❌ youtube`: plugin `youtube-plugin` chưa nạp được, xem log Lavalink lúc start.
+- Playlist đã lưu phát thiếu vài bài: link gốc chết thì bot tự tìm lại theo **tên + nghệ sĩ**; bài nào cả hai cách đều không ra mới bị bỏ và được báo trong phần "bỏ qua N bài lỗi".
 - Playlist Spotify load lỗi trong khi track lẻ vẫn được: node đang dùng LavaSrc cũ hơn 4.8.3.
 - Ảnh card panel không hiện: bình thường khi nguồn nhạc không có ảnh bìa; bot tự vẽ card nền gradient thay thế.
 - Bot loa phụ không online: xem log dòng `login thất bại` — token sai, hoặc bot phụ chưa được mời vào server.

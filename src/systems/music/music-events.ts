@@ -21,7 +21,7 @@ export function attachMusicEntryEvents(entry: MusicClientEntry) {
 
     // Doi bai -> render lai card cho panel dang mo.
     entry.lavalink.on('trackStart', async (player: any) => {
-        await refreshSessionPanel(sessionFromPlayer(entry, player), { newCard: true }).catch(() => {});
+        await refreshSessionPanel(sessionFromPlayer(entry, player)).catch(() => {});
     });
 
     entry.lavalink.on('queueEnd', async (player: any) => {

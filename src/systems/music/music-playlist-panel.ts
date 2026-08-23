@@ -41,20 +41,26 @@ function totalDuration(tracks: { duration: number | null }[]) {
 }
 
 export function playlistListEmbed(user: User, playlists: PlaylistRow[]) {
+    const totalTracks = playlists.reduce((sum, playlist) => sum + (playlist._count?.tracks ?? 0), 0);
     const embed = new EmbedBuilder()
         .setColor(accent())
         .setAuthor({ name: `Playlist của ${user.username}`, iconURL: user.displayAvatarURL() })
         .setThumbnail(config.music.panelGif)
-        .setFooter({ text: `${playlists.length}/${LIMITS.maxPerUser} playlist • xem chi tiết bằng /music playlist view` });
+        .setFooter({ text: `${playlists.length}/${LIMITS.maxPerUser} playlist • ${totalTracks} bài • chi tiết: /music playlist view` });
 
     if (!playlists.length) {
-        return embed.setDescription('Bạn chưa có playlist nào.\nTạo bằng `/music playlist create name:<tên>`.');
+        return embed.setDescription([
+            'Bạn chưa có playlist nào.',
+            '',
+            '`/music playlist create name:<tên>` — tạo playlist rỗng',
+            '`/music playlist create name:<tên> from:<link playlist>` — tạo và nạp sẵn từ link Spotify/YouTube'
+        ].join('\n'));
     }
 
-    embed.setDescription(playlists.map(playlist => {
+    embed.setDescription(playlists.map((playlist, index) => {
         const count = playlist._count?.tracks ?? 0;
-        const visibility = playlist.isPublic ? `công khai • mã \`${playlist.shareCode}\`` : 'riêng tư';
-        return `**${truncate(playlist.name, 60)}**\n${count}/${LIMITS.maxTracks} bài • ${visibility} • đã phát ${playlist.playCount} lần`;
+        const visibility = playlist.isPublic ? `Công khai • mã \`${playlist.shareCode}\`` : 'Riêng tư';
+        return `**${index + 1}. ${truncate(playlist.name, 60)}**\n${count}/${LIMITS.maxTracks} bài • ${visibility} • đã phát ${playlist.playCount} lần`;
     }).join('\n\n'));
 
     return embed;
@@ -84,8 +90,8 @@ export async function playlistViewEmbed(client: Client, user: User, playlist: Pl
         .setFooter({ text: 'Phát bằng /music playlist play • người khác nạp bằng /music playlist import' });
 
     const cover = await resolveCoverImageUrl(client, playlist).catch(() => null);
+    embed.setThumbnail(config.music.panelGif);
     if (cover) embed.setImage(cover);
-    else embed.setThumbnail(config.music.panelGif);
 
     return embed;
 }
