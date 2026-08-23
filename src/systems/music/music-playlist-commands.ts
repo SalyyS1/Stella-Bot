@@ -1,11 +1,13 @@
 import { AutocompleteInteraction, ChatInputCommandInteraction, GuildMember } from 'discord.js';
+import { config } from '../../config';
 import { buildMusicPanel } from './music-panel';
 import { rememberPanelMessage } from './music-panel-message';
 import { storeCoverAttachment, validateCoverUrl } from './music-playlist-cover';
 import { playlistListEmbed, playlistViewEmbed } from './music-playlist-panel';
 import { playStoredPlaylist, savePlayingTrackToPlaylist, trackToPlaylistInput } from './music-playlist-play';
 import {
-    addTrackToPlaylist,
+    addTracksToPlaylist,
+    AddTracksResult,
     copyPlaylistFromShareCode,
     createPlaylist,
     deletePlaylist,
@@ -24,12 +26,44 @@ import { MusicSession } from './music-session-router';
 //  MUSIC PLAYLIST COMMANDS — handler cho nhom /music playlist
 // ============================================================
 
+const PLAYLIST_LIMITS = config.music.playlist;
+
 async function replyPanel(interaction: ChatInputCommandInteraction, session: MusicSession, content: string) {
     const payload = await buildMusicPanel(session);
     await interaction.editReply({ content, ...payload });
     const sent = await interaction.fetchReply().catch(() => null);
     rememberPanelMessage(session, sent);
     return null;
+}
+
+/**
+ * Doi query cua nguoi dung thanh danh sach bai de luu.
+ * Link cua CA MOT playlist/album (Spotify, YouTube, SoundCloud...) thi lay het
+ * bai trong do — day moi la thu nguoi dung mong doi khi dan link playlist.
+ */
+async function resolveTracksForPlaylist(query: string, member: GuildMember, userId: string) {
+    const { tracks, isPlaylist, playlistName } = await searchWithoutSession(query, buildRequester(member, userId));
+    const picked = isPlaylist ? tracks : [tracks[0]];
+    return { inputs: picked.map(trackToPlaylistInput), isPlaylist, playlistName };
+}
+
+/** Cau tra loi cho add: bao ro bai nao bi bo va vi sao. */
+function describeAddResult(
+    result: AddTracksResult,
+    source: { inputs: { title: string }[]; isPlaylist: boolean; playlistName: string }
+) {
+    const notes = [
+        result.duplicates ? `bỏ ${result.duplicates} bài đã có sẵn` : '',
+        result.overflow ? `còn ${result.overflow} bài không vừa (tối đa ${PLAYLIST_LIMITS.maxTracks} bài/playlist)` : ''
+    ].filter(Boolean);
+    const suffix = notes.length ? ` (${notes.join(', ')})` : '';
+
+    if (!source.isPlaylist) {
+        return `Đã thêm **${source.inputs[0].title}** vào **${result.playlistName}** (vị trí ${result.firstPosition})${suffix}.`;
+    }
+    const label = source.playlistName ? `playlist **${source.playlistName}**` : 'link playlist';
+    const range = result.added > 1 ? `vị trí ${result.firstPosition}–${result.firstPosition + result.added - 1}` : `vị trí ${result.firstPosition}`;
+    return `Đã thêm **${result.added}** bài từ ${label} vào **${result.playlistName}** (${range})${suffix}.`;
 }
 
 export async function handleMusicPlaylistSlash(interaction: ChatInputCommandInteraction) {
@@ -44,13 +78,29 @@ export async function handleMusicPlaylistSlash(interaction: ChatInputCommandInte
 
     if (sub === 'create') {
         const cover = interaction.options.getString('cover');
+        const from = interaction.options.getString('from');
         const playlist = await createPlaylist(userId, interaction.options.getString('name', true), {
             description: interaction.options.getString('description'),
             coverUrl: cover ? validateCoverUrl(cover) : null
         });
-        return interaction.editReply(
-            `Đã tạo playlist **${playlist.name}**.\nThêm bài: \`/music playlist add name:${playlist.name} query:<tên bài>\``
-        );
+
+        if (!from) {
+            return interaction.editReply(
+                `Đã tạo playlist **${playlist.name}**.\nThêm bài: \`/music playlist add name:${playlist.name} query:<tên bài hoặc link playlist>\``
+            );
+        }
+
+        // Playlist da tao xong roi moi nap link: link loi thi khong xoa playlist,
+        // chi bao de nguoi dung thu lai bang `add`.
+        try {
+            const source = await resolveTracksForPlaylist(from, member, userId);
+            const result = await addTracksToPlaylist(userId, playlist.name, source.inputs);
+            return interaction.editReply(`Đã tạo playlist **${playlist.name}**. ${describeAddResult(result, source)}`);
+        } catch (error: any) {
+            return interaction.editReply(
+                `Đã tạo playlist **${playlist.name}** nhưng chưa nạp được link: ${error?.message || 'link không đọc được'}`
+            );
+        }
     }
 
     const name = interaction.options.getString('name', true);
@@ -62,9 +112,9 @@ export async function handleMusicPlaylistSlash(interaction: ChatInputCommandInte
 
     if (sub === 'add') {
         const query = interaction.options.getString('query', true);
-        const { tracks } = await searchWithoutSession(query, buildRequester(member, userId));
-        const saved = await addTrackToPlaylist(userId, name, trackToPlaylistInput(tracks[0]));
-        return interaction.editReply(`Đã thêm **${saved.title}** vào **${name}** (vị trí ${saved.position}).`);
+        const source = await resolveTracksForPlaylist(query, member, userId);
+        const result = await addTracksToPlaylist(userId, name, source.inputs);
+        return interaction.editReply(describeAddResult(result, source));
     }
 
     if (sub === 'remove') {

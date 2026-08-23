@@ -60,7 +60,8 @@ export default {
                         .setDescription('Tạo playlist mới')
                         .addStringOption(option => option.setName('name').setDescription('Tên playlist').setRequired(true).setMaxLength(PLAYLIST_LIMITS.nameMaxLength))
                         .addStringOption(option => option.setName('description').setDescription('Mô tả ngắn').setMaxLength(PLAYLIST_LIMITS.descriptionMaxLength))
-                        .addStringOption(option => option.setName('cover').setDescription('Link ảnh bìa (https, .png/.jpg/.gif/.webp)')))
+                        .addStringOption(option => option.setName('cover').setDescription('Link ảnh bìa (https, .png/.jpg/.gif/.webp)'))
+                        .addStringOption(option => option.setName('from').setDescription('Nạp sẵn từ link playlist Spotify/YouTube/SoundCloud')))
                 .addSubcommand(sub => sub.setName('list').setDescription('Xem tất cả playlist của bạn'))
                 .addSubcommand(sub =>
                     sub.setName('view')
@@ -68,9 +69,9 @@ export default {
                         .addStringOption(playlistNameOption()))
                 .addSubcommand(sub =>
                     sub.setName('add')
-                        .setDescription('Tìm bài và thêm vào playlist')
+                        .setDescription('Thêm bài hoặc cả một playlist Spotify/YouTube vào playlist của bạn')
                         .addStringOption(playlistNameOption())
-                        .addStringOption(option => option.setName('query').setDescription('Tên bài hoặc link').setRequired(true)))
+                        .addStringOption(option => option.setName('query').setDescription('Tên bài, link bài, hoặc link cả playlist/album').setRequired(true)))
                 .addSubcommand(sub =>
                     sub.setName('save')
                         .setDescription('Lưu bài đang phát vào playlist')

@@ -75,8 +75,23 @@ export async function getPlaylistByName(userId: string, name: string) {
         where: { userId_name: { userId, name: normalizeName(name) } },
         include: { tracks: { orderBy: { position: 'asc' } } }
     }).catch(error => rethrowPrisma(error, 'Playlist'));
-    if (!playlist) throw new Error(`Bạn không có playlist tên **${normalizeName(name)}**. Dùng \`/music playlist list\` để xem danh sách.`);
-    return playlist;
+    if (playlist) return playlist;
+
+    // Nguoi dung hay go "chill" cho playlist ten "Chill" -> thu khong phan biet
+    // hoa/thuong truoc khi bao khong tim thay.
+    const loose = await prisma.musicPlaylist.findFirst({
+        where: { userId, name: { equals: normalizeName(name), mode: 'insensitive' } },
+        include: { tracks: { orderBy: { position: 'asc' } } }
+    }).catch(() => null);
+    if (loose) return loose;
+
+    // Liet ke ten dang co: "khong tim thay playlist" gan nhu luon la sai ten
+    // (go tay thay vi chon autocomplete), nen phai chi ra ten dung luon.
+    const owned = await listPlaylists(userId).catch(() => []);
+    const hint = owned.length
+        ? `Playlist của bạn: ${owned.map(item => `**${item.name}**`).join(', ')}.`
+        : 'Bạn chưa có playlist nào — tạo bằng `/music playlist create name:<tên>`.';
+    throw new Error(`Không thấy playlist tên **${normalizeName(name)}**. ${hint}`);
 }
 
 /** Mo playlist bang ma share. Chi chu moi xem duoc playlist private. */
@@ -150,16 +165,53 @@ export async function setPlaylistPublic(userId: string, name: string, isPublic: 
     return prisma.musicPlaylist.update({ where: { id: playlist.id }, data: { isPublic } });
 }
 
-export async function addTrackToPlaylist(userId: string, name: string, track: PlaylistTrackInput) {
+export type AddTracksResult = {
+    playlistName: string;
+    /** So bai thuc su ghi vao DB. */
+    added: number;
+    /** Bai bi bo vi trung uri voi bai da co trong playlist. */
+    duplicates: number;
+    /** Bai bi bo vi playlist het cho. */
+    overflow: number;
+    firstPosition: number;
+};
+
+/**
+ * Them NHIEU bai mot luot — dung khi nguoi dung dan link ca mot playlist
+ * Spotify/YouTube. Bo bai trung uri de dan playlist hai lan khong nhan doi.
+ */
+export async function addTracksToPlaylist(userId: string, name: string, tracks: PlaylistTrackInput[]): Promise<AddTracksResult> {
     const playlist = await getPlaylistByName(userId, name);
+    if (!tracks.length) throw new Error('Không có bài nào để thêm.');
+
     try {
         return await prisma.$transaction(async tx => {
-            const count = await tx.musicPlaylistItem.count({ where: { playlistId: playlist.id } });
-            if (count >= LIMITS.maxTracks) throw new Error(`Playlist **${playlist.name}** đã đủ ${LIMITS.maxTracks} bài.`);
-            return tx.musicPlaylistItem.create({
-                data: {
+            const existing = await tx.musicPlaylistItem.findMany({
+                where: { playlistId: playlist.id },
+                select: { uri: true, position: true }
+            });
+            const known = new Set(existing.map(item => item.uri));
+            const room = LIMITS.maxTracks - existing.length;
+            if (room <= 0) throw new Error(`Playlist **${playlist.name}** đã đủ ${LIMITS.maxTracks} bài.`);
+
+            const fresh: PlaylistTrackInput[] = [];
+            let duplicates = 0;
+            for (const track of tracks) {
+                if (known.has(track.uri)) {
+                    duplicates++;
+                    continue;
+                }
+                known.add(track.uri);
+                fresh.push(track);
+            }
+            if (!fresh.length) throw new Error(`Mọi bài trong link đã có sẵn trong **${playlist.name}**.`);
+
+            const accepted = fresh.slice(0, room);
+            const nextPosition = existing.reduce((max, item) => Math.max(max, item.position), 0) + 1;
+            await tx.musicPlaylistItem.createMany({
+                data: accepted.map((track, index) => ({
                     playlistId: playlist.id,
-                    position: count + 1,
+                    position: nextPosition + index,
                     title: track.title.slice(0, 300),
                     author: track.author ? track.author.slice(0, 200) : null,
                     uri: track.uri,
@@ -167,13 +219,26 @@ export async function addTrackToPlaylist(userId: string, name: string, track: Pl
                     source: track.source || null,
                     duration: track.duration ?? null,
                     artworkUrl: track.artworkUrl || null
-                }
+                }))
             });
+
+            return {
+                playlistName: playlist.name,
+                added: accepted.length,
+                duplicates,
+                overflow: fresh.length - accepted.length,
+                firstPosition: nextPosition
+            };
         });
     } catch (error: any) {
-        if (error?.code === 'P2002') throw new Error('Có người/lệnh khác vừa thêm bài cùng lúc, thử lại nhé.');
+        if (error?.code === 'P2002') throw new Error('Có lệnh khác vừa thêm bài cùng lúc, thử lại nhé.');
         rethrowPrisma(error, 'Playlist');
     }
+}
+
+export async function addTrackToPlaylist(userId: string, name: string, track: PlaylistTrackInput) {
+    const result = await addTracksToPlaylist(userId, name, [track]);
+    return { title: track.title, position: result.firstPosition, playlistName: result.playlistName };
 }
 
 export async function removeTrackFromPlaylist(userId: string, name: string, position: number) {

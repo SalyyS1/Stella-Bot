@@ -36,21 +36,34 @@ export function trackToPlaylistInput(track: any): PlaylistTrackInput {
     };
 }
 
+/**
+ * Resolve mot bai da luu. Thu uri truoc (chinh xac hon: search theo ten de ra
+ * ban cover/remix khong phai bai nguoi ta luu), roi moi lui ve ten + nghe si.
+ * Buoc lui rat can: link chet hoac node chua bat source cua link (vd uri
+ * Spotify tren node khong co LavaSrc) thi bai van phat duoc tu YouTube.
+ */
+async function resolveStoredTrack(session: any, item: StoredTrack, requester: any) {
+    const byName = `${item.title} ${item.author || ''}`.trim();
+    const attempts = [item.uri, byName].filter((query, index, list) => query && list.indexOf(query) === index);
+
+    for (const query of attempts) {
+        try {
+            const { tracks } = await searchWithSession(session, query, requester);
+            if (tracks[0]) return tracks[0];
+        } catch {
+            // Thu cach ke tiep; het cach moi tinh la bai nay bo qua.
+        }
+    }
+    return null;
+}
+
 async function resolveStoredTracks(session: any, items: StoredTrack[], requester: any) {
     const resolved: any[] = new Array(items.length).fill(null);
 
     for (let start = 0; start < items.length; start += RESOLVE_CONCURRENCY) {
         const batch = items.slice(start, start + RESOLVE_CONCURRENCY);
         await Promise.all(batch.map(async (item, offset) => {
-            // uri chinh xac hon search theo ten: search theo ten de ra ban cover
-            // hoac ban remix khong phai bai nguoi ta luu.
-            const query = item.uri || `${item.title} ${item.author || ''}`.trim();
-            try {
-                const { tracks } = await searchWithSession(session, query, requester);
-                resolved[start + offset] = tracks[0] || null;
-            } catch {
-                resolved[start + offset] = null;
-            }
+            resolved[start + offset] = await resolveStoredTrack(session, item, requester);
         }));
     }
     return resolved;

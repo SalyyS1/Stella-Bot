@@ -3,6 +3,7 @@ import { MAX_VOLUME, MIN_VOLUME, SEEK_STEP_MS } from './music-audio-config';
 import { getMainMusicEntry } from './music-client-pool';
 import { lavalinkConfigured } from './music-node-config';
 import { rememberSearch, takeSearchTrack } from './music-search-cache';
+import { friendlySearchError } from './music-search-errors';
 import { acquireSession, MusicSession, resolveControllableSession } from './music-session-router';
 import { ensureVoice } from './music-voice-guards';
 
@@ -52,29 +53,61 @@ export function buildRequester(member: GuildMember | null, userId: string): Musi
     };
 }
 
+/**
+ * Nguong loai track rac. lavalink-client mac dinh 29s — nguong do cat luon bai
+ * that su ngan (intro, skit) nen o day ha xuong 5s: chi con bo cac entry duration
+ * = 0 / khong phai number, tuc track hong that.
+ */
+const MIN_TRACK_DURATION_MS = 5_000;
+
+export type MusicSearchOutcome = {
+    result: any;
+    tracks: any[];
+    /** Query la link cua CA MOT playlist/album, khong phai mot bai le. */
+    isPlaylist: boolean;
+    playlistName: string;
+};
+
+function collectUsableTracks(lavalink: any, result: any): MusicSearchOutcome {
+    const tracks = (result?.tracks || []).filter((track: any) => lavalink.utils.isNotBrokenTrack(track, MIN_TRACK_DURATION_MS));
+    return {
+        result,
+        tracks,
+        isPlaylist: result?.loadType === 'playlist',
+        playlistName: String(result?.playlist?.name || '')
+    };
+}
+
 /** Search bang session dang co, loc bo track loi. */
-export async function searchWithSession(session: MusicSession, query: string, requester: MusicRequester) {
+export async function searchWithSession(session: MusicSession, query: string, requester: MusicRequester): Promise<MusicSearchOutcome> {
     const searchQuery = isUrl(query) ? query : { query, source: 'ytmsearch' as const };
-    const result = await session.player.search(searchQuery, requester, true);
-    const tracks = (result.tracks || []).filter((track: any) => session.entry.lavalink.utils.isNotBrokenTrack(track));
-    return { result, tracks };
+    try {
+        const result = await session.player.search(searchQuery, requester, true);
+        return collectUsableTracks(session.entry.lavalink, result);
+    } catch (error) {
+        throw friendlySearchError(error);
+    }
 }
 
 /**
  * Search KHONG can player: dung cho playlist add, noi nguoi dung chi muon luu
  * bai chu khong bat bot vao voice. Search truc tiep qua node.
  */
-export async function searchWithoutSession(query: string, requester: MusicRequester) {
+export async function searchWithoutSession(query: string, requester: MusicRequester): Promise<MusicSearchOutcome> {
     assertMusicReady();
     const entry = getMainMusicEntry()!;
     const node = entry.lavalink?.nodeManager?.leastUsedNodes()?.[0];
-    if (!node) throw new Error('Chưa có Lavalink node nào kết nối được.');
+    if (!node) throw new Error('Chưa có Lavalink node nào kết nối được. Kiểm tra `/music health`.');
 
     const searchQuery = isUrl(query) ? query : { query, source: 'ytmsearch' as const };
-    const result = await node.search(searchQuery, requester, true);
-    const tracks = (result.tracks || []).filter((track: any) => entry.lavalink.utils.isNotBrokenTrack(track));
-    if (!tracks.length) throw new Error('Không tìm thấy bài nào khớp từ khóa.');
-    return { result, tracks };
+    let outcome: MusicSearchOutcome;
+    try {
+        outcome = collectUsableTracks(entry.lavalink, await node.search(searchQuery, requester, true));
+    } catch (error) {
+        throw friendlySearchError(error);
+    }
+    if (!outcome.tracks.length) throw new Error('Không tìm thấy bài nào khớp từ khóa.');
+    return outcome;
 }
 
 export type QueuedTrackSummary = {
@@ -96,10 +129,9 @@ export async function queueTrack(
     checkPlayCooldown(userId);
 
     const session = await acquireSession(member, textChannelId);
-    const { result, tracks } = await searchWithSession(session, query, buildRequester(member, userId));
+    const { tracks, isPlaylist, playlistName } = await searchWithSession(session, query, buildRequester(member, userId));
     if (!tracks.length) throw new Error('Không tìm thấy bài hợp lệ.');
 
-    const isPlaylist = result.loadType === 'playlist';
     if (isPlaylist) await session.player.queue.add(tracks);
     else await session.player.queue.add(tracks[0]);
 
@@ -107,7 +139,7 @@ export async function queueTrack(
 
     return {
         session,
-        title: isPlaylist ? `${tracks.length} bài từ playlist` : tracks[0].info.title,
+        title: isPlaylist ? `${tracks.length} bài từ ${playlistName || 'playlist'}` : tracks[0].info.title,
         uri: isPlaylist ? query : tracks[0].info.uri,
         count: tracks.length,
         playlist: isPlaylist

@@ -31,6 +31,8 @@ const maintenance = source('commands/maintenance.ts');
 const musicRouter = source('systems/music/music-session-router.ts');
 const musicQueue = source('systems/music/music-queue-service.ts');
 const musicPlaylistPlay = source('systems/music/music-playlist-play.ts');
+const musicPlaylistCommands = source('systems/music/music-playlist-commands.ts');
+const musicPlaylistService = source('systems/music/music-playlist-service.ts');
 const musicSatellite = source('systems/music/music-satellite-bootstrap.ts');
 const backfill = source('systems/voteBackfillManager.ts');
 const requests = source('systems/requestManager.ts');
@@ -80,6 +82,9 @@ check(maintenance.includes("setName('status')"), 'maintenance status command mis
 check(musicRouter.includes('findSessionByVoiceChannel(guildId, voiceChannelId)') && musicRouter.includes('describeBusyEntries(busy)'), 'music session channel isolation missing');
 check(musicQueue.includes('acquireSession(member, textChannelId)') && musicPlaylistPlay.includes('acquireSession(member, textChannelId)'), 'music play paths bypass session router');
 check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSatellite.includes('MessageContent') && !musicSatellite.includes('GuildMembers'), 'satellite music bots ask for more intents than a speaker needs');
+check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
+check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');
+check(musicPlaylistPlay.includes('const attempts = [item.uri, byName]'), 'stored playlist playback has no fallback when a saved link dies');
 check(backfill.includes('tx.requestReview.groupBy') && backfill.includes('requestRatings'), 'request rating score preservation missing');
 check(requests.includes('await lockVoteScores(tx)'), 'request rating/backfill serialization missing');
 check(events.includes('Promise.resolve(event.execute'), 'async event rejection boundary missing');
