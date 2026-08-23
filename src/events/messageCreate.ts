@@ -8,7 +8,7 @@ import { sendAdminLog } from '../utils/adminLog';
 import { getManagedChannelIds } from '../utils/managedChannels';
 import { guardEveryoneMention } from '../systems/antiRaidManager';
 import { levelScoinReward } from '../systems/scoinManager';
-import { handleMusicPrefix } from '../systems/musicManager';
+import { handleMusicPrefix } from '../systems/music';
 import { createCommunityRequest } from '../systems/requestManager';
 import { isSkillKey } from '../systems/skillRoleManager';
 import { isAiEnabled } from '../systems/aiClient';

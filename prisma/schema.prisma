@@ -31,6 +31,7 @@ model User {
 
   scoinTransactions ScoinTransaction[]
   musicPlaylistTracks MusicPlaylistTrack[]
+  musicPlaylists MusicPlaylist[]
   starInventory StarInventory?
   starItems StarItemStack[]
   starTools StarTool[]
@@ -139,6 +140,52 @@ model MusicPlaylistTrack {
 
   @@unique([userId, position])
   @@index([userId])
+}
+
+// Playlist v2: mỗi người nhiều playlist, có tên + ảnh bìa + mã share.
+// MusicPlaylistTrack ở trên là bảng cũ (1 playlist phẳng/người), giữ lại tới khi
+// đã xác minh dữ liệu backfill sang đây đủ.
+model MusicPlaylist {
+  id             Int      @id @default(autoincrement())
+  userId         String
+  name           String
+  description    String?
+  // Ảnh bìa: hoặc link https người dùng dán (coverUrl), hoặc message id của ảnh
+  // đã re-upload vào asset channel (coverMessageId). Không lưu URL attachment
+  // Discord vì URL đó có signature hết hạn sau vài ngày.
+  coverUrl       String?
+  coverMessageId String?
+  isPublic       Boolean  @default(false)
+  shareCode      String   @unique
+  playCount      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tracks MusicPlaylistItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model MusicPlaylistItem {
+  id         Int      @id @default(autoincrement())
+  playlistId Int
+  position   Int
+  title      String
+  author     String?
+  uri        String
+  // Lưu identifier để phát lại đúng bài thay vì search lại theo tên.
+  identifier String?
+  source     String?
+  duration   Int?
+  artworkUrl String?
+  addedAt    DateTime @default(now())
+
+  playlist MusicPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, position])
+  @@index([playlistId])
 }
 
 model StarInventory {

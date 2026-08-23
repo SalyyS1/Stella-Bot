@@ -670,5 +670,35 @@ export const config = {
             webhookUpdate: 2,
             webhookDelete: 2
         }
+    },
+    music: {
+        // GIF trang trí cho panel now-playing. Đổi link ở đây là đổi cả panel.
+        // Link ngoài Discord có thể bị chặn proxy — khi đó thumbnail tự ẩn,
+        // panel vẫn hoạt động bình thường.
+        panelGif: "https://i.pinimg.com/originals/c8/4f/b7/c84fb740471d58ba9597ace28969d490.gif",
+        // Màu viền embed theo nguồn nhạc để nhìn là biết bài đến từ đâu.
+        accentColors: {
+            default: "#5865f2",
+            youtube: "#ff0000",
+            youtubemusic: "#ff0000",
+            ytmusic: "#ff0000",
+            spotify: "#1db954",
+            soundcloud: "#ff5500",
+            bandcamp: "#629aa9",
+            twitch: "#9146ff",
+            http: "#95a5a6"
+        } as Record<string, string>,
+        progressBarSlots: 16,
+        playlist: {
+            maxPerUser: 5,
+            maxTracks: 100,
+            // Enqueue tối đa 50 bài/lần: mỗi bài là một lần resolve qua Lavalink,
+            // nạp 100 bài một lượt là bắt node làm việc rất lâu cho một lệnh.
+            maxEnqueue: 50,
+            nameMaxLength: 60,
+            descriptionMaxLength: 200,
+            coverUrlMaxLength: 300,
+            coverMaxBytes: 8 * 1024 * 1024
+        }
     }
 };

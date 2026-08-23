@@ -9,43 +9,12 @@ import { createGiveaway, joinGiveaway, leaveGiveaway, GIVEAWAY_BANNER, parseDura
 import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
-import { controlMusic, musicPanel } from '../systems/musicManager';
+import { handleMusicComponent } from '../systems/music';
 import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
 import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
 import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerManager';
 import { approveCrossPost, rejectCrossPost } from '../systems/facebookCrossPostManager';
-
-async function safeInteractionReply(interaction: any, payload: any) {
-    try {
-        if (interaction.replied || interaction.deferred) return await interaction.followUp(payload);
-        return await interaction.reply(payload);
-    } catch (error: any) {
-        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
-        return null;
-    }
-}
-
-async function safeDeferEphemeral(interaction: any) {
-    if (interaction.deferred || interaction.replied) return true;
-    try {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        return true;
-    } catch (error: any) {
-        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
-        return false;
-    }
-}
-
-async function safeDeferUpdate(interaction: any) {
-    if (interaction.deferred || interaction.replied) return true;
-    try {
-        await interaction.deferUpdate();
-        return true;
-    } catch (error: any) {
-        if (error?.code !== 10062 && error?.code !== 40060) console.error(error);
-        return false;
-    }
-}
+import { safeDeferEphemeral, safeDeferUpdate, safeInteractionReply } from '../utils/interaction-safe-reply';
 
 async function createRequestFromModal(interaction: any, client: any, kind: 'PAID' | 'FREE', skill: string | null) {
     const acknowledged = await safeDeferEphemeral(interaction);
@@ -140,6 +109,20 @@ export default {
     name: Events.InteractionCreate,
     once: false,
     async execute(interaction: Interaction, client: any) {
+        // Autocomplete phải trả lời trong 3s và không được defer, nên xử lý trước
+        // mọi nhánh khác; lệnh không khai báo hàm này thì bỏ qua im lặng.
+        if (interaction.isAutocomplete()) {
+            const autocompleteCommand = client.commands.get(interaction.commandName);
+            if (!autocompleteCommand?.autocomplete) return;
+            try {
+                await autocompleteCommand.autocomplete(interaction);
+            } catch (error) {
+                console.error(`[autocomplete] /${interaction.commandName} failed:`, error);
+                await interaction.respond([]).catch(() => {});
+            }
+            return;
+        }
+
         if (interaction.isChatInputCommand()) {
             const startedAt = Date.now();
             const command = client.commands.get(interaction.commandName);
@@ -243,21 +226,10 @@ export default {
                 }
             }
 
-            if (action === 'music') {
-                if (!interaction.guildId) {
-                    await safeInteractionReply(interaction, { content: 'Chỉ dùng music trong server.', flags: MessageFlags.Ephemeral });
-                    return;
-                }
-                const type = part[1];
-                const acknowledged = await safeDeferUpdate(interaction);
-                if (!acknowledged) return;
-                try {
-                    await controlMusic(interaction.client, interaction.guildId, interaction.member as GuildMember, type);
-                    return await interaction.editReply(musicPanel(interaction.client, interaction.guildId)).catch(() => {});
-                } catch (error: any) {
-                    await safeInteractionReply(interaction, { content: `${config.ui.emojis.error} ${error?.message || 'Music error.'}`, flags: MessageFlags.Ephemeral });
-                    return;
-                }
+            // Music: custom_id dang "music:<action>" (moi) va "music_<action>" (cu).
+            if (interaction.customId.startsWith('music')) {
+                await handleMusicComponent(interaction);
+                return;
             }
 
             if (action === 'giveaway') {
@@ -575,6 +547,11 @@ export default {
                 return;
             }
         } else if (interaction.isStringSelectMenu()) {
+            // Music select: chọn bài trong queue / chọn kết quả search.
+            if (interaction.customId.startsWith('music')) {
+                await handleMusicComponent(interaction);
+                return;
+            }
             if (interaction.customId.startsWith('showcase_tag_')) {
                 const messageId = interaction.customId.replace('showcase_tag_', '');
                 const tagName = interaction.values[0];

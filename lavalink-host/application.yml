@@ -6,7 +6,14 @@ lavalink:
   plugins:
     - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       snapshot: false
-    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.1"
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+    # SponsorBlock bo doan sponsor/tu quang cao ngay trong video YouTube.
+    # Quang cao pre-roll cua YouTube thi Lavalink von khong stream, khong can lo.
+    # Neu Lavalink log 404 khi tai plugin nay: doi repository sang
+    # https://maven.topi.wtf/releases roi restart.
+    - dependency: "com.github.topi314.sponsorblock:sponsorblock-plugin:3.0.1"
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
   server:
@@ -31,9 +38,13 @@ lavalink:
       channelMix: true
       lowPass: true
     bufferDurationMs: 400
-    frameBufferDurationMs: 2000
-    opusEncodingQuality: 5
-    resamplingQuality: LOW
+    # Buffer 4s audio cho moi player: it giat khi mang/GC hiccup, doi lai RAM.
+    frameBufferDurationMs: 4000
+    # opusEncodingQuality = OPUS_SET_COMPLEXITY (0-10), KHONG phai bitrate.
+    # Lavaplayer khong set bitrate nen libopus dung OPUS_AUTO ~99kbps.
+    opusEncodingQuality: 10
+    # Chi anh huong nguon khac 48kHz. HIGH chi nen bat khi it hon 5 player.
+    resamplingQuality: MEDIUM
     trackStuckThresholdMs: 10000
     useSeekGhosting: true
     youtubePlaylistLoadLimit: 6

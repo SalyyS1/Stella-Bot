@@ -2,7 +2,7 @@ import { Events, Client } from 'discord.js';
 import { startMaintenanceScheduler } from '../systems/maintenanceManager';
 import { ensureRecentVoteReactions } from '../systems/voteBackfillManager';
 import { startGiveawayScheduler } from '../systems/giveawayManager';
-import { initLavalink } from '../systems/musicManager';
+import { initLavalink } from '../systems/music';
 import { ensureSkillRoles } from '../systems/skillRoleManager';
 import { startReportScheduler } from '../systems/reportManager';
 import { reconcilePendingCrossPosts } from '../systems/facebookCrossPostManager';
