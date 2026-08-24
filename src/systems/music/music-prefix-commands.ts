@@ -2,6 +2,7 @@ import { Message } from 'discord.js';
 import { applyMusicFilter } from './music-filter-service';
 import { getMusicPrefix } from './music-node-config';
 import { asNewMessagePayload, buildMusicPanel, musicHealthPanel, musicPanelForSession, musicSearchPanel } from './music-panel';
+import { resolvePanelLayout } from './music-panel-layout';
 import { rememberPanelMessage } from './music-panel-message';
 import { playStoredPlaylist, savePlayingTrackToPlaylist } from './music-playlist-play';
 import { getPlaylistByName } from './music-playlist-service';
@@ -14,7 +15,14 @@ import { MusicSession, resolveViewableSession } from './music-session-router';
 // Playlist chi co 2 shortcut prefix (phat + luu bai dang phat). Phan tao/sua/
 // anh bia/share nam o slash vi can autocomplete va upload file.
 
-const CONTROL_COMMANDS = ['skip', 'stop', 'pause', 'resume', 'loop', 'shuffle'];
+const CONTROL_COMMANDS = ['skip', 'stop', 'pause', 'resume', 'loop', 'shuffle', 'prev', 'back', 'autoplay'];
+
+/** Ten lenh nguoi dung go -> action cua controlMusic. */
+function controlAction(command: string) {
+    if (command === 'resume') return 'pause';
+    if (command === 'back') return 'prev';
+    return command;
+}
 
 /** Gui panel moi va nho lai de trackStart tu update card sau nay. */
 async function replyWithPanel(message: Message, session: MusicSession | null, content?: string) {
@@ -43,7 +51,7 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
             const query = args.join(' ');
             if (!query) throw new Error(`Dùng: ${prefix}search <tên bài>`);
             const found = await searchForSelection(message.member, message.channelId, message.author.id, query);
-            await message.reply(asNewMessagePayload(musicSearchPanel(query, found.searchId, found.tracks)));
+            await message.reply(asNewMessagePayload(musicSearchPanel(query, found.searchId, found.tracks, resolvePanelLayout(message.channelId))));
             return true;
         }
         if (['pl', 'playlist'].includes(command)) {
@@ -71,8 +79,8 @@ export async function handleMusicPrefix(message: Message): Promise<boolean> {
             return true;
         }
         if (CONTROL_COMMANDS.includes(command)) {
-            const session = await controlMusic(message.member, command === 'resume' ? 'pause' : command);
-            if (command === 'stop') await message.reply(asNewMessagePayload(musicPanelForSession(null)));
+            const session = await controlMusic(message.member, controlAction(command));
+            if (command === 'stop') await message.reply(asNewMessagePayload(musicPanelForSession(null, { layout: resolvePanelLayout(message.channelId) })));
             else await replyWithPanel(message, session);
             return true;
         }

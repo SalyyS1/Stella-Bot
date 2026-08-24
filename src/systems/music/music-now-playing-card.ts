@@ -2,6 +2,7 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { AttachmentBuilder } from 'discord.js';
 import { ensureNotoSans } from '../../utils/canvas-font-registry';
 import { formatDuration } from './music-format';
+import { PanelLayout } from './music-panel-layout';
 
 // ============================================================
 //  NOW PLAYING CARD — anh card cho panel nhac
@@ -12,14 +13,56 @@ import { formatDuration } from './music-format';
 
 export const NOW_PLAYING_CARD_FILENAME = 'stella-now-playing.jpg';
 
-const W = 1000;
-const H = 344;
-const ART = { x: 42, y: 42, size: 260, radius: 24 };
-const TEXT_X = 332;
-const RIGHT_X = 958;
-const TEXT_WIDTH = RIGHT_X - TEXT_X;
-const BAR = { x: TEXT_X, y: 228, width: TEXT_WIDTH, height: 12 };
-const CHIP = { y: 282, height: 34, gap: 10, radius: 17, padding: 14 };
+/**
+ * Hai khuon card. `compact` khong phai ban thu nho cua `wide`: no cao hon so
+ * voi be rong, va co font lon hon so voi khung, vi Discord thu ca anh theo be
+ * rong cot chat — cot hep cua kenh voice lam card ngang thanh mot vach chu ti.
+ */
+type CardSpec = {
+    width: number;
+    height: number;
+    art: { x: number; y: number; size: number; radius: number };
+    textX: number;
+    rightX: number;
+    pill: { y: number; height: number; font: string; padding: number; gap: number };
+    title: { font: string; lineHeight: number; topOneLine: number; topTwoLines: number };
+    author: { font: string; yOneLine: number; yTwoLines: number };
+    bar: { x: number; y: number; width: number; height: number };
+    timesY: number;
+    timesFont: string;
+    chip: { x: number; y: number; height: number; gap: number; padding: number; rowGap: number; rows: number; font: string; right: number };
+};
+
+const WIDE_SPEC: CardSpec = {
+    width: 1000,
+    height: 344,
+    art: { x: 42, y: 42, size: 260, radius: 24 },
+    textX: 332,
+    rightX: 958,
+    pill: { y: 42, height: 32, font: '16px "Noto Sans", Arial, sans-serif', padding: 14, gap: 10 },
+    title: { font: 'bold 36px "Noto Sans", Arial, sans-serif', lineHeight: 44, topOneLine: 146, topTwoLines: 124 },
+    author: { font: '22px "Noto Sans", Arial, sans-serif', yOneLine: 184, yTwoLines: 198 },
+    bar: { x: 332, y: 228, width: 626, height: 12 },
+    timesY: 264,
+    timesFont: '17px "Noto Sans", Arial, sans-serif',
+    chip: { x: 332, y: 282, height: 34, gap: 10, padding: 14, rowGap: 8, rows: 1, font: '16px "Noto Sans", Arial, sans-serif', right: 958 }
+};
+
+const COMPACT_SPEC: CardSpec = {
+    width: 620,
+    height: 396,
+    art: { x: 28, y: 28, size: 168, radius: 18 },
+    textX: 216,
+    rightX: 592,
+    pill: { y: 28, height: 30, font: '15px "Noto Sans", Arial, sans-serif', padding: 12, gap: 8 },
+    title: { font: 'bold 30px "Noto Sans", Arial, sans-serif', lineHeight: 38, topOneLine: 116, topTwoLines: 100 },
+    author: { font: '19px "Noto Sans", Arial, sans-serif', yOneLine: 148, yTwoLines: 170 },
+    bar: { x: 28, y: 240, width: 564, height: 12 },
+    timesY: 276,
+    timesFont: '17px "Noto Sans", Arial, sans-serif',
+    chip: { x: 28, y: 296, height: 32, gap: 8, padding: 12, rowGap: 8, rows: 2, font: '16px "Noto Sans", Arial, sans-serif', right: 592 }
+};
+
 const CARD_CACHE_LIMIT = 20;
 /** Cache theo moc 15s de bam Refresh lien tuc khong render lai vo ich. */
 const CARD_CACHE_BUCKET_MS = 15_000;
@@ -67,6 +110,8 @@ export type NowPlayingCardData = {
     queueCount?: number;
     loopLabel?: string;
     speakerLabel?: string;
+    autoplay?: boolean;
+    layout?: PanelLayout;
 };
 
 function roundRect(ctx: any, x: number, y: number, w: number, h: number, r: number) {
@@ -140,7 +185,8 @@ function wrapToLines(ctx: any, text: string, maxWidth: number, maxLines: number)
  * Nen mo: ve anh bia xuong canvas ti hon roi keo gian len — khoi can blur lib.
  * Hai buoc thu nho (64 roi 18) cho ra vet mo min hon mot buoc.
  */
-function drawBackground(ctx: any, artwork: any, accentColor: string) {
+function drawBackground(ctx: any, spec: CardSpec, artwork: any, accentColor: string) {
+    const { width: W, height: H } = spec;
     if (artwork) {
         const pass1 = createCanvas(64, 64);
         pass1.getContext('2d').drawImage(artwork, 0, 0, 64, 64);
@@ -170,11 +216,12 @@ function drawBackground(ctx: any, artwork: any, accentColor: string) {
     ctx.fillStyle = scrim;
     ctx.fillRect(0, 0, W, H);
 
-    const bottom = ctx.createLinearGradient(0, H - 120, 0, H);
+    const fade = Math.min(120, Math.round(H * 0.35));
+    const bottom = ctx.createLinearGradient(0, H - fade, 0, H);
     bottom.addColorStop(0, 'rgba(9,10,12,0)');
-    bottom.addColorStop(1, 'rgba(9,10,12,0.55)');
+    bottom.addColorStop(1, 'rgba(9,10,12,0.62)');
     ctx.fillStyle = bottom;
-    ctx.fillRect(0, H - 120, W, 120);
+    ctx.fillRect(0, H - fade, W, fade);
 
     // Vien sang mo o mep tren cho card khong bi "phang".
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -182,18 +229,19 @@ function drawBackground(ctx: any, artwork: any, accentColor: string) {
     ctx.strokeRect(1, 1, W - 2, H - 2);
 }
 
-function drawArtwork(ctx: any, artwork: any, accentColor: string) {
+function drawArtwork(ctx: any, spec: CardSpec, artwork: any, accentColor: string) {
+    const art = spec.art;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.55)';
     ctx.shadowBlur = 28;
     ctx.shadowOffsetY = 10;
-    roundRect(ctx, ART.x, ART.y, ART.size, ART.size, ART.radius);
+    roundRect(ctx, art.x, art.y, art.size, art.size, art.radius);
     ctx.fillStyle = rgba(accentColor, 0.9);
     ctx.fill();
     ctx.restore();
 
     ctx.save();
-    roundRect(ctx, ART.x, ART.y, ART.size, ART.size, ART.radius);
+    roundRect(ctx, art.x, art.y, art.size, art.size, art.radius);
     ctx.clip();
     if (artwork) {
         // Crop giua theo canh ngan de anh bia khong bi bop meo (thumbnail
@@ -201,35 +249,35 @@ function drawArtwork(ctx: any, artwork: any, accentColor: string) {
         const side = Math.min(artwork.width, artwork.height);
         const sx = (artwork.width - side) / 2;
         const sy = (artwork.height - side) / 2;
-        ctx.drawImage(artwork, sx, sy, side, side, ART.x, ART.y, ART.size, ART.size);
+        ctx.drawImage(artwork, sx, sy, side, side, art.x, art.y, art.size, art.size);
     } else {
-        const fallback = ctx.createLinearGradient(ART.x, ART.y, ART.x + ART.size, ART.y + ART.size);
+        const fallback = ctx.createLinearGradient(art.x, art.y, art.x + art.size, art.y + art.size);
         fallback.addColorStop(0, rgba(accentColor, 0.95));
         fallback.addColorStop(1, 'rgba(20,21,25,0.95)');
         ctx.fillStyle = fallback;
-        ctx.fillRect(ART.x, ART.y, ART.size, ART.size);
+        ctx.fillRect(art.x, art.y, art.size, art.size);
         ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.font = 'bold 92px "Noto Sans", Arial, sans-serif';
+        ctx.font = `bold ${Math.round(art.size * 0.35)}px "Noto Sans", Arial, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText('♪', ART.x + ART.size / 2, ART.y + ART.size / 2 + 34);
+        ctx.fillText('♪', art.x + art.size / 2, art.y + art.size / 2 + art.size * 0.13);
         ctx.textAlign = 'left';
     }
     ctx.restore();
 
-    roundRect(ctx, ART.x, ART.y, ART.size, ART.size, ART.radius);
+    roundRect(ctx, art.x, art.y, art.size, art.size, art.radius);
     ctx.strokeStyle = 'rgba(255,255,255,0.22)';
     ctx.lineWidth = 2;
     ctx.stroke();
 }
 
-type PillStyle = { bg: string; color: string; border?: string; font?: string; extraLeft?: number };
+type PillStyle = { bg: string; color: string; border?: string; font: string; padding: number; extraLeft?: number };
 
 /** Ve mot "vien thuoc" chua chu, tra ve chieu rong da dung de xep chip ke tiep. */
 function drawPill(ctx: any, x: number, y: number, height: number, label: string, style: PillStyle) {
-    ctx.font = style.font || '16px "Noto Sans", Arial, sans-serif';
+    ctx.font = style.font;
     const extraLeft = style.extraLeft || 0;
     const textWidth = ctx.measureText(label).width;
-    const width = CHIP.padding * 2 + textWidth + extraLeft;
+    const width = style.padding * 2 + textWidth + extraLeft;
 
     roundRect(ctx, x, y, width, height, height / 2);
     ctx.fillStyle = style.bg;
@@ -241,57 +289,72 @@ function drawPill(ctx: any, x: number, y: number, height: number, label: string,
     }
 
     ctx.fillStyle = style.color;
-    ctx.fillText(label, x + CHIP.padding + extraLeft, y + height / 2 + 6);
+    ctx.fillText(label, x + style.padding + extraLeft, y + height / 2 + 6);
     return width;
 }
 
-const GLASS_PILL: PillStyle = {
+const GLASS = {
     bg: 'rgba(255,255,255,0.10)',
     border: 'rgba(255,255,255,0.16)',
     color: 'rgba(255,255,255,0.86)'
 };
 
-function drawHeader(ctx: any, data: NowPlayingCardData) {
-    const statusLabel = data.paused ? 'TẠM DỪNG' : 'ĐANG PHÁT';
-    let x = TEXT_X;
-    x += drawPill(ctx, x, 42, 32, statusLabel, {
+function drawHeader(ctx: any, spec: CardSpec, data: NowPlayingCardData) {
+    const pill = spec.pill;
+    const glass: PillStyle = { ...GLASS, font: pill.font, padding: pill.padding };
+    let x = spec.textX;
+
+    x += drawPill(ctx, x, pill.y, pill.height, data.paused ? 'TẠM DỪNG' : 'ĐANG PHÁT', {
         bg: rgba(data.accentColor, 0.95),
         color: '#ffffff',
-        font: 'bold 16px "Noto Sans", Arial, sans-serif'
-    }) + CHIP.gap;
+        font: `bold ${pill.font}`,
+        padding: pill.padding
+    }) + pill.gap;
 
-    if (data.sourceLabel) x += drawPill(ctx, x, 42, 32, data.sourceLabel, GLASS_PILL) + CHIP.gap;
-    if (data.speakerLabel && x < RIGHT_X - 130) drawPill(ctx, x, 42, 32, data.speakerLabel, GLASS_PILL);
+    // Chip nao khong con cho thi bo, khong de tran ra ngoai card.
+    const optional = [data.sourceLabel, data.speakerLabel].filter(Boolean) as string[];
+    for (const label of optional) {
+        ctx.font = pill.font;
+        const width = pill.padding * 2 + ctx.measureText(label).width;
+        if (x + width > spec.rightX) break;
+        x += drawPill(ctx, x, pill.y, pill.height, label, glass) + pill.gap;
+    }
 }
 
-function drawTitleBlock(ctx: any, data: NowPlayingCardData) {
-    ctx.font = 'bold 36px "Noto Sans", Arial, sans-serif';
-    const lines = wrapToLines(ctx, data.title, TEXT_WIDTH, 2);
+function drawTitleBlock(ctx: any, spec: CardSpec, data: NowPlayingCardData) {
+    const textWidth = spec.rightX - spec.textX;
+    ctx.font = spec.title.font;
+    const lines = wrapToLines(ctx, data.title, textWidth, 2);
 
     ctx.fillStyle = '#ffffff';
-    const titleTop = lines.length > 1 ? 124 : 146;
-    lines.forEach((line, index) => ctx.fillText(line, TEXT_X, titleTop + index * 44));
+    const titleTop = lines.length > 1 ? spec.title.topTwoLines : spec.title.topOneLine;
+    lines.forEach((line, index) => ctx.fillText(line, spec.textX, titleTop + index * spec.title.lineHeight));
 
     const subtitle = data.author || '';
     if (!subtitle) return;
     ctx.fillStyle = 'rgba(255,255,255,0.70)';
-    ctx.font = '22px "Noto Sans", Arial, sans-serif';
-    ctx.fillText(truncateToWidth(ctx, subtitle, TEXT_WIDTH), TEXT_X, lines.length > 1 ? 198 : 184);
+    ctx.font = spec.author.font;
+    ctx.fillText(
+        truncateToWidth(ctx, subtitle, textWidth),
+        spec.textX,
+        lines.length > 1 ? spec.author.yTwoLines : spec.author.yOneLine
+    );
 }
 
-function drawProgress(ctx: any, data: NowPlayingCardData) {
+function drawProgress(ctx: any, spec: CardSpec, data: NowPlayingCardData) {
+    const bar = spec.bar;
     const duration = Number(data.duration || 0);
     const ratio = data.isStream || !duration ? 1 : Math.min(1, Math.max(0, data.position / duration));
 
-    roundRect(ctx, BAR.x, BAR.y, BAR.width, BAR.height, BAR.height / 2);
+    roundRect(ctx, bar.x, bar.y, bar.width, bar.height, bar.height / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.fill();
 
-    const filled = Math.max(BAR.height, BAR.width * ratio);
-    const fill = ctx.createLinearGradient(BAR.x, BAR.y, BAR.x + filled, BAR.y);
+    const filled = Math.max(bar.height, bar.width * ratio);
+    const fill = ctx.createLinearGradient(bar.x, bar.y, bar.x + filled, bar.y);
     fill.addColorStop(0, data.accentColor);
     fill.addColorStop(1, lighten(data.accentColor, 0.45));
-    roundRect(ctx, BAR.x, BAR.y, filled, BAR.height, BAR.height / 2);
+    roundRect(ctx, bar.x, bar.y, filled, bar.height, bar.height / 2);
     ctx.fillStyle = fill;
     ctx.fill();
 
@@ -300,50 +363,67 @@ function drawProgress(ctx: any, data: NowPlayingCardData) {
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(BAR.x + filled, BAR.y + BAR.height / 2, 9, 0, Math.PI * 2);
+        ctx.arc(bar.x + filled, bar.y + bar.height / 2, 9, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.restore();
     }
 
-    ctx.font = '17px "Noto Sans", Arial, sans-serif';
+    ctx.font = spec.timesFont;
     ctx.fillStyle = 'rgba(255,255,255,0.80)';
     // Ben trai luon la thoi gian da phat; ben phai la tong thoi luong, hoac
     // LIVE khi la stream (khong lap LIVE o ca hai ben).
-    ctx.fillText(formatDuration(data.position), BAR.x, 264);
+    ctx.fillText(formatDuration(data.position), bar.x, spec.timesY);
     ctx.textAlign = 'right';
-    ctx.fillText(data.isStream ? 'LIVE' : formatDuration(data.duration), RIGHT_X, 264);
+    ctx.fillText(data.isStream ? 'LIVE' : formatDuration(data.duration), bar.x + bar.width, spec.timesY);
     ctx.textAlign = 'left';
 }
 
 /**
- * Hang chip duoi cung: am luong, so bai trong queue, che do lap, nguoi yeu cau.
- * Khong dung emoji vi canvas chi co Noto Sans — emoji se ra o vuong.
+ * Hang chip: am luong, so bai trong queue, che do lap, autoplay, nguoi yeu cau.
+ * Khuon compact cho phep 2 hang vi cot chat hep. Khong dung emoji vi canvas chi
+ * co Noto Sans — emoji se ra o vuong.
  */
-async function drawChips(ctx: any, data: NowPlayingCardData) {
-    let x = TEXT_X;
-    const chips: string[] = [];
-    if (typeof data.volume === 'number') chips.push(`Âm lượng ${data.volume}%`);
-    if (typeof data.queueCount === 'number') chips.push(data.queueCount ? `Còn ${data.queueCount} bài` : 'Hết queue');
-    if (data.loopLabel) chips.push(`Lặp: ${data.loopLabel}`);
+async function drawChips(ctx: any, spec: CardSpec, data: NowPlayingCardData) {
+    const chip = spec.chip;
+    const style: PillStyle = { ...GLASS, font: chip.font, padding: chip.padding };
+    let x = chip.x;
+    let row = 0;
 
-    for (const chip of chips) {
-        if (x > RIGHT_X - 150) break;
-        x += drawPill(ctx, x, CHIP.y, CHIP.height, chip, GLASS_PILL) + CHIP.gap;
-    }
+    /** Xep mot chip, tu xuong hang khi het cho. Tra vi tri da ve, null neu bo. */
+    const place = (label: string, extraLeft = 0) => {
+        ctx.font = chip.font;
+        const width = chip.padding * 2 + ctx.measureText(label).width + extraLeft;
+        if (x + width > chip.right) {
+            if (row + 1 >= chip.rows) return null;
+            row++;
+            x = chip.x;
+        }
+        const drawnX = x;
+        const drawnY = chip.y + row * (chip.height + chip.rowGap);
+        drawPill(ctx, drawnX, drawnY, chip.height, label, { ...style, extraLeft });
+        x = drawnX + width + chip.gap;
+        return { x: drawnX, y: drawnY };
+    };
+
+    if (typeof data.volume === 'number') place(`Âm lượng ${data.volume}%`);
+    if (typeof data.queueCount === 'number') place(data.queueCount ? `Còn ${data.queueCount} bài` : 'Hết queue');
+    if (data.loopLabel) place(`Lặp: ${data.loopLabel}`);
+    if (data.autoplay) place('Autoplay');
 
     if (!data.requesterName) return;
     const avatarSize = 24;
-    const label = truncateToWidth(ctx, data.requesterName, 200);
+    ctx.font = chip.font;
+    const label = truncateToWidth(ctx, data.requesterName, 180);
     const extraLeft = data.requesterAvatarUrl ? avatarSize + 8 : 0;
-    drawPill(ctx, x, CHIP.y, CHIP.height, label, { ...GLASS_PILL, extraLeft });
+    const placed = place(label, extraLeft);
+    if (!placed || !data.requesterAvatarUrl) return;
 
-    if (!data.requesterAvatarUrl) return;
     const avatar = await loadCachedImage(data.requesterAvatarUrl);
     if (!avatar) return;
 
-    const avatarX = x + CHIP.padding;
-    const avatarY = CHIP.y + (CHIP.height - avatarSize) / 2;
+    const avatarX = placed.x + chip.padding;
+    const avatarY = placed.y + (chip.height - avatarSize) / 2;
     ctx.save();
     ctx.beginPath();
     ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
@@ -358,12 +438,16 @@ async function drawChips(ctx: any, data: NowPlayingCardData) {
  * panel nhac van phai chay.
  */
 export async function renderNowPlayingCard(data: NowPlayingCardData): Promise<AttachmentBuilder | null> {
+    const layout: PanelLayout = data.layout === 'compact' ? 'compact' : 'wide';
+    const spec = layout === 'compact' ? COMPACT_SPEC : WIDE_SPEC;
     const bucket = Math.floor(data.position / CARD_CACHE_BUCKET_MS);
     const state = [
+        layout,
         data.paused ? 'p' : 'r',
         data.volume ?? '',
         data.queueCount ?? '',
-        data.loopLabel || ''
+        data.loopLabel || '',
+        data.autoplay ? 'a' : ''
     ].join('|');
     const cacheKey = `${data.cacheKey}:${bucket}:${state}`;
     const cached = cardCache.get(cacheKey);
@@ -371,16 +455,16 @@ export async function renderNowPlayingCard(data: NowPlayingCardData): Promise<At
 
     try {
         ensureNotoSans();
-        const canvas = createCanvas(W, H);
+        const canvas = createCanvas(spec.width, spec.height);
         const ctx = canvas.getContext('2d');
         const artwork = await loadCachedImage(data.artworkUrl);
 
-        drawBackground(ctx, artwork, data.accentColor);
-        drawArtwork(ctx, artwork, data.accentColor);
-        drawHeader(ctx, data);
-        drawTitleBlock(ctx, data);
-        drawProgress(ctx, data);
-        await drawChips(ctx, data);
+        drawBackground(ctx, spec, artwork, data.accentColor);
+        drawArtwork(ctx, spec, artwork, data.accentColor);
+        drawHeader(ctx, spec, data);
+        drawTitleBlock(ctx, spec, data);
+        drawProgress(ctx, spec, data);
+        await drawChips(ctx, spec, data);
 
         // JPEG thay vi PNG: card la anh chup co nen mo, JPEG nho hon ~3 lan nen
         // moi lan bam nut khong phai upload lai 170KB.

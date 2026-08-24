@@ -1,10 +1,12 @@
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, Client, EmbedBuilder } from 'discord.js';
 import { config } from '../../config';
+import { isAutoplayOn } from './music-autoplay';
 import { getMainMusicEntry, listMusicEntries } from './music-client-pool';
 import { formatDuration, prettySourceName, trackInfo, trackLink, truncate } from './music-format';
 import { getLavalinkNodes, getMusicPrefix, lavalinkConfigured } from './music-node-config';
 import { NOW_PLAYING_CARD_FILENAME, renderNowPlayingCard } from './music-now-playing-card';
 import { MusicComponentRow, musicControlRows, searchResultRow } from './music-panel-components';
+import { layoutForPlayer, PANEL_TEXT_LIMITS, PanelLayout } from './music-panel-layout';
 import { findPrimarySession, MusicSession } from './music-session-router';
 
 // ============================================================
@@ -49,16 +51,25 @@ function statusLine(session: MusicSession | null, tracks: any[]) {
         `Lặp **${loopLabel(String(player?.repeatMode || 'off'))}**`,
         `Queue **${tracks.length} bài**${queueDurationText(tracks)}`
     ];
+    if (isAutoplayOn(player)) parts.push('Autoplay **bật**');
     if (session?.voiceChannelId) parts.push(`<#${session.voiceChannelId}>`);
     if (session && listMusicEntries().length > 1) parts.push(session.entry.label);
     return parts.join(' • ');
 }
 
-export function musicPanelForSession(session: MusicSession | null, options: { cardAttached?: boolean } = {}): MusicPanelPayload {
+export function musicPanelForSession(
+    session: MusicSession | null,
+    options: { cardAttached?: boolean; layout?: PanelLayout } = {}
+): MusicPanelPayload {
     const player = session?.player;
     const current = player?.queue?.current;
     const tracks: any[] = player?.queue?.tracks || [];
-    const embed = new EmbedBuilder().setThumbnail(config.music.panelGif);
+    const layout: PanelLayout = options.layout || layoutForPlayer(player);
+    const limits = PANEL_TEXT_LIMITS[layout];
+    const embed = new EmbedBuilder();
+    // Chat trong kenh voice hep: thumbnail GIF an mat mot phan be rong chu, nen
+    // chi treo GIF o text channel binh thuong.
+    if (layout === 'wide') embed.setThumbnail(config.music.panelGif);
 
     if (!current) {
         embed
@@ -67,26 +78,27 @@ export function musicPanelForSession(session: MusicSession | null, options: { ca
             .setDescription('Chưa có bài nào đang phát. Dùng `/music play` hoặc `' + getMusicPrefix() + 'play <tên bài>` để bắt đầu.')
             .setFooter({ text: lavalinkConfigured() ? 'Lavalink playback' : 'Cần cấu hình Lavalink để phát audio' });
         // Khong con bai nao thi bo luon card cu cho sach message.
-        return { embeds: [embed], components: musicControlRows(session), files: [], attachments: [] };
+        return { embeds: [embed], components: musicControlRows(session, layout), files: [], attachments: [] };
     }
 
     const info = trackInfo(current);
     embed
         .setColor(accentColor(info.sourceName))
-        .setDescription(`${player?.paused ? '⏸' : '▶'} ${trackLink(current)}\n${statusLine(session, tracks)}`);
+        .setDescription(`${player?.paused ? '⏸' : '▶'} ${trackLink(current, limits.nextTitle + 20)}\n${statusLine(session, tracks)}`);
 
     if (tracks.length) {
-        const preview = tracks.slice(0, 3).map((track, index) => {
+        const preview = tracks.slice(0, limits.nextCount).map((track, index) => {
             const next = trackInfo(track);
-            return `\`${index + 1}.\` ${truncate(next.title, 58)} \`${formatDuration(next.duration, next.isStream)}\``;
+            return `\`${index + 1}.\` ${truncate(next.title, limits.nextTitle)} \`${formatDuration(next.duration, next.isStream)}\``;
         });
-        if (tracks.length > 3) preview.push(`_…và ${tracks.length - 3} bài nữa_`);
+        const rest = tracks.length - Math.min(tracks.length, limits.nextCount);
+        if (rest > 0) preview.push(`_…và ${rest} bài nữa_`);
         embed.addFields({ name: 'Bài kế tiếp', value: preview.join('\n').slice(0, 1000) });
     }
 
     embed.setFooter({ text: lavalinkConfigured() ? 'Lavalink playback' : 'Cần cấu hình Lavalink để phát audio' });
     if (options.cardAttached) embed.setImage(`attachment://${NOW_PLAYING_CARD_FILENAME}`);
-    return { embeds: [embed], components: musicControlRows(session) };
+    return { embeds: [embed], components: musicControlRows(session, layout) };
 }
 
 /**
@@ -101,6 +113,7 @@ export async function buildMusicPanel(session: MusicSession | null): Promise<Mus
 
     const info = trackInfo(current);
     const entries = listMusicEntries();
+    const layout = layoutForPlayer(session.player);
     const card = await renderNowPlayingCard({
         title: info.title,
         author: info.author,
@@ -117,11 +130,13 @@ export async function buildMusicPanel(session: MusicSession | null): Promise<Mus
         volume: Number(session.player.volume ?? 100),
         queueCount: (session.player.queue?.tracks || []).length,
         loopLabel: loopLabel(String(session.player.repeatMode || 'off')),
-        speakerLabel: entries.length > 1 ? session.entry.label : ''
+        speakerLabel: entries.length > 1 ? session.entry.label : '',
+        autoplay: isAutoplayOn(session.player),
+        layout
     });
 
-    if (!card) return musicPanelForSession(session);
-    return { ...musicPanelForSession(session, { cardAttached: true }), files: [card], attachments: [] };
+    if (!card) return musicPanelForSession(session, { layout });
+    return { ...musicPanelForSession(session, { cardAttached: true, layout }), files: [card], attachments: [] };
 }
 
 /**
@@ -141,10 +156,10 @@ export function asNewMessagePayload(payload: MusicPanelPayload) {
 }
 
 /** Danh sach ket qua search + select menu de chon bai. Khong hien URL. */
-export function musicSearchPanel(query: string, searchId: string, tracks: any[]): MusicPanelPayload {
+export function musicSearchPanel(query: string, searchId: string, tracks: any[], layout: PanelLayout = 'wide'): MusicPanelPayload {
     // Chi in 10 dong: select menu ben duoi van giu du 24 ket qua, in het ra
     // embed thi panel dai loang thoang chang ai doc.
-    const listed = tracks.slice(0, 10);
+    const listed = tracks.slice(0, layout === 'compact' ? 5 : 10);
     const lines = listed.map((track, index) => {
         const info = trackInfo(track);
         const meta = [info.author, prettySourceName(info.sourceName)].filter(Boolean).join(' • ');
@@ -159,7 +174,7 @@ export function musicSearchPanel(query: string, searchId: string, tracks: any[])
         .setThumbnail(config.music.panelGif)
         .setFooter({ text: 'Chọn một bài ở menu bên dưới • kết quả hết hạn sau 5 phút' });
 
-    return { embeds: [embed], components: [searchResultRow(searchId, tracks)] };
+    return { embeds: [embed], components: [searchResultRow(searchId, tracks, layout)] };
 }
 
 /** Source quan trong nhat khi debug: thieu source nao thi link do bao loi. */

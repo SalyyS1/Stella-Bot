@@ -4,7 +4,10 @@ import { safeDeferUpdate, safeInteractionReply } from '../../utils/interaction-s
 import { applyMusicFilter } from './music-filter-service';
 import { asNewMessagePayload, buildMusicPanel, musicHealthPanel, musicPanelForSession, MusicPanelPayload, musicSearchPanel } from './music-panel';
 import { rememberPanelMessage } from './music-panel-message';
-import { MUSIC_COMPONENT_PREFIX } from './music-panel-components';
+import { MUSIC_COMPONENT_PREFIX, savePlaylistRow } from './music-panel-components';
+import { resolvePanelLayout } from './music-panel-layout';
+import { savePlayingTrackToPlaylist } from './music-playlist-play';
+import { listPlaylists } from './music-playlist-service';
 import { controlMusic, jumpToQueueIndex, playSearchPick, queueTrack, searchForSelection, setMusicVolume } from './music-queue-service';
 import { MusicSession, resolveViewableSession } from './music-session-router';
 
@@ -12,7 +15,14 @@ import { MusicSession, resolveViewableSession } from './music-session-router';
 //  MUSIC SLASH + COMPONENT HANDLERS
 // ============================================================
 
-const CONTROL_SUBCOMMANDS = ['stop', 'skip', 'pause', 'resume', 'loop', 'shuffle'];
+const CONTROL_SUBCOMMANDS = ['stop', 'skip', 'pause', 'resume', 'loop', 'shuffle', 'previous', 'autoplay'];
+
+/** Ten subcommand -> action cua controlMusic. */
+function controlAction(sub: string) {
+    if (sub === 'resume') return 'pause';
+    if (sub === 'previous') return 'prev';
+    return sub;
+}
 
 /** editReply panel roi nho message do lam panel cua session. */
 async function replyPanel(interaction: ChatInputCommandInteraction, session: MusicSession | null, content?: string) {
@@ -40,7 +50,7 @@ export async function executeMusicSlash(interaction: ChatInputCommandInteraction
     if (sub === 'search') {
         const query = interaction.options.getString('query', true);
         const found = await searchForSelection(member, interaction.channelId, interaction.user.id, query);
-        return interaction.editReply(musicSearchPanel(query, found.searchId, found.tracks));
+        return interaction.editReply(musicSearchPanel(query, found.searchId, found.tracks, resolvePanelLayout(interaction.channelId)));
     }
 
     if (['queue', 'now'].includes(sub)) return replyPanel(interaction, resolveViewableSession(member, guildId));
@@ -57,8 +67,8 @@ export async function executeMusicSlash(interaction: ChatInputCommandInteraction
     }
 
     if (CONTROL_SUBCOMMANDS.includes(sub)) {
-        const session = await controlMusic(member, sub === 'resume' ? 'pause' : sub);
-        if (sub === 'stop') return interaction.editReply(musicPanelForSession(null));
+        const session = await controlMusic(member, controlAction(sub));
+        if (sub === 'stop') return interaction.editReply(musicPanelForSession(null, { layout: resolvePanelLayout(interaction.channelId) }));
         return replyPanel(interaction, session);
     }
 
@@ -88,8 +98,18 @@ export async function handleMusicComponent(interaction: ButtonInteraction | Stri
     try {
         const member = interaction.member as GuildMember;
 
-        // Select menu: chon bai trong queue hoac chon ket qua search.
+        // Select menu: chon bai trong queue, chon ket qua search, hoac chon
+        // playlist de luu bai dang phat.
         if (interaction.isStringSelectMenu()) {
+            if (action === 'savepick') {
+                const saved = await savePlayingTrackToPlaylist(member, interaction.guildId, interaction.user.id, interaction.values[0]);
+                await interaction.editReply({
+                    content: `Đã lưu **${saved.title}** vào **${saved.playlistName}** (vị trí ${saved.position}).`,
+                    components: []
+                });
+                return true;
+            }
+
             const value = Number(interaction.values[0]);
             if (action === 'jump') {
                 const session = await jumpToQueueIndex(member, value);
@@ -107,6 +127,25 @@ export async function handleMusicComponent(interaction: ButtonInteraction | Stri
         if (action === 'refresh') {
             const session = resolveViewableSession(member, interaction.guildId);
             await editWithPanel(interaction, await buildMusicPanel(session), session);
+            return true;
+        }
+
+        // Nut Luu mo mot select rieng (ephemeral) thay vi doi panel chung: chon
+        // playlist la viec ca nhan, khong nen chiem panel cua ca kenh.
+        if (action === 'save') {
+            const playlists = await listPlaylists(interaction.user.id);
+            if (!playlists.length) {
+                await interaction.followUp({
+                    content: 'Bạn chưa có playlist nào. Tạo bằng `/music playlist create name:<tên>`.',
+                    flags: MessageFlags.Ephemeral
+                });
+                return true;
+            }
+            await interaction.followUp({
+                content: 'Chọn playlist để lưu bài đang phát:',
+                components: [savePlaylistRow(playlists)],
+                flags: MessageFlags.Ephemeral
+            });
             return true;
         }
 
