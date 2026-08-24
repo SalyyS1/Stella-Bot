@@ -34,6 +34,9 @@ const musicPlaylistPlay = source('systems/music/music-playlist-play.ts');
 const musicPlaylistCommands = source('systems/music/music-playlist-commands.ts');
 const musicPlaylistService = source('systems/music/music-playlist-service.ts');
 const musicSatellite = source('systems/music/music-satellite-bootstrap.ts');
+const musicPanelLayout = source('systems/music/music-panel-layout.ts');
+const musicPanelComponents = source('systems/music/music-panel-components.ts');
+const musicAutoplay = source('systems/music/music-autoplay.ts');
 const backfill = source('systems/voteBackfillManager.ts');
 const requests = source('systems/requestManager.ts');
 const events = source('handlers/eventHandler.ts');
@@ -85,6 +88,8 @@ check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSat
 check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
 check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');
 check(musicPlaylistPlay.includes('const attempts = [item.uri, byName]'), 'stored playlist playback has no fallback when a saved link dies');
+check(musicPanelLayout.includes('ChannelType.GuildVoice') && musicPanelComponents.includes("layout === 'compact'"), 'panel does not shrink for the narrow voice-channel chat');
+check(musicAutoplay.includes('list=RD') && musicAutoplay.includes('!played.has(key)'), 'autoplay can repeat the track that just played');
 check(backfill.includes('tx.requestReview.groupBy') && backfill.includes('requestRatings'), 'request rating score preservation missing');
 check(requests.includes('await lockVoteScores(tx)'), 'request rating/backfill serialization missing');
 check(events.includes('Promise.resolve(event.execute'), 'async event rejection boundary missing');

@@ -1,5 +1,6 @@
 import { Client } from 'discord.js';
 import { LavalinkManager } from 'lavalink-client';
+import { autoplayRelatedTracks } from './music-autoplay';
 import { getLavalinkNodes, NODE_RETRY_AMOUNT, NODE_RETRY_DELAY_MS } from './music-node-config';
 
 // ============================================================
@@ -48,7 +49,14 @@ function createLavalinkManager(client: Client, clientId: string, username: strin
         playerOptions: {
             defaultSearchPlatform: 'ytmsearch',
             volumeDecrementer: 0.75,
-            onEmptyQueue: { destroyAfterMs: 30_000 },
+            // autoPlayFunction chi lam gi khi player bat autoplay; tat thi queue
+            // het la roi voice sau 30s nhu cu.
+            onEmptyQueue: {
+                destroyAfterMs: 30_000,
+                autoPlayFunction: async (player: any, lastTrack: any) => {
+                    await autoplayRelatedTracks(player, lastTrack).catch(() => 0);
+                }
+            },
             onDisconnect: { autoReconnect: true, destroyPlayer: false }
         }
     });

@@ -34,6 +34,8 @@ export default {
         .addSubcommand(sub => sub.setName('queue').setDescription('Xem queue'))
         .addSubcommand(sub => sub.setName('now').setDescription('Xem bài đang phát'))
         .addSubcommand(sub => sub.setName('skip').setDescription('Skip bài hiện tại'))
+        .addSubcommand(sub => sub.setName('previous').setDescription('Quay lại bài vừa phát'))
+        .addSubcommand(sub => sub.setName('autoplay').setDescription('Bật/tắt tự phát bài liên quan khi hết queue'))
         .addSubcommand(sub => sub.setName('stop').setDescription('Dừng và xóa queue'))
         .addSubcommand(sub => sub.setName('pause').setDescription('Pause'))
         .addSubcommand(sub => sub.setName('resume').setDescription('Resume'))

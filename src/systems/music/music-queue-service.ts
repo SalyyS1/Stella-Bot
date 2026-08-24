@@ -1,5 +1,6 @@
 import { GuildMember } from 'discord.js';
 import { MAX_VOLUME, MIN_VOLUME, SEEK_STEP_MS } from './music-audio-config';
+import { toggleAutoplay } from './music-autoplay';
 import { getMainMusicEntry } from './music-client-pool';
 import { lavalinkConfigured } from './music-node-config';
 import { rememberSearch, takeSearchTrack } from './music-search-cache';
@@ -148,6 +149,19 @@ export async function queueTrack(
 
 const REPEAT_CYCLE = ['off', 'track', 'queue'] as const;
 
+/**
+ * Quay lai bai truoc. queue.previous do lavalink-client tu luu (25 bai gan
+ * nhat); bai dang phat duoc day tro lai dau queue de khong bi mat.
+ */
+async function playPreviousTrack(session: MusicSession) {
+    const previous = await session.player.queue.shiftPrevious().catch(() => null);
+    if (!previous) throw new Error('Chưa có bài nào trước đó để quay lại.');
+
+    const current = session.player.queue?.current;
+    if (current) await session.player.queue.add(current, 0);
+    await session.player.play({ clientTrack: previous });
+}
+
 export async function controlMusic(member: GuildMember | null, action: string): Promise<MusicSession> {
     const session = resolveControllableSession(member);
     const player = session.player;
@@ -157,6 +171,8 @@ export async function controlMusic(member: GuildMember | null, action: string): 
         else await player.pause();
     }
     if (action === 'skip') await player.skip(0, false);
+    if (action === 'prev') await playPreviousTrack(session);
+    if (action === 'autoplay') toggleAutoplay(player);
     if (action === 'stop') {
         await player.stopPlaying(true, false);
         await player.destroy('Stopped by user').catch(() => {});

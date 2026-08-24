@@ -90,6 +90,8 @@ s!play tên bài hoặc link
 s!search tên bài        # ra danh sách, chọn bài muốn phát
 s!queue
 s!skip
+s!prev                  # quay lại bài vừa phát (alias: s!back)
+s!autoplay              # bật/tắt tự phát bài liên quan khi hết queue
 s!volume 120
 s!filter bassboost
 s!pl tên playlist       # nạp playlist đã lưu vào queue
@@ -103,11 +105,28 @@ Slash command:
 /music play query:...
 /music search query:...
 /music queue
+/music previous
+/music autoplay
 /music volume value:120
 /music filter preset:nightcore
 ```
 
-Panel now-playing gồm một ảnh card (ảnh bìa, tên bài tối đa 2 dòng, progress bar, và các chip: âm lượng, số bài còn trong queue, chế độ lặp, người yêu cầu, loa đang phát), phần embed bên dưới chỉ còn tên bài bấm được + danh sách bài kế tiếp, 2 hàng nút điều khiển và một select menu để nhảy tới bài bất kỳ trong queue. Panel chỉ hiện **tên bài**, không hiện link thô. Mỗi lần bấm nút, card được vẽ lại nên card không bao giờ nói ngược với embed.
+Panel now-playing gồm một ảnh card (ảnh bìa, tên bài tối đa 2 dòng, progress bar, và các chip: âm lượng, số bài còn trong queue, chế độ lặp, autoplay, người yêu cầu, loa đang phát), phần embed bên dưới chỉ còn tên bài bấm được + danh sách bài kế tiếp, các hàng nút điều khiển và một select menu để nhảy tới bài bất kỳ trong queue. Panel chỉ hiện **tên bài**, không hiện link thô. Mỗi lần bấm nút, card được vẽ lại nên card không bao giờ nói ngược với embed.
+
+**Panel tự co theo chỗ nó nằm.** Chat trong kênh voice hiện ở cột hẹp bên phải client Discord, hẹp hơn text channel thường, nên Stella dùng 2 khuôn:
+
+| | Text channel thường | Chat trong kênh voice |
+|---|---|---|
+| Card | 1000×344, ngang | 620×396, cao hơn nên khi Discord thu nhỏ theo bề rộng cột thì chữ còn lớn |
+| Nút | có chữ (Trước, Tạm dừng, Autoplay…) | chỉ icon, 2 hàng — nút có chữ ở cột hẹp sẽ xuống dòng và ăn thêm chiều cao |
+| Bài kế tiếp | 3 bài | 2 bài, tên bài cắt ngắn hơn |
+| Ảnh GIF góc | có | bỏ (thumbnail ăn mất bề rộng chữ) |
+
+Bot tự chọn khuôn theo loại kênh nhận tin nhắn, không cần cấu hình. Ở khuôn hẹp, 2 nút bị bỏ là `-10s`/`+10s` và `Làm mới` — đổi lại có `📻 Autoplay` và `💾 Lưu`; panel vẫn tự vẽ lại sau mỗi lần bấm nên không cần nút làm mới.
+
+**Nút 💾 Lưu** mở một menu riêng (chỉ bạn thấy) để chọn playlist lưu bài đang phát — nhanh hơn gõ `/music playlist save`.
+
+**Autoplay (📻)** bật theo từng loa: hết queue thì Stella tự nạp 2 bài liên quan thay vì rời voice. Cách tìm bài: Mix của YouTube (`list=RD…`) của bài vừa phát trước, không được thì tìm theo nghệ sĩ, rồi theo tên bài + nghệ sĩ; bài nào vừa nghe (trong `previous`) hoặc đang trong queue thì bỏ qua. Tắt autoplay thì hết queue Stella rời voice sau 30s như cũ.
 
 Filter dùng được: `bassboost`, `nightcore`, `vaporwave`, `karaoke`, `8d`, `clear` (tắt hết). Filter chạy trên Lavalink nên có cooldown 5s mỗi server.
 
@@ -254,6 +273,9 @@ Lưu ý: bản SponsorBlock mới nhất là 3.0.1 (2024), khá lâu không có 
 - Dán link playlist Spotify vào `/music playlist add` mà bot nói node chưa bật Spotify: đúng như vậy — node chưa có LavaSrc/keys. Sửa theo mục 6 rồi xem lại `/music health`.
 - `/music health` báo `❌ youtube`: plugin `youtube-plugin` chưa nạp được, xem log Lavalink lúc start.
 - Playlist đã lưu phát thiếu vài bài: link gốc chết thì bot tự tìm lại theo **tên + nghệ sĩ**; bài nào cả hai cách đều không ra mới bị bỏ và được báo trong phần "bỏ qua N bài lỗi".
+- Panel vẫn ra khuôn ngang trong chat kênh voice: bot nhận diện theo kênh **nhận tin nhắn**; nếu gõ lệnh ở text channel rồi chỉ nghe trong voice thì panel thuộc text channel đó nên vẫn là khuôn ngang. Gõ lệnh ngay trong chat của kênh voice để lấy khuôn hẹp.
+- Autoplay bật mà hết queue vẫn im: nguồn không có bài liên quan (thường gặp với link trực tiếp/stream). Xem log `[Lavalink]` và thử một bài YouTube.
+- Nút ⏮ báo chưa có bài trước đó: `queue.previous` chỉ có sau khi đã phát xong ít nhất một bài trong phiên hiện tại.
 - Playlist Spotify load lỗi trong khi track lẻ vẫn được: node đang dùng LavaSrc cũ hơn 4.8.3.
 - Ảnh card panel không hiện: bình thường khi nguồn nhạc không có ảnh bìa; bot tự vẽ card nền gradient thay thế.
 - Bot loa phụ không online: xem log dòng `login thất bại` — token sai, hoặc bot phụ chưa được mời vào server.
