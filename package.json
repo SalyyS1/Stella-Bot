@@ -13,6 +13,7 @@
     "build": "npm run clean && npx prisma generate && tsc",
     "test": "node scripts/self-check.js",
     "test:money": "node --require ./tests/helpers/setup-test-env.cjs --require ts-node/register --test tests/money-flow-concurrency.test.ts",
+    "test:music": "node --require ts-node/register --test tests/music-spotify-collection-resolver.test.ts",
     "db:migrate": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",

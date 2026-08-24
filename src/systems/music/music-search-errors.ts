@@ -44,12 +44,24 @@ const SOURCE_SETUP_HINTS: ErrorHint[] = [
     }
 ];
 
+// Loi Spotify tra ve qua Lavalink chi la mot cau chung chung ("Something went
+// wrong while looking up the track"), doc len khong biet la Spotify chan. Chi map
+// khi query dung la link Spotify de khong che loi cua source khac.
+const SPOTIFY_LOOKUP_FAILURE = /looking up the track|Valid user authentication required|Response code from channel info is (401|403)/i;
+const SPOTIFY_LOOKUP_MESSAGE = 'Spotify không cho đọc link này bằng key app (họ bắt phải có OAuth2 của chủ tài khoản). Link **playlist/album** thì bot tự đọc được; link bài lẻ cần node bật Spotify (`docs/music-setup.md` mục 6); còn lại thì dùng link YouTube nhé.';
+
+function isSpotifyLink(query: string) {
+    return /open\.spotify\.com|^spotify:/i.test(String(query || '').trim());
+}
+
 /**
  * Doi loi search thanh Error tieng Viet. Giu nguyen loi la (khong match) de
  * khong che mat nguyen nhan that.
  */
-export function friendlySearchError(error: any): Error {
+export function friendlySearchError(error: any, query = ''): Error {
     const raw = String(error?.message || error || '');
+    if (isSpotifyLink(query) && SPOTIFY_LOOKUP_FAILURE.test(raw)) return new Error(SPOTIFY_LOOKUP_MESSAGE);
+
     const hint = SOURCE_SETUP_HINTS.find(item => item.match.test(raw));
     if (hint) return new Error(hint.message);
     return error instanceof Error ? error : new Error(raw || 'Search lỗi không rõ nguyên nhân.');

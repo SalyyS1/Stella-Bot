@@ -160,7 +160,7 @@ Mỗi người có playlist riêng, lưu trong database nên sống qua mọi l�
 
 **Nạp cả một playlist có sẵn:** dán link playlist/album (Spotify, YouTube, SoundCloud...) vào `query` của `add`, hoặc vào `from` của `create`. Bot lấy **toàn bộ** bài trong link đó, không phải chỉ bài đầu. Bài nào đã có trong playlist thì bỏ qua (dán 2 lần không bị nhân đôi), và khi vượt trần bài/playlist thì bot báo rõ còn bao nhiêu bài chưa vào.
 
-Link Spotify chỉ chạy khi **node Lavalink** có bật Spotify — xem mục 6 và kiểm tra bằng `/music health`. Thiếu là bot nói luôn cần sửa gì, không báo lỗi tiếng Anh khó hiểu.
+Link **playlist/album Spotify** thì bot tự đọc danh sách bài, không cần node bật Spotify — xem mục 6. Link của source khác (YouTube, SoundCloud...) vẫn do Lavalink đọc; thiếu source là bot nói luôn cần sửa gì, không báo lỗi tiếng Anh khó hiểu.
 
 Giới hạn (sửa ở `src/config.ts`, khối `music.playlist`): 5 playlist/người, 100 bài/playlist, mỗi lần `play` nạp tối đa 50 bài. Trần 50 bài/lần là có chủ ý — mỗi bài là một lượt resolve qua Lavalink, nạp 100 bài một lượt bắt node làm việc rất lâu chỉ cho một lệnh.
 
@@ -186,18 +186,17 @@ Các bước:
 2. Copy Client ID + Client Secret.
 3. Đặt vào environment của Lavalink như trên.
 4. Restart Lavalink (`docker compose -f docker-compose.lavalink.yml restart` hoặc restart service ở panel).
-5. Kiểm tra bằng `/music health`: mục **Source node đang bật** phải có `✅ spotify`. Còn `❌ spotify` nghĩa là plugin/keys chưa vào — link Spotify sẽ không dùng được, kể cả khi bot vẫn phát nhạc YouTube bình thường.
+5. Kiểm tra bằng `/music health`: mục **Source node đang bật** phải có `✅ spotify`. Còn `❌ spotify` nghĩa là plugin/keys chưa vào — link track Spotify sẽ không dùng được (link playlist/album vẫn chạy, xem bên dưới), kể cả khi bot vẫn phát nhạc YouTube bình thường.
 
-Có Client ID/Secret là dùng được: search `spsearch:`, link track, album, playlist, artist top tracks.
+Có Client ID/Secret là dùng được: search `spsearch:`, link track, artist top tracks.
 
-Chưa dùng được (cần thêm auth, không setup ở phase này): `sprec:` (recommendations), playlist do Spotify tự sinh như Discover Weekly, và lyrics (cần cookie `spDc`).
+Chưa dùng được (cần thêm auth, không setup ở phase này): `sprec:` (recommendations) và lyrics (cần cookie `spDc`).
 
-Hai điều quan trọng cần biết:
+Ba điều quan trọng cần biết:
 
 - **Spotify chỉ là nguồn metadata.** LavaSrc đọc tên bài/artist/ISRC từ Spotify rồi tìm và phát audio từ YouTube (`providers` trong `application.yml`). Không có byte audio nào chảy từ Spotify. Hệ quả: bài nào YouTube không có thì link Spotify vẫn fail, và **Spotify Premium không liên quan gì đến chất lượng nhạc của bot**.
-- **Cần LavaSrc >= 4.8.3.** Bản này sửa việc đọc playlist Spotify sang endpoint `/items`; app Spotify tạo mới bắt buộc phải có bản này mới load được playlist. Repo đang ghim 4.8.3 ở cả `lavalink/application.yml` và `lavalink-host/application.yml`.
-
-Không bật `preferPartnerApi: true` trong config LavaSrc: nó bắn N request ISRC tuần tự cho mỗi playlist nên load rất chậm.
+- **Link playlist/album KHÔNG đi qua Lavalink nữa.** Spotify chỉ cho đọc danh sách bài trong playlist bằng token OAuth2 của chính chủ playlist: `GET /v1/playlists/{id}/items` trả `401 Valid user authentication required` với key app, còn `/tracks` (đường cũ) trả `403`. LavaSrc không làm OAuth2 nên không bản nào load được playlist — kể cả 4.8.3. Bot vì thế tự đọc trang embed công khai (`open.spotify.com/embed/playlist/...`) trong `src/systems/music/music-spotify-collection-resolver.ts`: lấy tên bài + nghệ sĩ, rồi mới nhờ Lavalink tìm audio từng bài. Không cần key, chạy cả với playlist Spotify tự sinh (Discover Weekly). Giới hạn: chỉ đọc được playlist **công khai**, và tối đa 100 bài (đúng bằng trần playlist của bot).
+- **`preferPartnerApi: true` không phải đường thoát.** Nó cần "anonymous token", mà LavaSrc lấy token đó bằng cách quét mảng `"secret":[...]` trong bundle `mobile-web-player` của open.spotify.com — Spotify đã bỏ mảng đó nên bước lấy token throw luôn. Ngoài ra nó bắn N request ISRC tuần tự cho mỗi playlist nên load rất chậm.
 
 ## 7. Chất Lượng Âm Thanh
 
@@ -270,13 +269,13 @@ Lưu ý: bản SponsorBlock mới nhất là 3.0.1 (2024), khá lâu không có 
 - `/music playlist` báo "Playlist v2 chưa có trong database": chưa chạy `npm run db:migrate`.
 - Upload ảnh bìa báo thiếu `MUSIC_ASSET_CHANNEL_ID`: đặt env đó, hoặc dùng option `url` để dán link ảnh.
 - Spotify không chạy: kiểm tra `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` có mặt ở **nơi Lavalink chạy** (mục 6), rồi restart Lavalink.
-- Dán link playlist Spotify vào `/music playlist add` mà bot nói node chưa bật Spotify: đúng như vậy — node chưa có LavaSrc/keys. Sửa theo mục 6 rồi xem lại `/music health`.
+- Dán link playlist Spotify vào `/music playlist add` mà báo "không tìm thấy bài nào khớp": lỗi cũ, đã sửa — bot đọc playlist/album Spotify bằng trang embed nên không phụ thuộc key/LavaSrc nữa (mục 6). Còn báo lỗi thì xem bot nói playlist **riêng tư** không: bật công khai (Public) rồi thử lại.
 - `/music health` báo `❌ youtube`: plugin `youtube-plugin` chưa nạp được, xem log Lavalink lúc start.
 - Playlist đã lưu phát thiếu vài bài: link gốc chết thì bot tự tìm lại theo **tên + nghệ sĩ**; bài nào cả hai cách đều không ra mới bị bỏ và được báo trong phần "bỏ qua N bài lỗi".
 - Panel vẫn ra khuôn ngang trong chat kênh voice: bot nhận diện theo kênh **nhận tin nhắn**; nếu gõ lệnh ở text channel rồi chỉ nghe trong voice thì panel thuộc text channel đó nên vẫn là khuôn ngang. Gõ lệnh ngay trong chat của kênh voice để lấy khuôn hẹp.
 - Autoplay bật mà hết queue vẫn im: nguồn không có bài liên quan (thường gặp với link trực tiếp/stream). Xem log `[Lavalink]` và thử một bài YouTube.
 - Nút ⏮ báo chưa có bài trước đó: `queue.previous` chỉ có sau khi đã phát xong ít nhất một bài trong phiên hiện tại.
-- Playlist Spotify load lỗi trong khi track lẻ vẫn được: node đang dùng LavaSrc cũ hơn 4.8.3.
+- Playlist Spotify load lỗi trong khi track lẻ vẫn được: playlist đang riêng tư, hoặc Spotify đổi cấu trúc trang embed (bot báo đúng câu đó). Không liên quan tới phiên bản LavaSrc — Lavalink không đọc playlist Spotify nữa, xem mục 6.
 - Ảnh card panel không hiện: bình thường khi nguồn nhạc không có ảnh bìa; bot tự vẽ card nền gradient thay thế.
 - Bot loa phụ không online: xem log dòng `login thất bại` — token sai, hoặc bot phụ chưa được mời vào server.
 - Port 2333 bị chiếm: đổi port trong `docker-compose.lavalink.yml` và `.env`.

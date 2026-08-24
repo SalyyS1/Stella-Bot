@@ -2,7 +2,7 @@ import { GuildMember } from 'discord.js';
 import { config } from '../../config';
 import { trackInfo } from './music-format';
 import { addTrackToPlaylist, bumpPlaylistPlayCount, PlaylistTrackInput } from './music-playlist-service';
-import { assertMusicReady, buildRequester, searchWithSession } from './music-queue-service';
+import { assertMusicReady, buildRequester, resolveTracksForItems } from './music-queue-service';
 import { acquireSession, resolveViewableSession } from './music-session-router';
 import { ensureVoice } from './music-voice-guards';
 
@@ -11,9 +11,6 @@ import { ensureVoice } from './music-voice-guards';
 // ============================================================
 
 const LIMITS = config.music.playlist;
-// Resolve song song 5 bai: tuan tu thi 50 bai la 50 luot cho Lavalink noi tiep
-// nhau, con ban het cung luc thi node bi dogpile.
-const RESOLVE_CONCURRENCY = 5;
 
 type StoredTrack = {
     title: string;
@@ -34,39 +31,6 @@ export function trackToPlaylistInput(track: any): PlaylistTrackInput {
         duration: info.duration,
         artworkUrl: info.artworkUrl || undefined
     };
-}
-
-/**
- * Resolve mot bai da luu. Thu uri truoc (chinh xac hon: search theo ten de ra
- * ban cover/remix khong phai bai nguoi ta luu), roi moi lui ve ten + nghe si.
- * Buoc lui rat can: link chet hoac node chua bat source cua link (vd uri
- * Spotify tren node khong co LavaSrc) thi bai van phat duoc tu YouTube.
- */
-async function resolveStoredTrack(session: any, item: StoredTrack, requester: any) {
-    const byName = `${item.title} ${item.author || ''}`.trim();
-    const attempts = [item.uri, byName].filter((query, index, list) => query && list.indexOf(query) === index);
-
-    for (const query of attempts) {
-        try {
-            const { tracks } = await searchWithSession(session, query, requester);
-            if (tracks[0]) return tracks[0];
-        } catch {
-            // Thu cach ke tiep; het cach moi tinh la bai nay bo qua.
-        }
-    }
-    return null;
-}
-
-async function resolveStoredTracks(session: any, items: StoredTrack[], requester: any) {
-    const resolved: any[] = new Array(items.length).fill(null);
-
-    for (let start = 0; start < items.length; start += RESOLVE_CONCURRENCY) {
-        const batch = items.slice(start, start + RESOLVE_CONCURRENCY);
-        await Promise.all(batch.map(async (item, offset) => {
-            resolved[start + offset] = await resolveStoredTrack(session, item, requester);
-        }));
-    }
-    return resolved;
 }
 
 function shuffleInPlace<T>(list: T[]) {
@@ -94,7 +58,7 @@ export async function playStoredPlaylist(
 
     const items = playlist.tracks.slice(0, LIMITS.maxEnqueue);
     const overflow = playlist.tracks.length - items.length;
-    const resolved = (await resolveStoredTracks(session, items, requester)).filter(Boolean);
+    const resolved = (await resolveTracksForItems(session, items, requester)).filter(Boolean);
     if (!resolved.length) throw new Error(`Không bài nào trong **${playlist.name}** còn phát được.`);
 
     if (options.shuffle) shuffleInPlace(resolved);

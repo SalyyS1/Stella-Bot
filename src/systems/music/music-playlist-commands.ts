@@ -21,6 +21,7 @@ import {
 } from './music-playlist-service';
 import { buildRequester, searchWithoutSession } from './music-queue-service';
 import { MusicSession } from './music-session-router';
+import { fetchSpotifyCollection, parseSpotifyCollection } from './music-spotify-collection-resolver';
 
 // ============================================================
 //  MUSIC PLAYLIST COMMANDS — handler cho nhom /music playlist
@@ -40,8 +41,25 @@ async function replyPanel(interaction: ChatInputCommandInteraction, session: Mus
  * Doi query cua nguoi dung thanh danh sach bai de luu.
  * Link cua CA MOT playlist/album (Spotify, YouTube, SoundCloud...) thi lay het
  * bai trong do — day moi la thu nguoi dung mong doi khi dan link playlist.
+ * Rieng playlist/album Spotify thi bot tu doc metadata (Lavalink khong doc noi,
+ * xem music-spotify-collection-resolver): luu ten + link track la du, buoc tim
+ * audio de luc phat moi lam.
  */
 async function resolveTracksForPlaylist(query: string, member: GuildMember, userId: string) {
+    const collection = parseSpotifyCollection(query);
+    if (collection) {
+        const { name, tracks } = await fetchSpotifyCollection(collection);
+        const inputs = tracks.map(track => ({
+            title: track.title,
+            author: track.author || undefined,
+            uri: track.uri,
+            identifier: track.identifier,
+            source: 'spotify',
+            duration: track.duration
+        }));
+        return { inputs, isPlaylist: true, playlistName: name };
+    }
+
     const { tracks, isPlaylist, playlistName } = await searchWithoutSession(query, buildRequester(member, userId));
     const picked = isPlaylist ? tracks : [tracks[0]];
     return { inputs: picked.map(trackToPlaylistInput), isPlaylist, playlistName };

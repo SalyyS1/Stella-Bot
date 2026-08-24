@@ -31,6 +31,7 @@ const maintenance = source('commands/maintenance.ts');
 const musicRouter = source('systems/music/music-session-router.ts');
 const musicQueue = source('systems/music/music-queue-service.ts');
 const musicPlaylistPlay = source('systems/music/music-playlist-play.ts');
+const musicSpotifyCollection = source('systems/music/music-spotify-collection-resolver.ts');
 const musicPlaylistCommands = source('systems/music/music-playlist-commands.ts');
 const musicPlaylistService = source('systems/music/music-playlist-service.ts');
 const musicSatellite = source('systems/music/music-satellite-bootstrap.ts');
@@ -87,7 +88,9 @@ check(musicQueue.includes('acquireSession(member, textChannelId)') && musicPlayl
 check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSatellite.includes('MessageContent') && !musicSatellite.includes('GuildMembers'), 'satellite music bots ask for more intents than a speaker needs');
 check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
 check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');
-check(musicPlaylistPlay.includes('const attempts = [item.uri, byName]'), 'stored playlist playback has no fallback when a saved link dies');
+check(musicQueue.includes('const attempts = [item.uri, byName]'), 'stored playlist playback has no fallback when a saved link dies');
+check(musicQueue.includes('parseSpotifyCollection(query)') && musicPlaylistCommands.includes('parseSpotifyCollection(query)'), 'Spotify playlist links go to Lavalink, which Spotify no longer lets it read');
+check(musicSpotifyCollection.includes('__NEXT_DATA__') && musicSpotifyCollection.includes('open.spotify.com/embed'), 'Spotify collection reader no longer uses the keyless embed page');
 check(musicPanelLayout.includes('ChannelType.GuildVoice') && musicPanelComponents.includes("layout === 'compact'"), 'panel does not shrink for the narrow voice-channel chat');
 check(musicAutoplay.includes('list=RD') && musicAutoplay.includes('!played.has(key)'), 'autoplay can repeat the track that just played');
 check(backfill.includes('tx.requestReview.groupBy') && backfill.includes('requestRatings'), 'request rating score preservation missing');
