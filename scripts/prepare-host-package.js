@@ -72,9 +72,13 @@ const readme = `# Stella Bot Host Package
 Upload these files to /home/container on Pterodactyl.
 
 This package is already compiled: dist/ holds the built code and there is no src/.
-Do NOT run \`npm run build\` or \`tsc\` on the host — tsc needs more RAM than a shared
-container gets and the kernel kills it (exit code 137, "Out of memory: true"). Build on
-the dev machine with \`npm run host:prepare\` and re-upload dist/ after every code change.
+scripts/build-dist.js detects the missing src/ and keeps dist/ as-is, so npm install will
+not fail — but that also means YOU must rebuild and re-upload dist/ after every code change.
+
+Prefer deploying with git instead: clone the repo on the host and run \`git pull\`. The
+postinstall step then rebuilds dist/ from source with esbuild on every install, so the host
+can never quietly run stale code. Do NOT run \`tsc\` on the host — it needs more RAM than a
+shared container gets and the kernel kills it (exit code 137, "Out of memory: true").
 
 Required on host:
 1. Create .env from .env.example.

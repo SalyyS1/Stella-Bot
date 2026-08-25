@@ -1013,4 +1013,28 @@ for (const [label, relative] of [
     );
 }
 
+// ============================================================
+//  BUILD PHẢI CHẠY ĐƯỢC TRÊN HOST
+// ============================================================
+// Host là shared hosting và đã từng bị kernel kill lúc chạy tsc (exit 137, OOM): tsc phải
+// nạp toàn bộ type của Prisma Client cùng 250+ file nguồn. esbuild chỉ dịch cú pháp nên
+// vừa hạn mức. Nếu ai đưa tsc trở lại đường deploy thì host lại crash-loop, và triệu
+// chứng (bot không lên, không có log lỗi của bot) rất khó truy về đây.
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+check(
+    !/\btsc\b/.test(packageJson.scripts.postinstall) && !/\btsc\b/.test(packageJson.scripts.build),
+    'postinstall/build must not invoke tsc — the host cannot afford its memory'
+);
+// Kiểm type vẫn phải tồn tại ở đâu đó, chỉ là không nằm trên đường deploy.
+check(
+    packageJson.scripts.typecheck === 'tsc --noEmit',
+    'a typecheck script must exist so dropping tsc from the build does not drop type safety'
+);
+// esbuild phải là dependency thật, không phải devDependency: host chạy chính nó lúc
+// postinstall, và `npm install --omit=dev` sẽ làm build vỡ nếu nó nằm ở devDependencies.
+check(
+    Boolean(packageJson.dependencies.esbuild),
+    'esbuild must be a runtime dependency because the host builds during postinstall'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
