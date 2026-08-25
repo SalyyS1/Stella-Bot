@@ -7,6 +7,7 @@ import {
     SlashCommandBuilder
 } from 'discord.js';
 import { config } from '../config';
+import { markInternalAntiRaidAction } from '../systems/antiRaidManager';
 import { reconcileTempVoiceChannels } from '../systems/tempvoice/tempvoice-service';
 import { createHub, deleteHub, getHub, listHubs, listRooms } from '../systems/tempvoice/tempvoice-store';
 
@@ -62,6 +63,9 @@ export default {
             const template = interaction.options.getString('template') || '🔊 Phòng của {user}';
             const userLimit = interaction.options.getInteger('limit') ?? 0;
 
+            // Xin phép anti-raid TRƯỚC khi tạo: guardChannelCreate coi mọi kênh Stella
+            // tạo mà không có phép là dấu hiệu token bị chiếm.
+            markInternalAntiRaidAction('channelCreate', '*');
             const hubChannel = await interaction.guild.channels.create({
                 name: hubName,
                 type: ChannelType.GuildVoice,

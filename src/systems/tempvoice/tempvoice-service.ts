@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { config } from '../../config';
 import { sendAdminLog } from '../../utils/adminLog';
+import { markInternalAntiRaidAction } from '../antiRaidManager';
 import { buildPanelPayload } from './tempvoice-panel';
 import {
     countRooms,
@@ -85,6 +86,9 @@ async function createRoomForMember(member: GuildMember, hubChannel: VoiceBasedCh
     }
 
     const name = sanitizeRoomName(hub.nameTemplate.replace('{user}', member.displayName));
+    // Xin phép anti-raid TRƯỚC khi tạo: guardChannelCreate coi mọi kênh Stella tạo mà
+    // không có phép là dấu hiệu token bị chiếm.
+    markInternalAntiRaidAction('channelCreate', '*');
     const channel = await guild.channels.create({
         name,
         type: ChannelType.GuildVoice,
@@ -100,6 +104,7 @@ async function createRoomForMember(member: GuildMember, hubChannel: VoiceBasedCh
     await createRoom({ channelId: channel.id, hubId: hub.channelId, ownerId: member.id }).catch(async error => {
         // Ghi DB hỏng mà vẫn để kênh lại thì kênh đó thành rác không ai nhận. Dọn ngay.
         console.error('[tempvoice] ghi DB lỗi, xoá kênh vừa tạo:', error);
+        markInternalAntiRaidAction('channelDelete', channel.id);
         await channel.delete('Không ghi được vào DB').catch(() => {});
         return null;
     });
@@ -116,6 +121,7 @@ async function deleteRoomIfEmpty(channel: VoiceBasedChannel): Promise<void> {
     if (!room) return;
     if (channel.members.size > 0) return;
 
+    markInternalAntiRaidAction('channelDelete', channel.id);
     await channel.delete('Phòng voice tạm không còn ai').catch(() => {});
     await deleteRoom(channel.id);
 }
@@ -176,6 +182,7 @@ export async function reconcileTempVoiceChannels(guild: Guild): Promise<number> 
             continue;
         }
         if (channel.type === ChannelType.GuildVoice && channel.members.size === 0) {
+            markInternalAntiRaidAction('channelDelete', channel.id);
             await channel.delete('Phòng voice tạm còn sót sau khi bot restart').catch(() => {});
             await deleteRoom(room.channelId);
             cleaned++;

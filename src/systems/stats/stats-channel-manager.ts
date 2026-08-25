@@ -1,6 +1,7 @@
 import { ChannelType, Client, GatewayIntentBits, Guild, PermissionFlagsBits, VoiceChannel } from 'discord.js';
 import prisma from '../../lib/prisma';
 import { config } from '../../config';
+import { markInternalAntiRaidAction } from '../antiRaidManager';
 
 // Kênh thống kê: kênh voice chỉ dùng làm nhãn, tên do bot cập nhật định kỳ.
 //
@@ -63,6 +64,9 @@ export async function createStatsChannel(input: {
     categoryId?: string | null;
 }): Promise<string> {
     const value = computeValue(input.guild, input.kind);
+    // Xin phép anti-raid TRƯỚC khi tạo: guardChannelCreate coi mọi kênh Stella tạo mà
+    // không có phép là dấu hiệu token bị chiếm.
+    markInternalAntiRaidAction('channelCreate', '*');
     const channel = await input.guild.channels.create({
         name: `${input.label}: ${value}`.slice(0, 100),
         type: ChannelType.GuildVoice,
@@ -77,6 +81,7 @@ export async function createStatsChannel(input: {
         data: { channelId: channel.id, kind: input.kind, label: input.label, createdBy: input.createdBy }
     }).catch(async error => {
         console.error('[stats] ghi DB lỗi, xoá kênh vừa tạo:', error);
+        markInternalAntiRaidAction('channelDelete', channel.id);
         await channel.delete('Không ghi được vào DB').catch(() => {});
         throw error;
     });
@@ -88,7 +93,10 @@ export async function removeStatsChannel(channelId: string, guild: Guild, delete
     const removed = await prisma.statsChannel.deleteMany({ where: { channelId } }).catch(() => ({ count: 0 }));
     if (removed.count && deleteChannel) {
         const channel = await guild.channels.fetch(channelId).catch(() => null);
-        await channel?.delete('Gỡ kênh thống kê').catch(() => {});
+        if (channel) {
+            markInternalAntiRaidAction('channelDelete', channel.id);
+            await channel.delete('Gỡ kênh thống kê').catch(() => {});
+        }
     }
     return removed.count > 0;
 }
@@ -111,6 +119,9 @@ export async function refreshStatsChannels(guild: Guild): Promise<number> {
         // Chỉ gọi API khi tên thật sự đổi — xem comment đầu file.
         if (channel.name === nextName) continue;
 
+        // Không xin phép thì guardChannelUpdate thấy Stella đổi tên kênh "ngoài luồng"
+        // và đổi ngược về tên cũ — kênh thống kê sẽ đứng số mãi.
+        markInternalAntiRaidAction('channelUpdate', channel.id);
         const ok = await channel.setName(nextName, 'Cập nhật kênh thống kê').then(() => true).catch(error => {
             console.error(`[stats] không đổi được tên kênh ${row.channelId}:`, error?.message || error);
             return false;

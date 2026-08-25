@@ -239,6 +239,13 @@ async function restoreDeletedChannel(channel: Channel, actorId: string | null | 
 
     if (old.type === ChannelType.GuildText || old.type === ChannelType.GuildAnnouncement) {
         const text = old as TextChannel;
+        // Xin phép TRƯỚC khi tạo, không phải sau. Discord gửi event CHANNEL_CREATE qua
+        // gateway độc lập với response HTTP của lời gọi create, và event thường tới
+        // trước — nếu chỉ dựa vào `recentRestores` (chỉ set được SAU khi await xong)
+        // thì guardChannelCreate chạy lúc set còn rỗng, thấy chính Stella tạo kênh
+        // "ngoài luồng" và xoá nó. Xoá lại bắn channelDelete, lại restore: vòng lặp
+        // tạo–xoá vô hạn.
+        markInternalAntiRaidAction('channelCreate', '*');
         const created = await old.guild.channels.create({
             name: old.name,
             type: old.type,
@@ -260,6 +267,7 @@ async function restoreDeletedChannel(channel: Channel, actorId: string | null | 
 
     if (old.type === ChannelType.GuildCategory) {
         const category = old as CategoryChannel;
+        markInternalAntiRaidAction('channelCreate', '*');
         const created = await old.guild.channels.create({
             name: old.name,
             type: ChannelType.GuildCategory,
@@ -313,14 +321,24 @@ export async function guardChannelCreate(channel: GuildBasedChannel): Promise<vo
     if (!isEnabled() || recentRestores.has(channel.id)) return;
     const entry = await fetchRecentAudit(channel.guild, AuditLogEvent.ChannelCreate, channel.id);
     const actorId = entry?.executorId;
-    if (isSelf(channel.client, actorId) && hasInternalAllow('channelCreate', channel.id)) return;
+    const selfActor = isSelf(channel.client, actorId);
+    if (selfActor && hasInternalAllow('channelCreate', channel.id)) return;
 
-    const count = actorId ? addStrike(actorId, 'channelCreate') : 0;
-    const shouldDelete = Boolean(actorId && (isSelf(channel.client, actorId) || count >= threshold('channelCreate')));
-    const trusted = shouldDelete && !isSelf(channel.client, actorId) && await isTrustedActor(channel.guild, actorId!);
-    let result = trusted
-        ? 'trusted-role-exempt'
-        : shouldDelete ? await punishActor(channel.guild, actorId!, `${config.antiRaid.punishmentReason}: channelCreate`) : 'watching';
+    // Kênh do CHÍNH Stella tạo thì chỉ ghi log, tuyệt đối không xoá.
+    //
+    // Xoá kênh mà bot vừa tạo không chặn được kẻ trộm token (họ tạo tiếp cái khác),
+    // nhưng nó phá đúng những thứ bot có nhiệm vụ tạo: kênh ticket, phòng voice tạm,
+    // kênh thống kê, và kênh vừa được khôi phục sau một lượt xoá. Nặng nhất là kênh
+    // khôi phục: xoá nó lại bắn channelDelete, guardChannelDelete lại khôi phục, thành
+    // vòng lặp tạo–xoá không có điểm dừng.
+    const count = actorId && !selfActor ? addStrike(actorId, 'channelCreate') : 0;
+    const shouldDelete = Boolean(actorId && !selfActor && count >= threshold('channelCreate'));
+    const trusted = shouldDelete && await isTrustedActor(channel.guild, actorId!);
+    let result = selfActor
+        ? 'self-action-logged-only'
+        : trusted
+            ? 'trusted-role-exempt'
+            : shouldDelete ? await punishActor(channel.guild, actorId!, `${config.antiRaid.punishmentReason}: channelCreate`) : 'watching';
     if (shouldDelete && !trusted && canManageChannels(channel.guild)) {
         const deleted = await channel.delete(`${config.antiRaid.punishmentReason}: mass channel create`)
             .then(() => true)
@@ -330,8 +348,8 @@ export async function guardChannelCreate(channel: GuildBasedChannel): Promise<vo
 
     if (actorId) {
         await sendAdminLog(channel.client, {
-            title: isSelf(channel.client, actorId) ? 'CRITICAL: Stella created channel outside internal flow' : shouldDelete ? 'Mass channel create blocked' : 'Channel create detected',
-            color: isSelf(channel.client, actorId) ? '#ff0000' : shouldDelete ? '#e74c3c' : '#f1c40f',
+            title: selfActor ? 'Stella created a channel outside the internal flow' : shouldDelete ? 'Mass channel create blocked' : 'Channel create detected',
+            color: selfActor ? '#e67e22' : shouldDelete ? '#e74c3c' : '#f1c40f',
             fields: [
                 { name: 'Actor', value: `<@${actorId}>`, inline: true },
                 { name: 'Channel', value: `<#${channel.id}>`, inline: true },
@@ -346,9 +364,25 @@ export async function guardChannelDelete(channel: Channel): Promise<void> {
     if (!isEnabled() || !('guild' in channel) || !channel.guild) return;
     const entry = await fetchRecentAudit(channel.guild, AuditLogEvent.ChannelDelete, channel.id);
     const actorId = entry?.executorId;
-    if (isSelf(channel.client, actorId) && hasInternalAllow('channelDelete', channel.id)) return;
+    const selfActor = isSelf(channel.client, actorId);
+    if (selfActor && hasInternalAllow('channelDelete', channel.id)) return;
 
-    const restoreResult = await restoreDeletedChannel(channel, actorId);
+    // Không khôi phục kênh mà chính Stella xoá. Bot xoá kênh là việc bình thường:
+    // phòng voice tạm hết người, ticket đã đóng, kênh thống kê bị gỡ. Khôi phục
+    // chúng tạo ra phòng zombie không bao giờ chết, và nếu kênh bị xoá vốn là kênh
+    // vừa được khôi phục thì thành vòng lặp tạo–xoá vô hạn.
+    //
+    // Người có role trusted xoá kênh cũng không khôi phục: đây là admin đang dọn
+    // server, và dựng lại kênh họ vừa cố ý xoá là bot chống lại chủ nó. Acc trusted
+    // bị chiếm thì nuke được — nhưng acc đó cũng đã tự gỡ được role bảo vệ rồi, nên
+    // lớp chặn này không phải thứ giữ được nó.
+    const trusted = Boolean(actorId) && !selfActor && await isTrustedActor(channel.guild, actorId!);
+    const restoreResult = selfActor
+        ? 'self-delete-no-restore'
+        : trusted
+            ? 'trusted-role-exempt-no-restore'
+            : await restoreDeletedChannel(channel, actorId);
+
     await recordAndMaybePunish(
         channel.client,
         channel.guild,

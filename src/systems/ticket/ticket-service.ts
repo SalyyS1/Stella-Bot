@@ -11,6 +11,7 @@ import {
     TextChannel
 } from 'discord.js';
 import { config } from '../../config';
+import { markInternalAntiRaidAction } from '../antiRaidManager';
 import { sendMessageLog } from '../logs/message-log-sender';
 import { buildTranscript } from './ticket-transcript';
 import {
@@ -113,6 +114,9 @@ export async function openTicket(member: GuildMember, topic: string): Promise<Op
     // Tạo row TRƯỚC để lấy số ticket, nhưng cần channelId... nên tạo kênh với tên tạm rồi
     // đổi tên theo id là hai lần gọi API. Thay vào đó: đếm tổng ticket để đặt tên, và id
     // thật vẫn được ghi trong embed. Tên kênh không cần trùng khớp id tuyệt đối.
+    // Xin phép anti-raid TRƯỚC khi tạo: guardChannelCreate coi mọi kênh Stella tạo mà
+    // không có phép là dấu hiệu token bị chiếm.
+    markInternalAntiRaidAction('channelCreate', '*');
     const channel = await guild.channels.create({
         name: `ticket-${member.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 90) || 'ticket',
         type: ChannelType.GuildText,
@@ -128,6 +132,7 @@ export async function openTicket(member: GuildMember, topic: string): Promise<Op
     const row = await createTicketRow({ channelId: channel.id, openerId: member.id, topic }).catch(async error => {
         // Ghi DB hỏng mà để kênh lại thì kênh đó thành rác không ai nhận.
         console.error('[ticket] ghi DB lỗi, xoá kênh vừa tạo:', error);
+        markInternalAntiRaidAction('channelDelete', channel.id);
         await channel.delete('Không ghi được ticket vào DB').catch(() => {});
         return null;
     });
@@ -189,7 +194,11 @@ export async function closeTicket(
     }).catch(() => {});
 
     await channel.send(`${config.ui.emojis.close} Ticket đã đóng. Kênh sẽ bị xoá sau 5 giây.`).catch(() => {});
-    setTimeout(() => channel.delete('Ticket đã đóng').catch(() => {}), 5_000);
+    setTimeout(() => {
+        // Xin phép ngay trước lúc xoá, không phải lúc hẹn giờ: phép có TTL 20 giây.
+        markInternalAntiRaidAction('channelDelete', channel.id);
+        channel.delete('Ticket đã đóng').catch(() => {});
+    }, 5_000);
     return { ok: true };
 }
 

@@ -15,6 +15,7 @@ import {
 } from 'discord.js';
 import { config } from '../../config';
 import { safeInteractionReply } from '../../utils/interaction-safe-reply';
+import { markInternalAntiRaidAction } from '../antiRaidManager';
 import { buildPanelPayload } from './tempvoice-panel';
 import { sanitizeRoomName } from './tempvoice-service';
 import { getRoom, updateRoom } from './tempvoice-store';
@@ -178,6 +179,8 @@ async function handleModal(interaction: ModalSubmitInteraction, action: string, 
 
     if (action === 'renamemodal') {
         const name = sanitizeRoomName(raw);
+        // Không xin phép thì guardChannelUpdate đổi ngược tên về cũ ngay sau đó.
+        markInternalAntiRaidAction('channelUpdate', context.channel.id);
         const renamed = await context.channel.setName(name).then(() => true).catch(() => false);
         await safeInteractionReply(interaction, {
             content: renamed

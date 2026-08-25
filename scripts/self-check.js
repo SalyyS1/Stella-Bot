@@ -969,4 +969,48 @@ check(
     'voice leaderboard must exclude the AFK channel and self-deafened time'
 );
 
+// ============================================================
+//  ANTI-RAID KHÔNG ĐƯỢC ĐÁNH NHAU VỚI CHÍNH BOT
+// ============================================================
+// Vòng lặp đã từng xảy ra thật: admin xoá một kênh → guardChannelDelete khôi phục nó →
+// guardChannelCreate thấy "Stella tạo kênh ngoài luồng" → xoá kênh vừa khôi phục →
+// channelDelete lại bắn → khôi phục lại → tạo–xoá không có điểm dừng, kèm log CRITICAL
+// mỗi vòng. Bốn assertion dưới đây khoá lại từng mắt của vòng đó.
+const antiRaidGuards = source('systems/antiRaidManager.ts');
+
+// Kênh do chính Stella tạo: chỉ ghi log, không xoá. Xoá kênh bot vừa tạo không chặn được
+// kẻ trộm token nhưng phá đúng thứ bot có nhiệm vụ tạo (ticket, phòng voice tạm, kênh
+// thống kê, kênh vừa khôi phục).
+check(
+    antiRaidGuards.includes("const shouldDelete = Boolean(actorId && !selfActor && count >= threshold('channelCreate'))"),
+    'guardChannelCreate must never delete a channel the bot itself created'
+);
+// Kênh do chính Stella xoá: không khôi phục. Bot xoá kênh là việc bình thường (phòng
+// voice hết người, ticket đã đóng) và khôi phục chúng tạo ra kênh zombie.
+check(
+    antiRaidGuards.includes("'self-delete-no-restore'"),
+    'guardChannelDelete must not restore a channel the bot itself deleted'
+);
+// Admin có role trusted xoá kênh là đang dọn server, không phải raid.
+check(
+    antiRaidGuards.includes("'trusted-role-exempt-no-restore'"),
+    'guardChannelDelete must not restore a channel a trusted admin deleted'
+);
+// Phép phải xin TRƯỚC lời gọi create: event CHANNEL_CREATE qua gateway thường tới trước
+// response HTTP, nên mọi thứ set sau `await create()` là đã muộn.
+for (const [label, relative] of [
+    ['anti-raid restore', 'systems/antiRaidManager.ts'],
+    ['ticket', 'systems/ticket/ticket-service.ts'],
+    ['temp voice room', 'systems/tempvoice/tempvoice-service.ts'],
+    ['temp voice hub', 'commands/tempvoice.ts'],
+    ['stats channel', 'systems/stats/stats-channel-manager.ts']
+]) {
+    const text = source(relative);
+    const mark = text.indexOf("markInternalAntiRaidAction('channelCreate', '*')");
+    check(
+        mark !== -1 && mark < text.indexOf('channels.create('),
+        `${label} must ask anti-raid for permission before creating a channel`
+    );
+}
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
