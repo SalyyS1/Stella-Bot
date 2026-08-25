@@ -71,16 +71,23 @@ const readme = `# Stella Bot Host Package
 
 Upload these files to /home/container on Pterodactyl.
 
+This package is already compiled: dist/ holds the built code and there is no src/.
+Do NOT run \`npm run build\` or \`tsc\` on the host — tsc needs more RAM than a shared
+container gets and the kernel kills it (exit code 137, "Out of memory: true"). Build on
+the dev machine with \`npm run host:prepare\` and re-upload dist/ after every code change.
+
 Required on host:
 1. Create .env from .env.example.
-2. Run npm install.
-3. Start with: node index.js
+2. Run npm install. Its postinstall runs \`prisma generate\`, which MUST run here because
+   the Prisma query engine is a per-platform binary.
+3. Run npm run db:migrate once, by hand, whenever migrations are pending.
+4. Start with: node index.js
 
 Recommended startup command:
-if [ -f /home/container/package.json ]; then npm install; fi; node /home/container/index.js
+if [ -f /home/container/package.json ]; then npm install --no-fund --no-audit; fi; node /home/container/index.js
 
-If database migrations are ready:
-if [ -f /home/container/package.json ]; then npm install; fi; npm run db:migrate; node /home/container/index.js
+Keep db:migrate out of the startup command: every restart would wait on it, and an
+unreachable database would turn one clear error into a crash loop.
 `;
 
 fs.writeFileSync(path.join(out, 'HOST_README.md'), readme, 'utf8');
