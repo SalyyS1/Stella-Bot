@@ -4,7 +4,7 @@ server:
 
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       snapshot: false
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
       repository: "https://maven.lavalink.dev/releases"
@@ -54,7 +54,24 @@ plugins:
     clients:
       - MUSIC
       - WEB
-      - TVHTML5_SIMPLY
+      - TV
+      - ANDROID_VR
+      - WEBEMBEDDED
+    oauth:
+      # YouTube chan playback tu IP la (nhat la IP datacenter) bang "Sign in to
+      # confirm you're not a bot" / "This video requires login". Co request da
+      # dang nhap thi het. Lan start dau tien (chua co token) log se in link
+      # google.com/device + code de authorize, xong no in refreshToken ra log.
+      # Dat token do vao env YOUTUBE_REFRESH_TOKEN de khong phai lam lai flow
+      # moi lan restart. Dung account rac, khong dung account chinh.
+      enabled: true
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+    remoteCipher:
+      # Bo giai ma signature noi bo cua plugin khong theo kip player script cua
+      # YouTube, nen day phan deciphering sang yt-cipher. Public instance khong
+      # can password. Chi signature di qua day, khong co du lieu nguoi dung.
+      url: "https://cipher.kikkia.dev/"
+      userAgent: "stella-bot"
   lavasrc:
     providers:
       - "ytsearch:\"%ISRC%\""
@@ -88,3 +105,4 @@ logging:
   level:
     root: INFO
     lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
