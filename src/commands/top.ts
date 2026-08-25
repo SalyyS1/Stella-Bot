@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { config } from '../config';
 import { xpToNextLevel } from '../systems/xpManager';
 import { getFreelancerLeaderboard } from '../systems/freelancerManager';
+import { buildInviteLeaderboardEmbed } from '../systems/invite/invite-embeds';
 
 export default {
     data: new SlashCommandBuilder()
@@ -15,7 +16,8 @@ export default {
                 .setRequired(false)
                 .addChoices(
                     { name: 'Hoạt động (Level + XP)', value: 'activity' },
-                    { name: 'Freelancer (rating + jobs)', value: 'freelancers' }
+                    { name: 'Freelancer (rating + jobs)', value: 'freelancers' },
+                    { name: 'Lượt mời (invite)', value: 'invites' }
                 )
         ),
 
@@ -23,6 +25,17 @@ export default {
         await interaction.deferReply();
 
         const emojis = config.ui.emojis;
+
+        if (interaction.options.getString('type') === 'invites') {
+            try {
+                return interaction.editReply({
+                    embeds: [await buildInviteLeaderboardEmbed('all', interaction.user.id)]
+                });
+            } catch (error) {
+                console.error(error);
+                return interaction.editReply(`${emojis.error} Lỗi khi lấy bảng xếp hạng lượt mời.`);
+            }
+        }
 
         if (interaction.options.getString('type') === 'freelancers') {
             try {

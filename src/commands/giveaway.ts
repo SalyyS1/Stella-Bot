@@ -97,7 +97,18 @@ export default {
                         ))
                 .addStringOption(option => option.setName('reward_secret').setDescription('Link/file gửi riêng winner').setRequired(false).setMaxLength(1000))
                 .addStringOption(option => option.setName('media_url').setDescription('Ảnh/video showcase phần thưởng').setRequired(false))
-                .addAttachmentOption(option => option.setName('media_file').setDescription('Ảnh/video upload').setRequired(false)))
+                .addAttachmentOption(option => option.setName('media_file').setDescription('Ảnh/video upload').setRequired(false))
+                .addStringOption(option =>
+                    option.setName('invite_bonus')
+                        .setDescription('Ưu tiên tỷ lệ trúng theo lượt mời')
+                        .setRequired(false)
+                        .addChoices(
+                            { name: 'Không ưu tiên (quay đều)', value: 'none' },
+                            { name: 'Lượt mời từ trước tới giờ', value: 'all_time' },
+                            { name: 'Lượt mời tính từ lúc tạo giveaway', value: 'since_start' }
+                        ))
+                .addIntegerOption(option => option.setName('invite_weight').setDescription('Số vé cộng thêm mỗi lượt mời (mặc định 1)').setRequired(false).setMinValue(0).setMaxValue(10))
+                .addIntegerOption(option => option.setName('invite_cap').setDescription('Trần vé cộng thêm (mặc định 10)').setRequired(false).setMinValue(0).setMaxValue(50)))
         .addSubcommand(sub =>
             sub.setName('panel')
                 .setDescription('Gửi panel tạo giveaway nhanh'))
@@ -151,7 +162,10 @@ export default {
                     entryCost: interaction.options.getInteger('entry_cost') || 0,
                     rewardType: interaction.options.getString('reward_type') || 'contact_host',
                     rewardSecret: interaction.options.getString('reward_secret'),
-                    publicMediaUrl: mediaFile?.url || interaction.options.getString('media_url') || GIVEAWAY_BANNER
+                    publicMediaUrl: mediaFile?.url || interaction.options.getString('media_url') || GIVEAWAY_BANNER,
+                    inviteBonusMode: interaction.options.getString('invite_bonus') || 'none',
+                    inviteWeightPer: interaction.options.getInteger('invite_weight'),
+                    inviteWeightCap: interaction.options.getInteger('invite_cap')
                 });
                 return interaction.showModal(buildGiveawayCreateModal(interaction, `giveaway_create_modal_${draftId}`));
             }
@@ -182,6 +196,9 @@ export default {
                     rewardType: interaction.options.getString('reward_type') || 'contact_host',
                     rewardSecret: interaction.options.getString('reward_secret'),
                     publicMediaUrl: mediaFile?.url || interaction.options.getString('media_url') || GIVEAWAY_BANNER,
+                    inviteBonusMode: interaction.options.getString('invite_bonus') || 'none',
+                    inviteWeightPer: interaction.options.getInteger('invite_weight') ?? undefined,
+                    inviteWeightCap: interaction.options.getInteger('invite_cap') ?? undefined,
                     createdBy: interaction.user.id
                 });
 

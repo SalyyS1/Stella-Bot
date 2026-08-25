@@ -10,6 +10,9 @@ export type GiveawayDraft = {
     rewardType?: string | null;
     rewardSecret?: string | null;
     publicMediaUrl?: string | null;
+    inviteBonusMode?: string | null;
+    inviteWeightPer?: number | null;
+    inviteWeightCap?: number | null;
 };
 
 const drafts = new Map<string, GiveawayDraft & { expiresAt: number }>();

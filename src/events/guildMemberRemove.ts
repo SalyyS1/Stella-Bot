@@ -2,12 +2,22 @@ import { EmbedBuilder, Events, GuildMember, PartialGuildMember, TextChannel } fr
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
 import { guardMemberRemove } from '../systems/antiRaidManager';
+import { markLeft } from '../systems/invite/invite-verification';
+import { saveStickyRoles } from '../systems/moderation/sticky-role-manager';
 
 export default {
     name: Events.GuildMemberRemove,
     once: false,
     async execute(member: GuildMember | PartialGuildMember) {
         if (!member.partial) await guardMemberRemove(member);
+
+        // Lưu role kỷ luật TRƯỚC mọi thứ khác: đây là lúc duy nhất còn đọc được role
+        // của người vừa rời.
+        const sticky = await saveStickyRoles(member).catch(() => [] as string[]);
+
+        // Lượt mời chưa qua cổng ở-lại thì mất; đã tính rồi thì giữ, chỉ ghi mốc rời.
+        await markLeft(member.id).catch(error => console.error('[invite] markLeft lỗi:', error));
+
         const channel = await member.client.channels.fetch(config.channels.welcome).catch(() => null);
         if (!channel || !channel.isTextBased()) {
             await sendAdminLog(member.client, {
@@ -30,7 +40,16 @@ export default {
         await sendAdminLog(member.client, {
             title: 'Member left',
             color: '#95a5a6',
-            fields: [{ name: 'User', value: member.user ? `${member.user.tag} (${member.id})` : member.id }]
+            fields: [
+                { name: 'User', value: member.user ? `${member.user.tag} (${member.id})` : member.id },
+                ...(sticky.length
+                    ? [{
+                        name: 'Role kỷ luật đã ghi nhớ',
+                        value: `${sticky.map(id => `<@&${id}>`).join(', ')}\n(sẽ tự trả lại nếu vào lại)`,
+                        inline: false
+                    }]
+                    : [])
+            ]
         });
     }
 };

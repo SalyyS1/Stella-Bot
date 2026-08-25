@@ -23,6 +23,10 @@ const client = new Client({
         GatewayIntentBits.GuildModeration,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.GuildVoiceStates,
+        // Cần cho inviteCreate/inviteDelete: giữ ảnh chụp `uses` luôn mới để lúc
+        // member join còn diff ra được ai mời. Riêng việc fetch invite thì cần
+        // quyền Manage Server, không phải intent — thiếu quyền sẽ được log rõ.
+        GatewayIntentBits.GuildInvites,
     ],
     partials: [
         Partials.Message,

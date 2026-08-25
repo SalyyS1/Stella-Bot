@@ -76,7 +76,16 @@ check(message.includes('if (await guardEveryoneMention(message)) return;'), 'ant
 check(showcase.includes('allowedMentions: { users: [post.authorId]'), 'showcase mention allowlist missing');
 check(vote.indexOf('await lockVoteScores(tx)') < vote.indexOf('const existing = await tx.vote.findUnique'), 'vote snapshot is read before lock');
 check(game.indexOf('settleScoinWager(') < game.indexOf("const frames = ['Đồng xu"), 'coinflip settles after animation');
-check(game.includes("from 'crypto'") && giveaway.includes("from 'crypto'"), 'secure random source missing');
+// Nguồn ngẫu nhiên an toàn. Lượt quay giveaway đã chuyển sang
+// systems/invite/weighted-draw.ts (quay theo số vé), nên invariant "không dùng
+// Math.random để chia thưởng" bây giờ phải được kiểm ở đó — kèm chốt là
+// giveawayManager không tự quay lại bằng cách khác.
+check(
+    game.includes("from 'crypto'") &&
+    fs.readFileSync(path.join(root, 'src', 'systems', 'invite', 'weighted-draw.ts'), 'utf8').includes("from 'crypto'") &&
+    !giveaway.includes('Math.random'),
+    'secure random source missing'
+);
 check(scoin.includes('scoinBalance: { gte: -amount }') && scoin.includes('scoinBalance: { gte: bet }'), 'atomic Scoin debit missing');
 check(daily.includes('Lock this user') && daily.includes('adjustScoinTx(tx'), 'atomic daily claim missing');
 check(xp.includes('levelScoinReward(newLevel)') && !message.includes('await adjustScoin(message.author.id'), 'level reward is not atomic');
@@ -616,6 +625,348 @@ check(
 check(
     dailyStore.includes('reportDaily.upsert') && scheduler.includes('saveDailyReport(period, body)'),
     'posted daily bulletin must be persisted for the weekly digest'
+);
+
+// === Hệ thống mời (invite) ===
+const inviteCache = source('systems/invite/invite-cache.ts');
+const inviteAttribution = source('systems/invite/invite-attribution.ts');
+const inviteVerification = source('systems/invite/invite-verification.ts');
+const inviteRewards = source('systems/invite/invite-rewards.ts');
+const inviteBackfill = source('systems/invite/invite-backfill.ts');
+const memberAdd = source('events/guildMemberAdd.ts');
+const memberRemove = source('events/guildMemberRemove.ts');
+const entry = source('index.ts');
+
+// Không có intent này thì cache invite không được cập nhật khi ai tạo/xoá link,
+// và lượt join kế tiếp không quy được về ai.
+check(entry.includes('GatewayIntentBits.GuildInvites'), 'GuildInvites intent is required for invite tracking');
+// Mù thì phải ghi UNKNOWN, KHÔNG được đoán: gán oan một lượt mời làm sai cả bảng
+// xếp hạng lẫn tỷ lệ giveaway.
+check(
+    inviteCache.includes("grown.length === 1") && inviteCache.includes("source: 'UNKNOWN'"),
+    'invite resolution must fall back to UNKNOWN instead of guessing when several codes grew'
+);
+// Cổng chống bot: cả ba điều kiện (chọn role, tuổi acc, thời gian ở lại).
+check(
+    inviteAttribution.includes('REJECTED_YOUNG') && inviteAttribution.includes('minAccountAgeDays'),
+    'young-account gate is missing from invite attribution'
+);
+check(memberAdd.includes('recordJoin'), 'guildMemberAdd must record invite attribution');
+check(memberRemove.includes('markLeft'), 'guildMemberRemove must drop unverified invite credit');
+check(interaction.includes('markRolePicked'), 'role-pick must be recorded as the invite verification task');
+check(
+    inviteVerification.includes("status: 'PENDING'") && inviteVerification.includes('claimed.count !== 1'),
+    'invite verification must gate the reward behind a conditional status flip (no double payout)'
+);
+// Vào lại không được tạo lượt mới — đó là cách farm rẻ nhất.
+check(
+    inviteAttribution.includes('rejoinCount: { increment: 1 }'),
+    'rejoin must increment a counter instead of creating a fresh invite credit'
+);
+// Chỉ trả Scoin cho lượt mời thật; vanity/unknown chỉ ghi công hiển thị.
+check(
+    inviteRewards.includes("source === 'INVITE'") && inviteRewards.includes("'invite:verified'"),
+    'Scoin reward must be limited to real invites and tagged with its own transaction source'
+);
+// Backfill chạy MỘT lần: quét lại sẽ cộng đôi với số đang đếm chính xác.
+check(
+    inviteBackfill.includes('already > 0') && inviteBackfill.includes('ranNow: false'),
+    'invite backfill must be frozen after the first run'
+);
+
+// === Giveaway ưu tiên theo lượt mời ===
+const weightedDraw = source('systems/invite/weighted-draw.ts');
+check(
+    giveaway.includes('pickWinnersWeighted') && !giveaway.includes('function pickWinners('),
+    'giveaway draw must use the weighted picker'
+);
+// Số vé phải được tính LẠI lúc quay, không dùng số lưu lúc tham gia.
+check(
+    giveaway.includes('computeEntryWeight(giveaway, entry.userId)'),
+    'entry weight must be recomputed at draw time so late invites still count'
+);
+check(
+    weightedDraw.includes('Math.max(1, Math.floor(row.weight))'),
+    'weighted draw must clamp bad weights to 1 instead of dropping the entry'
+);
+
+// === Log kiểm duyệt ===
+const mirror = source('systems/logs/message-mirror.ts');
+const imageCache = source('systems/logs/message-image-cache.ts');
+const messageUpdate = source('events/messageUpdate.ts');
+const messageDelete = source('events/messageDelete.ts');
+// Mirror phải chạy ở messageCreate: đây là lúc duy nhất còn nội dung để lưu.
+check(message.includes('mirrorMessage(message)'), 'messageCreate must mirror messages for the delete/edit log');
+check(message.includes('cacheAttachments(message)'), 'messageCreate must cache image bytes before the CDN URL dies');
+// Prune hai tầng: dòng đã xoá/sửa giữ lâu hơn dòng thường.
+check(
+    mirror.includes('retainDays') && mirror.includes('retainFlaggedDays'),
+    'mirror prune must keep deleted/edited rows longer than normal rows'
+);
+// Trần RAM cho cache ảnh — thiếu nó là bot ăn hết bộ nhớ host.
+check(
+    imageCache.includes('cacheTotalBytes') && imageCache.includes('evictOldestUntilFits'),
+    'image byte cache must be bounded and evict oldest entries'
+);
+// Lọc messageUpdate: Discord bắn event này cả khi chỉ có preview link nạp xong.
+check(
+    messageUpdate.includes('oldContent === message.content'),
+    'messageUpdate must ignore non-content updates (embed preview loads)'
+);
+check(
+    messageDelete.includes('resolveDeleterWithGrace'),
+    'delete log must resolve whether a mod deleted the message'
+);
+check(
+    source('systems/logs/message-log-embeds.ts').includes('msglog_diff_') &&
+    interaction.includes("action === 'msglog'") &&
+    interaction.includes('PermissionFlagsBits.Administrator'),
+    'edit-history buttons must exist and be admin-gated'
+);
+
+// ============================================================
+//  AUTOMOD
+// ============================================================
+const automodService = source('systems/automod/automod-service.ts');
+const automodRules = source('systems/automod/automod-rules.ts');
+const automodAlert = source('systems/automod/automod-alert.ts');
+
+// Thứ tự trong pipeline là một invariant thật: chạy automod TRƯỚC mirror thì tin bị
+// xoá không còn bản sao nào để mod đọc lại, chạy SAU khối XP thì tin vi phạm vẫn được
+// cộng điểm.
+check(
+    message.indexOf('void mirrorMessage(message)') < message.indexOf('if (await runAutomod(message)) return;') &&
+    message.indexOf('if (await runAutomod(message)) return;') < message.indexOf('processMessageXp('),
+    'automod must run after the message mirror and before XP'
+);
+// Saly chốt 2026-08-25: bot chỉ xoá tin và báo mod, không tự phạt. Nếu ai đó nối
+// timeout thẳng vào đường automod thì assertion này phải kêu.
+check(
+    !automodService.includes('timeoutMember') && !automodService.includes('.timeout('),
+    'automod must not punish on its own — only delete and alert moderators'
+);
+check(
+    automodService.includes('PermissionFlagsBits.ManageMessages'),
+    'automod must exempt members who can manage messages'
+);
+// Chuẩn hoá NFC trước khi đếm dấu phụ: thiếu dòng này thì mọi câu tiếng Việt gõ bằng
+// IME trả về NFD đều bị coi là zalgo.
+check(
+    automodRules.includes("normalize('NFC')"),
+    'zalgo rule must normalize to NFC or Vietnamese text gets flagged'
+);
+check(
+    automodAlert.includes('PermissionFlagsBits.ModerateMembers'),
+    'automod moderator buttons must re-check permissions'
+);
+// Kênh quảng cáo SỐNG bằng link mời, và automod chạy trước publishServerAd. Không miễn
+// trừ thì mọi bài quảng cáo bị xoá trước khi bot kịp xử lý form.
+check(
+    source('systems/automod/automod-settings.ts').includes('config.channels.serverAds') &&
+    source('systems/automod/automod-settings.ts').includes('...merged.exemptChannelIds'),
+    'automod must exempt the link-based channels, and DB overrides must not drop them'
+);
+
+// ============================================================
+//  ROLE MENU / CỔNG VERIFY
+// ============================================================
+const roleGate = source('systems/rolemenu/role-assignable-gate.ts');
+const roleMenuHandler = source('systems/rolemenu/rolemenu-handler.ts');
+
+// Đây là lỗ hổng leo thang quyền dễ tạo nhất trong cả bộ quản lý: một menu công khai
+// phát role có ManageRoles nghĩa là ai bấm nút cũng tự lên admin được.
+check(
+    roleGate.includes('PermissionFlagsBits.Administrator') &&
+    roleGate.includes('PermissionFlagsBits.ManageRoles') &&
+    roleGate.includes('role.managed') &&
+    roleGate.includes('me.roles.highest.position'),
+    'role-assignable gate must block privileged/managed/above-bot roles'
+);
+// customId nằm trong tay client — roleId phải được đối chiếu lại với option trong DB.
+check(
+    roleMenuHandler.includes('menuRoleIds.includes(roleId)') &&
+    roleMenuHandler.includes('checkRoleAssignable'),
+    'role menu must re-validate the requested role against the DB and the safety gate'
+);
+
+// ============================================================
+//  PHÒNG VOICE TẠM
+// ============================================================
+const tempVoiceService = source('systems/tempvoice/tempvoice-service.ts');
+const tempVoiceControls = source('systems/tempvoice/tempvoice-controls.ts');
+const ready = source('events/ready.ts');
+
+// Hẹn giờ xoá nằm trong RAM: không reconcile lúc boot thì mỗi lần restart để lại phòng
+// rỗng sống mãi, và sau vài lần server đầy kênh rác không ai dám xoá.
+check(
+    ready.includes('reconcileTempVoiceChannels'),
+    'temp voice must reconcile orphaned rooms on boot'
+);
+// Chỉ đụng kênh có row trong bảng temp voice — hệ thống nhạc cũng sống trong voice.
+check(
+    tempVoiceService.includes('await getRoom(') && tempVoiceService.includes('await getHub('),
+    'temp voice must only touch channels it owns'
+);
+// Quyền chủ phòng đọc từ DB, không đọc từ customId (customId nằm trong tay client).
+check(
+    tempVoiceControls.includes('room.ownerId !== interaction.user.id') &&
+    tempVoiceControls.includes('await getRoom(channelId)'),
+    'temp voice panel must verify ownership from the database'
+);
+
+// ============================================================
+//  TAG / STICKY / STARBOARD / AFK
+// ============================================================
+const tagResponder = source('systems/utility/tag-autoresponder.ts');
+const tagStore = source('systems/utility/tag-store.ts');
+const stickyManager = source('systems/utility/sticky-manager.ts');
+const starboard = source('systems/utility/starboard-manager.ts');
+const afk = source('systems/utility/afk-manager.ts');
+
+// Nội dung do admin nhập nhưng BOT là người gửi — nghĩa là nó mang quyền ping của bot.
+// Thiếu `parse: []` thì `/tag create` và `/sticky set` là công cụ ping @everyone cho
+// bất kỳ ai được phép tạo tag.
+check(
+    tagResponder.includes('allowedMentions: { parse: [] }') &&
+    stickyManager.includes('allowedMentions: { parse: [] }') &&
+    source('commands/tag.ts').includes('allowedMentions: { parse: [] }'),
+    'tag/sticky content must never be able to ping'
+);
+// Đăng lại tin của người khác kèm ping tác giả biến starboard thành máy quấy rối.
+check(
+    starboard.includes('allowedMentions: { parse: [] }') &&
+    starboard.includes('allowSelfStar') &&
+    starboard.includes('message.channelId === boardId'),
+    'starboard must not ping, must ignore self-stars, and must not re-star itself'
+);
+// Trigger khớp theo từ: "ip" khớp giữa từ sẽ nhảy vào "script", "vip", "clip".
+check(
+    tagStore.includes(String.raw`(?<![\\p{L}\\p{N}])`),
+    'tag autoresponder must match on word boundaries'
+);
+check(
+    afk.includes('sanitizeReason') && afk.includes("replace(/<@[!&]?\\d+>/g"),
+    'AFK reason must be stripped of mentions before it is shown to others'
+);
+// Autoresponder nằm cuối pipeline: các kênh có luật riêng đều return trước đó.
+check(
+    message.lastIndexOf('handleTagTrigger') > message.indexOf('createShowcasePost'),
+    'tag autoresponder must run after channel-specific handlers'
+);
+
+// ============================================================
+//  QUẢN LÝ TẦNG 2
+// ============================================================
+const autoroleManager = source('systems/roles/autorole-manager.ts');
+const tempRole = source('systems/roles/temp-role-manager.ts');
+const channelLock = source('systems/moderation/channel-lock.ts');
+const watchManager = source('systems/moderation/watch-manager.ts');
+const highlight = source('systems/utility/highlight-manager.ts');
+const joinRisk = source('systems/moderation/join-risk-alert.ts');
+const modDigest = source('systems/moderation/mod-digest.ts');
+const embedCmd = source('commands/embed.ts');
+const watchCmd = source('commands/watch.ts');
+
+// Autorole là đường phát role rộng nhất của bot — nó cấp cho MỌI người vào server. Phải
+// đi qua cùng cổng an toàn của role menu, và kiểm lại lúc cấp (role có thể được cấp thêm
+// quyền sau khi đã vào danh sách).
+check(
+    autoroleManager.includes('checkRoleAssignable(guild, role)') &&
+    autoroleManager.includes('checkRoleAssignable(member.guild, role)'),
+    'autorole must run the role safety gate both when adding and when granting'
+);
+check(
+    tempRole.includes('checkRoleAssignable'),
+    'temp roles must run the role safety gate'
+);
+// Chạy ngay khi bot lên: role đáng ra hết hạn lúc bot tắt phải được gỡ ngay, không phải
+// một phút sau.
+check(
+    tempRole.includes('void run();') && tempRole.includes('setInterval(run'),
+    'temp role sweeper must run once immediately, then on an interval'
+);
+// Mở lockdown phải XOÁ overwrite. Set `true` sẽ ghi đè cấu hình gốc của kênh — một kênh
+// thông báo mà admin cố ý khoá sẽ thành kênh ai cũng chat được.
+check(
+    channelLock.includes('SendMessages: null'),
+    'unlock must clear the overwrite, not grant SendMessages'
+);
+// `/watch` là công cụ theo dõi người thật: Administrator + luôn để lại dấu vết.
+check(
+    watchCmd.includes('PermissionFlagsBits.Administrator') && watchCmd.includes("kind: 'WATCH'"),
+    'watch must be admin-only and always leave a mod-case trail'
+);
+check(
+    watchManager.includes('expiresAt.getTime() <= Date.now()'),
+    'watch entries must expire on read so a forgotten watch stops on its own'
+);
+// Highlight là đường DM ẩn danh: chặn đọc lén kênh mình không vào được.
+check(
+    highlight.includes('PermissionFlagsBits.ViewChannel') &&
+    highlight.includes('pair.userId === message.author.id'),
+    'highlight must check the subscriber can read the channel and skip their own messages'
+);
+// Bot không tự xử acc lạ — nút cho mod, và nút kiểm lại quyền.
+check(
+    joinRisk.includes('PermissionFlagsBits.KickMembers') && joinRisk.includes('assessJoinRisk'),
+    'join-risk buttons must re-check permissions'
+);
+// `/embed` gửi dưới danh nghĩa bot → mang quyền ping của bot.
+check(
+    embedCmd.includes('allowedMentions: { parse: [] }'),
+    'embed builder must never be able to ping'
+);
+// Sai múi giờ ở đây là lỗi im lặng: bản tin không bao giờ chạy.
+check(
+    modDigest.includes('timeZone: config.maintenance.timezone') && modDigest.includes('claimWork'),
+    'mod digest must pin the timezone and guard against double-posting'
+);
+
+// ============================================================
+//  TICKET · KÊNH THỐNG KÊ · POLL · THỜI GIAN VOICE
+// ============================================================
+const ticketService = source('systems/ticket/ticket-service.ts');
+const ticketCmd = source('commands/ticket.ts');
+const statsChannel = source('systems/stats/stats-channel-manager.ts');
+const pollCmd = source('commands/poll.ts');
+const voiceActivity = source('systems/stats/voice-activity-manager.ts');
+
+// Quyền kênh ticket phải đặt NGAY trong lời gọi create. Tạo kênh public rồi mới gỡ
+// ViewChannel để lại một khoảng vài trăm ms cả server đọc được — và ticket thường là chỗ
+// người ta kể chuyện họ không muốn kể công khai.
+check(
+    ticketService.indexOf('permissionOverwrites: overwrites') > ticketService.indexOf('deny: [PermissionFlagsBits.ViewChannel]') &&
+    ticketService.includes('channels.create'),
+    'ticket channels must be created with permission overwrites, not locked down afterwards'
+);
+// Transcript phải chạy TRƯỚC khi xoá kênh.
+check(
+    ticketService.indexOf('buildTranscript(') < ticketService.indexOf("channel.delete('Ticket đã đóng')"),
+    'ticket transcript must be captured before the channel is deleted'
+);
+// Người mở ticket không được tự thêm người khác vào — đó là đường lộ dữ liệu của chính họ.
+check(
+    ticketCmd.includes('Chỉ ban quản trị thêm/bỏ người được'),
+    'only staff may add/remove members from a ticket'
+);
+// Trần đổi tên kênh của Discord là 2 lần/10 phút, và vượt trần thì request bị TREO chứ
+// không lỗi — kéo theo mọi request khác của bot.
+check(
+    statsChannel.includes('Math.max(config.stats.updateIntervalMs, config.stats.minIntervalMs)') &&
+    statsChannel.includes('if (channel.name === nextName) continue;'),
+    'stats channels must enforce the rename interval floor and skip unchanged names'
+);
+// Poll gốc của Discord, không tự dựng bằng nút: Discord đã lo lưu phiếu, chặn bỏ phiếu
+// hai lần, ẩn kết quả và hẹn giờ đóng.
+check(
+    pollCmd.includes('poll: {') && pollCmd.includes('allowMultiselect'),
+    'poll must use the native Discord poll payload'
+);
+// Bảng xếp hạng voice phải loại kênh AFK và khoảng tự tắt tai nghe, nếu không nó chỉ đo
+// ai để máy chạy lâu nhất.
+check(
+    voiceActivity.includes('state.guild.afkChannelId') && voiceActivity.includes('state.selfDeaf'),
+    'voice leaderboard must exclude the AFK channel and self-deafened time'
 );
 
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

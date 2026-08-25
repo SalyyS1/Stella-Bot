@@ -1,4 +1,4 @@
-import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, GuildMember, StringSelectMenuBuilder } from 'discord.js';
+import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, GuildMember, StringSelectMenuBuilder, PermissionFlagsBits } from 'discord.js';
 import { config } from '../config';
 import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
@@ -15,6 +15,16 @@ import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleM
 import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerManager';
 import { approveCrossPost, rejectCrossPost } from '../systems/facebookCrossPostManager';
 import { safeDeferEphemeral, safeDeferUpdate, safeInteractionReply } from '../utils/interaction-safe-reply';
+import { markRolePicked } from '../systems/invite/invite-verification';
+import { buildInvitedListPayload } from '../systems/invite/invite-embeds';
+import { buildOddsReply } from '../systems/invite/invite-giveaway-weight';
+import { buildEditDiffReply, buildEditHistoryReply } from '../systems/logs/message-log-embeds';
+import { getRecentByAuthor } from '../systems/logs/message-mirror';
+import { handleAutomodButton } from '../systems/automod/automod-alert';
+import { handleRoleMenuComponent } from '../systems/rolemenu/rolemenu-handler';
+import { handleTempVoiceComponent } from '../systems/tempvoice/tempvoice-controls';
+import { handleJoinRiskButton } from '../systems/moderation/join-risk-alert';
+import { handleTicketComponent } from '../systems/ticket/ticket-interactions';
 
 async function createRequestFromModal(interaction: any, client: any, kind: 'PAID' | 'FREE', skill: string | null) {
     const acknowledged = await safeDeferEphemeral(interaction);
@@ -109,6 +119,25 @@ export default {
     name: Events.InteractionCreate,
     once: false,
     async execute(interaction: Interaction, client: any) {
+        // Panel phòng voice tạm dùng cả nút, modal và user-select. Bắt trước router
+        // chính để không phải nhân ba nhánh cho cùng một tính năng.
+        if (
+            (interaction.isButton() || interaction.isModalSubmit() || interaction.isUserSelectMenu()) &&
+            interaction.customId.startsWith('tvc_')
+        ) {
+            await handleTempVoiceComponent(interaction);
+            return;
+        }
+
+        // Ticket dùng cả nút và modal — cùng lý do gộp như panel voice ở trên.
+        if (
+            (interaction.isButton() || interaction.isModalSubmit()) &&
+            interaction.customId.startsWith('ticket_')
+        ) {
+            await handleTicketComponent(interaction);
+            return;
+        }
+
         // Autocomplete phải trả lời trong 3s và không được defer, nên xử lý trước
         // mọi nhánh khác; lệnh không khai báo hàm này thì bỏ qua im lặng.
         if (interaction.isAutocomplete()) {
@@ -232,6 +261,24 @@ export default {
                 return;
             }
 
+            // Nút xử của mod trên cảnh báo automod: automod_<action>_<userId>.
+            if (action === 'automod') {
+                await handleAutomodButton(interaction);
+                return;
+            }
+
+            // Role menu / cổng verify: rolemenu_btn_<menuId>_<roleId>.
+            if (action === 'rolemenu') {
+                await handleRoleMenuComponent(interaction);
+                return;
+            }
+
+            // Nút Kick/Ban trên cảnh báo acc đáng ngờ lúc join.
+            if (action === 'joinrisk') {
+                await handleJoinRiskButton(interaction);
+                return;
+            }
+
             if (action === 'giveaway') {
                 const type = part[1];
 
@@ -277,18 +324,28 @@ export default {
                         }).catch(() => {});
                     }
                     if (type === 'participants') {
-                        const [entries, total] = await Promise.all([
+                        const [giveaway, entries, total] = await Promise.all([
+                            prisma.giveaway.findUnique({ where: { id: giveawayId }, select: { inviteBonusMode: true } }),
                             prisma.giveawayEntry.findMany({ where: { giveawayId }, orderBy: { joinedAt: 'asc' }, take: 50 }),
                             prisma.giveawayEntry.count({ where: { giveawayId } })
                         ]);
-                        const lines = entries.map((entry, index) => `**${index + 1}.** <@${entry.userId}>`).join('\n') || 'Chưa có ai tham gia.';
+                        // Giveaway có ưu tiên theo lượt mời thì hiện luôn số vé và xếp theo
+                        // vé giảm dần — nhìn là biết mình đang đứng đâu.
+                        const weighted = giveaway?.inviteBonusMode && giveaway.inviteBonusMode !== 'none';
+                        const rows = weighted ? [...entries].sort((a, b) => b.entries - a.entries) : entries;
+                        const lines = rows
+                            .map((entry, index) => `**${index + 1}.** <@${entry.userId}>${weighted ? ` · ${entry.entries} vé` : ''}`)
+                            .join('\n') || 'Chưa có ai tham gia.';
                         return interaction.editReply({
                             embeds: [new EmbedBuilder()
                                 .setColor('#f1c40f')
                                 .setTitle(`Danh sách tham gia #${giveawayId}`)
                                 .setDescription(lines)
-                                .setFooter({ text: `Hiển thị ${entries.length}/${total} người tham gia.` })]
+                                .setFooter({ text: `Hiển thị ${rows.length}/${total} người tham gia.` })]
                         }).catch(() => {});
+                    }
+                    if (type === 'odds') {
+                        return interaction.editReply(await buildOddsReply(giveawayId, interaction.user.id)).catch(() => {});
                     }
                 } catch (error: any) {
                     return interaction.editReply({
@@ -296,6 +353,63 @@ export default {
                     }).catch(() => {});
                 }
                 return;
+            }
+
+            // Danh sách người đã mời, phân trang. Ai cũng xem được của người khác:
+            // đây là dữ liệu công khai như bảng xếp hạng, không phải thông tin riêng.
+            if (action === 'invite' && part[1] === 'list') {
+                const targetId = part[2];
+                const page = Number(part[3]) || 0;
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                return interaction.editReply(await buildInvitedListPayload(targetId, page)).catch(() => {});
+            }
+
+            // Log tin nhắn: xem đoạn đã sửa / toàn bộ lịch sử sửa. Chỉ admin — nội dung
+            // tin nhắn cũ của người khác không phải thứ để ai cũng tra được.
+            if (action === 'msglog') {
+                if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+                    await safeInteractionReply(interaction, {
+                        content: `${config.ui.emojis.error} Chỉ Administrator xem được lịch sử tin nhắn.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                    return;
+                }
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                const messageId = part[2];
+                const payload = part[1] === 'diff'
+                    ? await buildEditDiffReply(messageId)
+                    : await buildEditHistoryReply(messageId);
+                return interaction.editReply(payload).catch(() => {});
+            }
+
+            // 10 tin gần nhất của một người, dựng từ bản sao tin nhắn. Chỉ mod.
+            if (action === 'inspect' && part[1] === 'recent') {
+                if (!interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
+                    await safeInteractionReply(interaction, {
+                        content: `${config.ui.emojis.error} Chỉ mod xem được.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                    return;
+                }
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                const rows = await getRecentByAuthor(part[2], 10);
+                const lines = rows.length
+                    ? rows.map(row =>
+                        `<t:${Math.floor(row.createdAt.getTime() / 1000)}:t> <#${row.channelId}>` +
+                        `${row.deletedAt ? ' *(đã xoá)*' : ''}${row.editCount ? ` *(sửa ${row.editCount}×)*` : ''}\n` +
+                        `> ${row.content.slice(0, 200) || '*không có văn bản*'}`
+                    ).join('\n')
+                    : '*Không còn bản sao tin nhắn nào của người này.*';
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#3498db')
+                        .setTitle('10 tin gần nhất')
+                        .setDescription(`Của <@${part[2]}>\n\n${lines}`.slice(0, 4000))
+                        .setFooter({ text: 'Chỉ trong thời gian còn giữ bản sao' })]
+                }).catch(() => {});
             }
 
             if (action === 'showcase') {
@@ -552,6 +666,11 @@ export default {
                 await handleMusicComponent(interaction);
                 return;
             }
+            // Role menu kiểu select.
+            if (interaction.customId.startsWith('rolemenu_')) {
+                await handleRoleMenuComponent(interaction);
+                return;
+            }
             if (interaction.customId.startsWith('showcase_tag_')) {
                 const messageId = interaction.customId.replace('showcase_tag_', '');
                 const tagName = interaction.values[0];
@@ -577,11 +696,24 @@ export default {
             else if (interaction.customId === 'skillrole_toggle') {
                 if (!interaction.guild) return;
                 const results: string[] = [];
+                let addedAny = false;
                 for (const key of interaction.values) {
                     const state = await toggleSkillRole(interaction.guild, interaction.user.id, key);
                     const meta = getSkillMeta(key);
+                    if (state === 'added') addedAny = true;
                     if (state) results.push(`${state === 'added' ? '✅' : '❌'} ${meta?.label || key}`);
                 }
+
+                // Đây là "nhiệm vụ" trong cổng chống bot của hệ thống mời: chọn lĩnh vực
+                // xong mới bắt đầu tính mốc ở lại cho người đã mời mình.
+                if (addedAny) {
+                    const pending = await markRolePicked(interaction.user.id).catch(() => null);
+                    if (pending?.status === 'PENDING' && pending.source === 'INVITE') {
+                        const dueAt = Math.floor((pending.joinedAt.getTime() + config.invites.stayHours * 3_600_000) / 1000);
+                        results.push(`\n${config.ui.emojis.contact} Đã ghi nhận. <@${pending.inviterId}> sẽ được tính lượt mời <t:${dueAt}:R> nếu bạn còn ở đây.`);
+                    }
+                }
+
                 await safeInteractionReply(interaction, {
                     content: results.length ? results.join('\n') : `${config.ui.emojis.error} Không cập nhật được role kỹ năng.`,
                     flags: MessageFlags.Ephemeral
@@ -728,6 +860,9 @@ export default {
                         rewardType: draft?.rewardType || 'contact_host',
                         rewardSecret: draft?.rewardSecret || null,
                         publicMediaUrl: draft?.publicMediaUrl || GIVEAWAY_BANNER,
+                        inviteBonusMode: draft?.inviteBonusMode || 'none',
+                        inviteWeightPer: draft?.inviteWeightPer ?? undefined,
+                        inviteWeightCap: draft?.inviteWeightCap ?? undefined,
                         createdBy: interaction.user.id
                     });
                     await interaction.editReply(`${config.ui.emojis.success} Đã tạo giveaway #${giveaway.id} tại <#${channel.id}>.`).catch(() => {});

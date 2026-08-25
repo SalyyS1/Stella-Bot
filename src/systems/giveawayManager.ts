@@ -15,7 +15,12 @@ import prisma from '../lib/prisma';
 import { adjustScoinTx } from './scoinManager';
 import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { config } from '../config';
-import { randomInt } from 'crypto';
+import {
+    computeEntryWeight,
+    describeInviteBonus,
+    isInviteBonusOn,
+    pickWinnersWeighted
+} from './invite/invite-giveaway-weight';
 
 export const GIVEAWAY_BANNER = 'https://i.pinimg.com/originals/26/7b/1c/267b1c57cc1a1ac4644df3d91d4d377b.gif';
 const MAX_GIVEAWAY_DURATION_MS = 365 * 24 * 60 * 60_000;
@@ -39,7 +44,8 @@ export function giveawayButtons(id: number, disabled = false) {
         new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId(`giveaway_join_${id}`).setLabel('Tham gia').setStyle(ButtonStyle.Success).setEmoji(emojis.success).setDisabled(disabled),
             new ButtonBuilder().setCustomId(`giveaway_leave_${id}`).setLabel('Rời').setStyle(ButtonStyle.Secondary).setEmoji(emojis.error).setDisabled(disabled),
-            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Người tham gia').setStyle(ButtonStyle.Primary).setEmoji(emojis.note)
+            new ButtonBuilder().setCustomId(`giveaway_participants_${id}`).setLabel('Người tham gia').setStyle(ButtonStyle.Primary).setEmoji(emojis.note),
+            new ButtonBuilder().setCustomId(`giveaway_odds_${id}`).setLabel('Tỷ lệ của tôi').setStyle(ButtonStyle.Primary).setEmoji(emojis.star)
         )
     ];
 }
@@ -101,6 +107,11 @@ export async function buildGiveawayEmbed(giveawayId: number) {
         .setTimestamp(giveaway.endsAt);
 
     if (winners) embed.addFields({ name: `${emojis.success} Winner`, value: winners, inline: false });
+
+    const inviteBonus = describeInviteBonus(giveaway);
+    if (inviteBonus) {
+        embed.addFields({ name: `${emojis.contact} Ưu tiên theo lượt mời`, value: inviteBonus, inline: false });
+    }
     return { giveaway, embed };
 }
 
@@ -129,6 +140,9 @@ export async function createGiveaway(client: Client, options: {
     rewardType?: string;
     rewardSecret?: string | null;
     publicMediaUrl?: string | null;
+    inviteBonusMode?: string;
+    inviteWeightPer?: number;
+    inviteWeightCap?: number;
     createdBy: string;
 }) {
     const me = options.channel.guild?.members.me;
@@ -158,6 +172,16 @@ export async function createGiveaway(client: Client, options: {
         throw new Error('Phần thưởng link/file cần có link bí mật để gửi winner.');
     }
 
+    const inviteBonusMode = options.inviteBonusMode || 'none';
+    if (!['none', 'all_time', 'since_start'].includes(inviteBonusMode)) {
+        throw new Error('Chế độ ưu tiên lượt mời không hợp lệ.');
+    }
+    const inviteWeightPer = options.inviteWeightPer ?? 1;
+    const inviteWeightCap = options.inviteWeightCap ?? 10;
+    if (inviteWeightPer < 0 || inviteWeightPer > 10 || inviteWeightCap < 0 || inviteWeightCap > 50) {
+        throw new Error('Trọng số lượt mời phải trong khoảng: mỗi lượt 0-10 vé, trần 0-50 vé.');
+    }
+
     const giveaway = await prisma.giveaway.create({
         data: {
             channelId: options.channel.id,
@@ -175,7 +199,13 @@ export async function createGiveaway(client: Client, options: {
             rewardType,
             rewardSecret: options.rewardSecret?.trim() || null,
             publicMediaUrl: options.publicMediaUrl || null,
-            bannerUrl: GIVEAWAY_BANNER
+            bannerUrl: GIVEAWAY_BANNER,
+            inviteBonusMode,
+            inviteWeightPer,
+            inviteWeightCap,
+            // Mốc đếm được chốt NGAY lúc tạo, không tính lại về sau: "từ lúc giveaway
+            // mở" phải là một thời điểm cố định, nếu không thì luật đổi giữa cuộc.
+            inviteCountFrom: inviteBonusMode === 'since_start' ? new Date() : null
         }
     });
 
@@ -227,6 +257,11 @@ export async function joinGiveaway(client: Client, guild: Guild, giveawayId: num
     const reason = await checkRequirements(guild, giveaway, userId);
     if (reason) throw new Error(reason);
 
+    // Số vé lúc tham gia. Tính trước transaction vì đây là truy vấn chỉ-đọc trên
+    // bảng khác; số này chỉ để hiện tỷ lệ ngay — số quay thật được tính lại lúc
+    // kết thúc, nên mời thêm sau khi đã tham gia vẫn được cộng.
+    const weight = await computeEntryWeight(giveaway, userId).catch(() => 1);
+
     let created = false;
     await prisma.$transaction(async tx => {
         // Take a short row-level lock while the entry is created. This prevents an
@@ -259,7 +294,7 @@ export async function joinGiveaway(client: Client, guild: Guild, giveawayId: num
                 }
             });
         }
-        await tx.giveawayEntry.create({ data: { giveawayId, userId } });
+        await tx.giveawayEntry.create({ data: { giveawayId, userId, entries: weight } });
         created = true;
     });
 
@@ -292,16 +327,6 @@ export async function leaveGiveaway(client: Client, giveawayId: number, userId: 
 
     if (removed) await refreshGiveawayMessage(client, giveawayId);
     return removed;
-}
-
-function pickWinners(userIds: string[], count: number): string[] {
-    const pool = [...new Set(userIds)];
-    const winners: string[] = [];
-    while (pool.length && winners.length < count) {
-        const index = randomInt(pool.length);
-        winners.push(pool.splice(index, 1)[0]);
-    }
-    return winners;
 }
 
 async function deliverGiveawayRewards(
@@ -402,14 +427,25 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
         if (!guild) throw new Error('Không tìm thấy server chứa giveaway để xác minh winner.');
 
         const oldWinners = giveaway.winnerIds?.split(',').filter(Boolean) || [];
-        const validEntries: string[] = [];
+        const candidates: { userId: string; weight: number }[] = [];
         for (const entry of giveaway.entries) {
             if (reroll && oldWinners.includes(entry.userId)) continue;
             const reason = await checkRequirements(guild, giveaway, entry.userId).catch(() => 'invalid');
-            if (!reason) validEntries.push(entry.userId);
+            if (reason) continue;
+            // Tính lại số vé Ở ĐÂY chứ không dùng số lưu lúc tham gia: người mời thêm
+            // sau khi đã bấm tham gia vẫn phải được cộng, nếu không thì ai tham gia
+            // sớm bị phạt vì đã tham gia sớm.
+            const weight = await computeEntryWeight(giveaway, entry.userId).catch(() => entry.entries || 1);
+            candidates.push({ userId: entry.userId, weight });
+            if (weight !== entry.entries) {
+                await prisma.giveawayEntry.update({
+                    where: { id: entry.id },
+                    data: { entries: weight }
+                }).catch(() => {});
+            }
         }
 
-        const winners = pickWinners(validEntries, giveaway.winnersCount);
+        const winners = pickWinnersWeighted(candidates, giveaway.winnersCount);
         const finalizedUpdate = await prisma.giveaway.updateMany({
             where: { id: giveawayId, status: processingStatus },
             data: { status: 'ENDED', winnerIds: winners.join(',') }
@@ -427,7 +463,11 @@ export async function endGiveaway(client: Client, giveawayId: number, reroll = f
                 .setDescription(winners.length
                     ? `Chúc mừng ${winners.map(id => `<@${id}>`).join(', ')}!\n\n**Phần thưởng:** ${giveaway.prize}`
                     : 'Không có người tham gia nào còn đủ điều kiện nhận thưởng.')
-                .setFooter({ text: `Giveaway #${giveawayId}${reroll ? ' • Winner cũ đã được loại khỏi lượt quay' : ''}` })
+                .setFooter({
+                    text: `Giveaway #${giveawayId}` +
+                        (reroll ? ' • Winner cũ đã được loại khỏi lượt quay' : '') +
+                        (isInviteBonusOn(giveaway) ? ' • Quay theo vé ưu tiên lượt mời' : '')
+                })
                 .setTimestamp();
             await channel.send({
                 embeds: [announcement],

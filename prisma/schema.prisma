@@ -272,6 +272,12 @@ model Giveaway {
   publicMediaUrl  String?
   bannerUrl       String?
   winnerIds       String?
+  // Ưu tiên tỷ lệ trúng theo lượt mời. "none" giữ hành vi quay đều như cũ, nên
+  // giveaway đang chạy lúc migrate không bị đổi luật giữa cuộc.
+  inviteBonusMode String   @default("none") // none | all_time | since_start
+  inviteWeightPer Int      @default(1) // số vé cộng thêm cho mỗi lượt mời
+  inviteWeightCap Int      @default(10) // trần vé cộng thêm — chặn một người ăn cả
+  inviteCountFrom DateTime? // mốc bắt đầu đếm cho chế độ since_start
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -593,4 +599,378 @@ model GlossaryTerm {
   updatedAt  DateTime  @updatedAt
 
   @@index([answeredAt])
+}
+
+// Ảnh chụp số lượt dùng của mọi invite. Đây là mốc so sánh DUY NHẤT để biết ai
+// mời ai: Discord không nói invite nào vừa được dùng lúc member join, chỉ có thể
+// fetch lại toàn bộ invite rồi tìm mã nào tăng `uses`. Không có bảng này thì sau
+// mỗi lần restart bot sẽ không quy được lượt mời nào nữa.
+model InviteCache {
+  code      String    @id
+  inviterId String? // null = vanity / invite của bot / không rõ người tạo
+  uses      Int       @default(0)
+  maxUses   Int       @default(0)
+  expiresAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([inviterId])
+}
+
+// Một lượt join = một dòng. invitedId là KHOÁ CHÍNH nên vào lại không tạo dòng
+// mới — chặn kiểu farm "mời rồi cho rời rồi mời lại" bằng chính hình dạng bảng
+// thay vì bằng một chốt ở tầng code có thể bị bỏ qua ở nhánh khác.
+model InviteJoin {
+  invitedId        String    @id
+  inviterId        String
+  code             String?
+  source           String // INVITE | VANITY | UNKNOWN
+  status           String    @default("PENDING") // PENDING | VERIFIED | REJECTED_YOUNG | LEFT | REVOKED
+  accountCreatedAt DateTime?
+  joinedAt         DateTime  @default(now())
+  rolePickedAt     DateTime? // mốc hoàn thành nhiệm vụ chọn role ở kênh welcome
+  verifiedAt       DateTime?
+  leftAt           DateTime?
+  rejoinCount      Int       @default(0)
+  note             String? // lý do admin ép duyệt / thu hồi
+
+  @@index([inviterId, status])
+  @@index([status, joinedAt])
+}
+
+// Số lượt mời trong quá khứ, ĐÓNG BĂNG ở lần quét đầu tiên.
+//
+// Discord không có API lịch sử "ai mời ai" — chỉ suy ra được tổng `uses` của các
+// invite CÒN TỒN TẠI. Nếu quét lại sau khi hệ thống đã chạy thì `uses` đã bao gồm
+// cả những lượt join đã được đếm chính xác ở InviteJoin.VERIFIED, cộng hai nguồn
+// vào nhau là đếm đôi. Vì vậy con số này chỉ được ghi một lần và không tự quét lại.
+model InviteBackfill {
+  inviterId  String   @id
+  legacyUses Int      @default(0)
+  frozenAt   DateTime @default(now())
+}
+
+// Bản sao tin nhắn, giữ 14 ngày (30 ngày nếu đã bị xoá/sửa).
+//
+// Vì sao phải có: Discord chỉ trả nội dung tin cũ trong event messageDelete/
+// messageUpdate NẾU tin còn nằm trong cache RAM (mặc định 200 tin/kênh, mất sạch
+// mỗi lần bot restart). Không có bảng này thì log "tin bị xoá" chỉ ra được cái vỏ —
+// ai, kênh nào, lúc nào — còn nội dung, thứ duy nhất cần để phân xử, thì mất.
+model MessageMirror {
+  messageId    String    @id
+  channelId    String
+  authorId     String
+  content      String // nội dung HIỆN TẠI, cập nhật sau mỗi lần sửa
+  attachments  String? // JSON [{name,url,size,contentType}]
+  stickerNames String?
+  replyToId    String?
+  createdAt    DateTime // thời điểm gửi thật, không phải lúc mirror
+  editedAt     DateTime?
+  editCount    Int       @default(0)
+  deletedAt    DateTime?
+  deletedBy    String? // lấy từ audit log; null = tự xoá
+  mirroredAt   DateTime  @default(now())
+
+  versions MessageVersion[]
+
+  @@index([authorId, createdAt])
+  @@index([channelId, createdAt])
+  @@index([mirroredAt])
+  @@index([deletedAt])
+}
+
+// Từng phiên bản nội dung của một tin. version 1 = bản gốc, được chèn vào lúc sửa
+// lần đầu (trước đó không có gì để so nên không cần dòng nào).
+model MessageVersion {
+  id        Int      @id @default(autoincrement())
+  messageId String
+  version   Int
+  content   String
+  changedAt DateTime @default(now())
+
+  message MessageMirror @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+
+  @@unique([messageId, version])
+  @@index([messageId])
+}
+
+// Hồ sơ kỷ luật. Ban/kick/timeout do mod làm BẰNG TAY cũng được ghi tự động từ
+// audit log: nếu chỉ ghi khi mod dùng lệnh của bot thì hồ sơ sẽ trống đúng vào
+// những ca xử lý gấp — tức là những ca cần tra lại nhất.
+model ModCase {
+  id        Int       @id @default(autoincrement())
+  targetId  String
+  actorId   String
+  kind      String // WARN | NOTE | TIMEOUT | KICK | BAN | UNBAN | GHOST_PING | WATCH
+  reason    String?
+  evidence  String? // link tin nhắn hoặc message id
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  @@index([targetId, createdAt])
+  @@index([actorId])
+  @@index([kind])
+}
+
+// Role lúc rời server, để trả lại khi vào lại. Mục đích chính là chống né mute:
+// rời rồi vào lại là cách gỡ mute nhanh nhất và không để lại dấu vết nào.
+model StickyRole {
+  userId  String   @id
+  roleIds String // CSV role id lúc rời
+  savedAt DateTime @default(now())
+}
+
+// Cấu hình automod, một dòng cho mỗi server.
+//
+// Vì sao ở DB mà không ở config.ts như phần còn lại của bot: automod là thứ phải
+// tắt/bật được GIỮA một đợt spam, mà sửa config.ts thì phải deploy lại bot. Ngưỡng
+// mặc định vẫn nằm trong config.ts; bảng này chỉ ghi phần đã bị đổi.
+//
+// `rules` là JSON thay vì 30 cột: mỗi luật có hình dạng tham số khác nhau (ngưỡng,
+// danh sách từ, cửa sổ thời gian), và thêm một luật mới không nên cần một migration.
+model AutomodSetting {
+  guildId          String   @id
+  enabled          Boolean  @default(true)
+  rules            String // JSON: { ruleKey: { enabled, action, ...params } }
+  exemptRoleIds    String? // CSV
+  exemptChannelIds String? // CSV
+  updatedAt        DateTime @updatedAt
+}
+
+// Lượt vi phạm automod. Dùng để leo thang hình phạt (xoá → cảnh cáo → timeout) và
+// để mod thấy được ai đang liên tục chạm luật thay vì chỉ thấy từng lần rời rạc.
+model AutomodStrike {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  rule      String
+  channelId String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// Menu nhận role tự chọn (thay reaction role của Carl-bot).
+//
+// mode: multi = chọn bao nhiêu cũng được; unique = chỉ giữ một role trong menu;
+// verify = chỉ cấp, không cho bỏ (dùng cho cổng xác minh).
+model RoleMenu {
+  id          Int      @id @default(autoincrement())
+  channelId   String
+  messageId   String?  @unique
+  title       String
+  description String
+  mode        String   @default("multi") // multi | unique | verify
+  style       String   @default("button") // button | select
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  options RoleMenuOption[]
+}
+
+model RoleMenuOption {
+  id          Int     @id @default(autoincrement())
+  menuId      Int
+  roleId      String
+  label       String
+  emoji       String?
+  description String?
+  position    Int     @default(0)
+
+  menu RoleMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@unique([menuId, roleId])
+  @@index([menuId])
+}
+
+// Kênh voice "vào để tạo phòng" (thay VoiceMaster).
+model TempVoiceHub {
+  channelId    String   @id
+  categoryId   String?
+  nameTemplate String   @default("🔊 Phòng của {user}")
+  userLimit    Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+// Phòng voice tạm đang sống. Lưu DB chứ không chỉ trong RAM: bot restart giữa lúc
+// có 5 phòng đang mở thì phải biết phòng nào là của mình để dọn, nếu không những
+// phòng đó sống mãi và server đầy kênh rác.
+model TempVoiceChannel {
+  channelId String   @id
+  hubId     String
+  ownerId   String
+  locked    Boolean  @default(false)
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+// Tag / câu trả lời sẵn. autoTrigger biến nó thành autoresponder.
+model Tag {
+  name        String   @id // đã lowercase
+  content     String
+  autoTrigger String? // từ khoá trong tin nhắn thường sẽ kích hoạt
+  uses        Int      @default(0)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([autoTrigger])
+}
+
+// Tin nhắn ghim mềm: bot đăng lại nó xuống cuối kênh sau mỗi N tin, để nội quy kênh
+// không bị đẩy lên mất.
+model StickyMessage {
+  channelId     String   @id
+  content       String
+  lastMessageId String?
+  minGap        Int      @default(5) // số tin trước khi đăng lại
+  pending       Int      @default(0)
+  createdBy     String
+  updatedAt     DateTime @updatedAt
+}
+
+// Starboard: tin được nhiều người thả sao thì được đăng lại vào kênh lưu niệm.
+model StarboardPost {
+  sourceMessageId    String   @id
+  starboardMessageId String
+  sourceChannelId    String
+  authorId           String
+  stars              Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([authorId])
+}
+
+// Trạng thái AFK. Ai ping người đang AFK sẽ được bot nhắc.
+model AfkStatus {
+  userId String   @id
+  reason String
+  since  DateTime @default(now())
+}
+
+// ============================================================
+//  QUẢN LÝ TẦNG 2
+// ============================================================
+
+// Người đang bị theo dõi: mọi tin của họ được copy sang kênh log tới khi hết hạn.
+//
+// Có `expiresAt` bắt buộc (không nullable) là có chủ đích: theo dõi vô thời hạn là thứ
+// người ta bật rồi quên, và một danh sách theo dõi bị quên là dữ liệu cá nhân bị thu
+// thập mãi mà không ai còn nhớ vì sao.
+model WatchTarget {
+  userId    String   @id
+  actorId   String
+  reason    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// Kênh đang bị lockdown. Cần bảng chứ không chỉ đọc lại permission overwrite: bot phải
+// biết kênh nào CHÍNH NÓ đã khoá, để `/lockdown lift` không gỡ luôn những overwrite mà
+// admin đã đặt tay từ trước.
+model ChannelLock {
+  channelId String   @id
+  actorId   String
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+// Role cấp tự động cho mọi người mới vào server.
+model AutoRole {
+  roleId    String   @id
+  addedBy   String
+  createdAt DateTime @default(now())
+}
+
+// Role có hạn. Unique (userId, roleId) để gia hạn là ghi đè hạn cũ, không sinh dòng
+// thứ hai — hai dòng cho cùng một role nghĩa là dòng hết hạn trước sẽ gỡ role mà dòng
+// còn lại vẫn tưởng là đang có.
+model TempRole {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  roleId    String
+  expiresAt DateTime
+  grantedBy String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@index([expiresAt])
+}
+
+// Từ khoá theo dõi cá nhân: ai nhắc từ này thì người đặt nhận DM kèm ngữ cảnh.
+model Highlight {
+  id      Int    @id @default(autoincrement())
+  userId  String
+  keyword String
+
+  @@unique([userId, keyword])
+  @@index([keyword])
+}
+
+// Kênh tự mở thread cho mỗi tin nhắn.
+model AutoThreadChannel {
+  channelId      String   @id
+  nameTemplate   String   @default("{user}")
+  archiveMinutes Int      @default(1440)
+  createdBy      String
+  createdAt      DateTime @default(now())
+}
+
+// ============================================================
+//  TICKET · KÊNH THỐNG KÊ · THỜI GIAN VOICE
+// ============================================================
+
+// Cấu hình ticket, một dòng cho mỗi server (cùng mẫu với AutomodSetting).
+model TicketConfig {
+  guildId        String   @id
+  categoryId     String?
+  staffRoleId    String?
+  panelChannelId String?
+  panelMessageId String?
+  maxPerUser     Int      @default(2)
+  updatedAt      DateTime @updatedAt
+}
+
+// Một ticket đang mở hoặc đã đóng. `channelId` unique để nút trong kênh tra ngược được
+// ticket của chính nó mà không cần tin vào customId.
+model Ticket {
+  id        Int       @id @default(autoincrement())
+  channelId String    @unique
+  openerId  String
+  topic     String
+  claimedBy String?
+  closedBy  String?
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([openerId, closedAt])
+}
+
+// Kênh voice chỉ dùng làm nhãn hiển thị số liệu. Tên kênh được bot cập nhật định kỳ.
+model StatsChannel {
+  channelId String   @id
+  kind      String // members | humans | bots | online | voice | boosts
+  label     String
+  createdBy String
+  createdAt DateTime @default(now())
+}
+
+// Thời gian trong voice, TỔNG DỒN một dòng mỗi người.
+//
+// Không ghi nhật ký từng phiên: bảng đó phình vô hạn và không truy vấn nào cần tới nó.
+// `weekSeconds` reset khi `weekKey` đã lưu khác tuần hiện tại — reset lúc GHI nên không
+// cần một scheduler quét cả bảng vào nửa đêm Chủ nhật.
+model VoiceActivity {
+  userId       String   @id
+  totalSeconds Int      @default(0)
+  weekKey      String
+  weekSeconds  Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@index([totalSeconds])
+  @@index([weekKey, weekSeconds])
 }

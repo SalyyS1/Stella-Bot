@@ -1,9 +1,12 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { xpToNextLevel } from '../systems/xpManager';
 import { renderProfileCard } from '../systems/cardRenderer';
 import { getFreelancerStats } from '../systems/freelancerManager';
+import { getInviteStats } from '../systems/invite/invite-stats';
+import { formatVoiceTime, getVoiceStats } from '../systems/stats/voice-activity-manager';
+import { countActiveWarns } from '../systems/moderation/mod-case-manager';
 
 export default {
     data: new SlashCommandBuilder()
@@ -26,6 +29,8 @@ export default {
 
             const isBlacklisted = await prisma.blacklist.findUnique({ where: { id: targetUser.id } });
             const freelancer = await getFreelancerStats(targetUser.id);
+            const inviteStats = await getInviteStats(targetUser.id);
+            const voiceStats = await getVoiceStats(targetUser.id);
             const tiers = config.xp.levelTiers;
             const currentTier = tiers.find(t => user.level >= t.minLevel && user.level <= t.maxLevel);
             const tierName = currentTier?.roleName || 'Little Star';
@@ -73,7 +78,7 @@ export default {
                     },
                     {
                         name: 'Điểm Stella',
-                        value: `> ${config.ui.emojis.expert} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contribution} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.star} Freelancer: ${freelancer.avgRating !== null ? `**${freelancer.avgRating.toFixed(1)}★** (${freelancer.jobCount} job)` : '*chưa có đánh giá*'}${freelancer.verified ? ' ✅' : ''}`,
+                        value: `> ${config.ui.emojis.expert} Chuyên gia: **${user.expertScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contribution} Đóng góp: **${user.contributionScore.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.budget} Scoin: **${user.scoinBalance.toLocaleString('vi-VN')}**\n> ${config.ui.emojis.contact} Đã mời: **${inviteStats.total.toLocaleString('vi-VN')}**\n> 🔊 Voice: **${formatVoiceTime(voiceStats.totalSeconds)}**\n> ${config.ui.emojis.star} Freelancer: ${freelancer.avgRating !== null ? `**${freelancer.avgRating.toFixed(1)}★** (${freelancer.jobCount} job)` : '*chưa có đánh giá*'}${freelancer.verified ? ' ✅' : ''}`,
                         inline: true
                     },
                     {
@@ -91,6 +96,20 @@ export default {
                     value: `> Lý do: \`${isBlacklisted.reason}\``,
                     inline: false
                 });
+            }
+
+            // Số warn chỉ hiện cho người có quyền kiểm duyệt: hồ sơ kỷ luật của một
+            // người không phải thứ để cả server tra bằng một lệnh công khai.
+            const viewerIsMod = interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers) ?? false;
+            if (viewerIsMod) {
+                const warns = await countActiveWarns(targetUser.id);
+                if (warns.total > 0) {
+                    embed.addFields({
+                        name: 'Hồ sơ kiểm duyệt (chỉ mod thấy)',
+                        value: `> ⚠️ Warn còn hiệu lực: **${warns.warns}** · tổng hồ sơ: **${warns.total}**\n> Dùng \`/case list\` để xem chi tiết.`,
+                        inline: false
+                    });
+                }
             }
 
             await interaction.editReply({ embeds: [embed], files: [card] });

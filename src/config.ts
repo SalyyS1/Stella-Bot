@@ -671,6 +671,170 @@ export const config = {
             webhookDelete: 2
         }
     },
+    // Hệ thống mời (invite tracking).
+    invites: {
+        enabled: true,
+        // Join không quy được về ai (vanity URL, invite dùng hết rồi bị Discord xoá,
+        // hai người vào cùng giây, vào qua Discovery) được dồn về đây theo chốt của
+        // Saly. Vẫn ghi `source` riêng để số này không bị đọc lẫn với mời thật.
+        fallbackInviterId: "784728722459983874",
+        // Cổng chống bot: cả ba điều kiện phải đủ mới tính một lượt mời.
+        minAccountAgeDays: 7,
+        stayHours: 24,
+        // Nhịp quét lượt mời tới hạn 24h. Không cần nhanh: người mời không chờ từng
+        // phút, mà quét dày thì mỗi lần đều fetch member từ Discord.
+        sweepIntervalMs: 5 * 60_000,
+        // Scoin trả cho MỖI lượt mời đã verified. Saly chốt 50, không giới hạn ngày.
+        scoinPerInvite: 50,
+        // Ngưỡng cảnh báo ở `/invites admin audit`: cùng một người mời kéo về từ này
+        // acc mới trong 24h thì đáng nhìn kỹ.
+        auditYoungAccountThreshold: 3
+    },
+    // Log kiểm duyệt: tin bị xoá/sửa, lịch sử sửa, cứu ảnh.
+    logs: {
+        enabled: true,
+        // Saly chốt dùng chung kênh botLog. Đổi sang kênh riêng chỉ cần đổi dòng này.
+        channelId: "1532000288825671830",
+        // Giữ bản sao tin nhắn bao lâu. Dòng đã bị xoá/sửa giữ lâu hơn vì đó đúng là
+        // loại dòng admin quay lại soi.
+        retainDays: 14,
+        retainFlaggedDays: 30,
+        prunePeriodMs: 60 * 60_000,
+        // Kênh không mirror (đặt id kênh riêng tư vào đây nếu cần).
+        ignoreChannelIds: [] as string[],
+        image: {
+            // Chỉ giữ bytes ảnh của kênh chat chính: cứu ảnh bị xoá ở nơi cần nhất mà
+            // không phải tải lại mọi ảnh cả server.
+            channelIds: ["943893730123980881"] as string[],
+            maxBytes: 8 * 1024 * 1024,
+            // Trần RAM cho toàn bộ cache ảnh. Vượt thì bỏ ảnh cũ nhất (LRU).
+            cacheTotalBytes: 64 * 1024 * 1024,
+            // Sau mốc này ảnh bị xoá không cứu được nữa (chỉ còn tên file). Đây là
+            // đánh đổi đã chốt để không cần thêm kênh lưu trữ ảnh.
+            ttlMs: 60 * 60_000
+        },
+        // Ping rồi xoá trong khoảng này bị coi là ghost-ping.
+        ghostPingWindowMs: 60_000,
+        // /snipe chỉ soi được trong khoảng này, để không thành công cụ đào tin cũ.
+        snipeWindowMs: 15 * 60_000,
+        voice: {
+            // Log vào/rời/chuyển kênh voice, gộp một dòng mỗi phiên kèm thời lượng.
+            // Tắt riêng được: server đông người trong voice cả ngày thì đây là nhóm log
+            // ồn nhất, mà giá trị của nó thấp hơn log tin nhắn.
+            enabled: true
+        }
+    },
+    moderation: {
+        // Role được trả lại khi member vào lại (chống né mute). Để trống thì bot tự
+        // nhận diện theo tên role bên dưới.
+        stickyRoleIds: [] as string[],
+        // Nhận diện role kỷ luật theo tên khi chưa cấu hình id. Chỉ khớp role kỷ luật
+        // là có chủ đích: trả lại mọi role sẽ hoàn nguyên cả những role vừa bị gỡ đúng.
+        stickyRoleNamePatterns: ["mute", "muted", "câm", "cấm chat", "jail", "kỷ luật"] as string[],
+        // Trần thời hạn `/watch`. Theo dõi vô thời hạn là thứ người ta bật rồi quên, và
+        // một danh sách theo dõi bị quên là dữ liệu cá nhân bị thu thập mãi.
+        watchMaxDays: 30,
+        // Trần thời hạn role tạm.
+        tempRoleMaxDays: 365
+    },
+    // Automod: ngưỡng MẶC ĐỊNH. Trạng thái bật/tắt thật nằm ở bảng AutomodSetting
+    // để đổi được giữa một đợt spam mà không phải deploy lại bot.
+    automod: {
+        enabled: true,
+        // Role được miễn automod. Mod và người tin cậy phải dán được link, nói to,
+        // ping nhiều — nếu không thì automod chặn đúng những người đang dọn dẹp.
+        exemptRoleIds: [] as string[],
+        // Hình phạt leo thang theo số lần chạm luật trong cửa sổ strikeWindowMs.
+        //
+        // Saly chốt 2026-08-25: bot KHÔNG tự phạt. Nên mấy mốc dưới đây là GỢI Ý cho mod —
+        // chạm mốc thì bot đăng cảnh báo kèm nút bấm một phát là xử (automod-alert.ts),
+        // còn quyết định vẫn là của người. Lý do: một tin bị đọc sai mà dẫn tới khoá
+        // miệng member thật là cái giá đắt hơn nhiều so với việc mod chậm 30 giây.
+        strikeWindowMs: 10 * 60_000,
+        // Gộp log vi phạm theo (người, luật) trong khoảng này: một đợt flood 30 tin chỉ
+        // sinh MỘT embed có đếm số lần, thay vì spam chính kênh log lúc mod cần đọc nó.
+        alertDedupeMs: 60_000,
+        escalation: [
+            { strikes: 3, action: 'warn' as const },
+            { strikes: 5, action: 'timeout' as const, durationMs: 10 * 60_000 },
+            { strikes: 8, action: 'timeout' as const, durationMs: 60 * 60_000 }
+        ],
+        defaults: {
+            // Spam: N tin trong M giây.
+            flood: { enabled: true, messages: 6, windowMs: 5_000 },
+            // Gửi lại y nguyên một nội dung nhiều lần liền nhau.
+            duplicate: { enabled: true, times: 3, windowMs: 30_000 },
+            // Ping quá nhiều người trong một tin.
+            massMention: { enabled: true, limit: 6 },
+            // VIẾT HOA TOÀN BỘ (chỉ tính tin đủ dài để không chặn "OK").
+            caps: { enabled: true, minLength: 12, percent: 75 },
+            // Link mời server khác.
+            inviteLink: { enabled: true },
+            // Link lạ. Để trống allowHosts là cho mọi link, chỉ chặn theo scamHosts.
+            links: { enabled: false, allowHosts: [] as string[] },
+            // Tên miền lừa đảo / phát tán mã độc hay gặp ở Discord.
+            scamLink: { enabled: true },
+            // Spam emoji.
+            emojiSpam: { enabled: true, limit: 12 },
+            // Spam dòng trống để đẩy tin người khác lên.
+            newlineSpam: { enabled: true, limit: 15 },
+            // Từ khoá cấm. Khớp theo từ, không khớp giữa từ, để "bede" không quét
+            // trúng "bedeck" — chặn oan làm người ta mất niềm tin vào automod.
+            bannedWords: { enabled: false, words: [] as string[] },
+            // Chữ zalgo / ký tự phá layout.
+            zalgo: { enabled: true }
+        }
+    },
+    // Role menu (thay reaction role của Carl-bot).
+    roleMenu: {
+        // Trần số lựa chọn trong một menu. Discord cho 25 nút / 5 hàng và 25 option
+        // trong một select — lấy số nhỏ hơn làm trần chung.
+        maxOptions: 20
+    },
+    // Phòng voice tạm (thay VoiceMaster).
+    tempVoice: {
+        enabled: true,
+        // Trần số phòng mở cùng lúc, chống việc join-leave liên tục tạo hàng loạt kênh.
+        maxChannels: 30,
+        // Mỗi người chỉ giữ một phòng.
+        maxPerUser: 1,
+        // Xoá phòng sau khi trống bao lâu. Xoá ngay lập tức làm người bị mất kết nối
+        // vài giây quay lại thì phòng đã biến mất.
+        emptyGraceMs: 15_000
+    },
+    // Tag / autoresponder / sticky message / starboard / AFK.
+    utility: {
+        tags: {
+            maxContentLength: 1500,
+            // Nhịp tối thiểu giữa hai lần autoresponder trả lời cùng một kênh.
+            autoCooldownMs: 30_000
+        },
+        sticky: {
+            // Số tin nhắn tối thiểu trước khi đăng lại, để sticky không đua với chat.
+            defaultMinGap: 5
+        },
+        starboard: {
+            enabled: true,
+            channelId: "" as string, // để trống là tắt
+            emoji: "⭐",
+            threshold: 4,
+            // Không cho tự thả sao cho chính mình để lên bảng.
+            allowSelfStar: false
+        },
+        afk: {
+            maxReasonLength: 200
+        }
+    },
+    // Kênh voice chỉ dùng làm nhãn hiển thị số liệu (member count, online...).
+    stats: {
+        // Discord chỉ cho đổi tên MỘT kênh 2 lần mỗi 10 phút. Vượt trần thì request không
+        // báo lỗi — nó bị treo trong hàng đợi rate-limit của discord.js cho tới khi hết
+        // hạn, và mọi request khác của bot xếp hàng sau nó. Triệu chứng nhìn giống "bot
+        // lag", không giống "cấu hình sai", nên đây là chỗ phải đặt sàn cứng.
+        updateIntervalMs: 15 * 60_000,
+        // Sàn tuyệt đối: scheduler tự nâng lên nếu ai đó đặt updateIntervalMs thấp hơn.
+        minIntervalMs: 10 * 60_000
+    },
     music: {
         // GIF trang trí cho panel now-playing. Đổi link ở đây là đổi cả panel.
         // Link ngoài Discord có thể bị chặn proxy — khi đó thumbnail tự ẩn,

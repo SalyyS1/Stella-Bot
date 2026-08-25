@@ -18,6 +18,15 @@ import { collectAnswer } from '../systems/knowledge/glossary-question-asker';
 import { handleReminderRequest } from '../systems/reminder/reminder-handler';
 import { buildEmojiHint, buildStickerHint, extractSticker } from '../systems/emoji-palette';
 import { pickImageUrls } from '../systems/discord-image-filter';
+import { mirrorMessage } from '../systems/logs/message-mirror';
+import { cacheAttachments } from '../systems/logs/message-image-cache';
+import { runAutomod } from '../systems/automod/automod-service';
+import { handleTagCommand, handleTagTrigger } from '../systems/utility/tag-autoresponder';
+import { bumpSticky } from '../systems/utility/sticky-manager';
+import { clearAfkOnMessage, notifyAfkMentions } from '../systems/utility/afk-manager';
+import { mirrorWatched } from '../systems/moderation/watch-manager';
+import { notifyHighlights } from '../systems/utility/highlight-manager';
+import { openAutoThread } from '../systems/utility/autothread-manager';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -137,6 +146,29 @@ export default {
         if (await guardEveryoneMention(message)) return;
         // Bỏ qua tin nhắn của bot
         if (message.author.bot) return;
+
+        // Log kiểm duyệt: lưu bản sao + giữ bytes ảnh NGAY khi tin xuất hiện.
+        // Không await: mất một dòng log không được phép làm chậm hay chặn chat, XP,
+        // nhạc hay AI. Cả hai hàm tự bắt lỗi bên trong.
+        void mirrorMessage(message);
+        void cacheAttachments(message);
+
+        // Automod chạy SAU mirror (để log vẫn giữ được bản sao tin vừa bị xoá) và TRƯỚC
+        // mọi handler khác: một tin đã bị xoá thì không nên tiếp tục được cộng XP, tính
+        // trivia hay tốn một lượt gọi AI.
+        if (await runAutomod(message)) return;
+
+        // Tiện ích cộng đồng. Cả bốn đều best-effort và KHÔNG chặn pipeline: một lời
+        // nhắc AFK hỏng không được phép làm mất XP hay chặn lệnh nhạc của người ta.
+        // Riêng `!tag` thì dừng, vì nó đúng là một lệnh.
+        void clearAfkOnMessage(message).catch(() => {});
+        void notifyAfkMentions(message).catch(() => {});
+        void bumpSticky(message).catch(() => {});
+        // `/watch`: copy tin của người đang bị theo dõi sang kênh log. Tự tắt khi hết hạn.
+        void mirrorWatched(message).catch(() => {});
+        // Highlight: DM cho người đã đặt từ khoá. Tự kiểm quyền đọc kênh của người nhận.
+        void notifyHighlights(message).catch(() => {});
+        if (await handleTagCommand(message).catch(() => false)) return;
 
         if (await handleMusicPrefix(message)) return;
 
@@ -409,5 +441,13 @@ export default {
                 await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
             }
         }
+
+        // Autoresponder chạy CUỐI pipeline có chủ đích: mọi kênh có luật riêng (share,
+        // showcase, form request, welcome, Q&A) đều `return` trước đây, nên tag chỉ nói
+        // xen vào chỗ chat thường — đúng chỗ nó có ích và không phá form của ai.
+        void handleTagTrigger(message).catch(() => {});
+        // Auto-thread cùng lý do: kênh có logic thread riêng đã return từ lâu, và
+        // openAutoThread còn tự bỏ qua share/showcase một lần nữa.
+        void openAutoThread(message).catch(() => {});
     },
 };
