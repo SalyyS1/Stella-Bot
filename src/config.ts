@@ -163,6 +163,26 @@ export const config = {
         // Token read at call time from env; NEVER hardcoded, NEVER logged.
         graphVersion: 'v21.0'
     },
+    // Panel quản trị chạy trong CÙNG process với bot (kế hoạch 260828-2128).
+    //
+    // Mặc định TẮT và mặc định bind 127.0.0.1. Bật panel là mở một port ra mạng từ
+    // chính process đang giữ kết nối Discord — web bị flood là bot rời gateway, nên
+    // đó phải là một hành động có chủ ý, không phải mặc định.
+    panel: {
+        enabled: process.env.PANEL_ENABLED === 'true',
+        port: Number(process.env.PANEL_PORT) || 8080,
+        // Chỉ đổi sang 0.0.0.0 khi đã có TLS đứng trước (domain của host hoặc
+        // Cloudflare Tunnel). Cookie session đi qua HTTP thường là cookie ai trên
+        // đường truyền cũng đọc được, và đọc được là vào panel admin.
+        host: process.env.PANEL_HOST || '127.0.0.1',
+        // Chỉ tin x-forwarded-for / cf-connecting-ip khi thật sự có proxy đứng trước.
+        // Header này client tự đặt được: tin nó khi không có proxy là cho phép người
+        // ta tự khai IP và vượt mọi giới hạn tính theo IP.
+        trustProxy: process.env.PANEL_TRUST_PROXY === 'true',
+        // Kết quả `next build` (output: 'export'), commit trong git vì host không đủ
+        // RAM để build. Thiếu thư mục này thì panel trả 404, bot vẫn chạy.
+        staticDir: 'web/out'
+    },
     ai: {
         // OpenAI-compatible endpoint (agentgw). Key read at call time from env,
         // sent via Authorization header, NEVER hardcoded/logged. Feature is

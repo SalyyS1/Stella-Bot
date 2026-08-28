@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import { loadCommands } from './handlers/commandHandler';
 import { loadEvents } from './handlers/eventHandler';
 import { setupLavalink, startSatelliteMusicBots } from './systems/music';
+import { startPanel } from './panel/panel-server';
 
 dotenv.config();
 
@@ -65,6 +66,14 @@ async function init() {
         return 0;
     });
     if (satellites) console.log(`[music] ${satellites} bot loa phụ đã sẵn sàng.`);
+
+    // Panel quản trị: mặc định tắt (PANEL_ENABLED). Bọc catch vì panel là phần thêm —
+    // port bị chiếm hay web/out chưa build chỉ được làm mất panel, không mất bot.
+    try {
+        startPanel(client);
+    } catch (error) {
+        console.error('Panel failed to start:', error);
+    }
 }
 
 init().catch(error => {

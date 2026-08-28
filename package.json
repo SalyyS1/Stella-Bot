@@ -19,6 +19,7 @@
     "test:diff": "node --require ts-node/register --test tests/text-diff.test.ts",
     "test:automod": "node --require ts-node/register --test tests/automod-rules.test.ts",
     "test:budget": "node --require ts-node/register --test tests/request-budget-parser.test.ts",
+    "test:panel": "node --require ts-node/register --test tests/panel-static-file-server.test.ts",
     "db:migrate": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",

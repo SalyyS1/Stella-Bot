@@ -1146,4 +1146,65 @@ check(
     'order-channel access changes must be limited to staff'
 );
 
+// --- Panel quản trị: khung HTTP trong process bot ---
+
+const panelServer = source('panel/panel-server.ts');
+const panelRouter = source('panel/panel-router.ts');
+const panelStatic = source('panel/static-file-server.ts');
+const panelHelpers = source('panel/http-helpers.ts');
+const botEntry = source('index.ts');
+
+// Path traversal là lỗ hổng nghiêm trọng nhất của một static server tự viết: ghép đường
+// dẫn từ URL vào thư mục gốc mà không kiểm lại kết quả là để `GET /../../.env` đọc được
+// đúng file chứa BOT_TOKEN và DATABASE_URL. Phải resolve rồi kiểm nằm-trong-gốc, KHÔNG
+// phải lọc chuỗi '..' (URL mã hoá được thành %2e%2e nên lọc chuỗi luôn thiếu biến thể).
+check(
+    panelStatic.includes('path.resolve(ROOT') &&
+    panelStatic.includes("absolute.startsWith(ROOT + path.sep)"),
+    'the panel static server must verify the resolved path stays inside its root'
+);
+// Danh sách đuôi phải là danh sách CHO PHÉP: chặn theo danh sách đen thì file lạ copy
+// vào web/out sẽ ra được.
+check(
+    panelStatic.includes('MIME_BY_EXT[ext]') && panelStatic.includes("kind: 'rejected'"),
+    'the panel static server must serve only allow-listed extensions'
+);
+// Panel mặc định TẮT và mặc định bind localhost. Bật panel là mở một port ra mạng từ
+// chính process đang giữ gateway Discord — phải là hành động có chủ ý.
+check(
+    /if \(!config\.panel\.enabled\)[\s\S]{0,120}return null/.test(panelServer),
+    'the panel must not listen unless PANEL_ENABLED is explicitly on'
+);
+check(
+    source('config.ts').includes("process.env.PANEL_HOST || '127.0.0.1'"),
+    'the panel must default to binding localhost, not the public interface'
+);
+// Panel chết không được làm chết bot: không process.exit, và lời gọi ở entrypoint phải
+// được bọc.
+check(
+    !panelServer.includes('process.exit(') && !panelRouter.includes('process.exit('),
+    'panel code must never exit the process — a broken panel must not take the bot down'
+);
+check(
+    /try \{[\s\S]{0,80}startPanel\(client\)[\s\S]{0,120}catch/.test(botEntry),
+    'startPanel must be wrapped so a panel failure cannot stop bot startup'
+);
+// Chốt "chỉ đọc" có tầng chặn đầu tiên ở router: mọi method ngoài GET/HEAD bị từ chối
+// trước khi tới handler nào.
+check(
+    /method !== 'GET' && method !== 'HEAD'[\s\S]{0,200}405/.test(panelRouter),
+    'the read-only panel must reject every method other than GET and HEAD'
+);
+// /healthz là endpoint công khai: mọi thứ nó nói ra là thứ người lạ biết được.
+check(
+    /urlPath === '\/healthz'[\s\S]{0,400}sendJson\(res, 200, \{ ok: true \}\)/.test(panelRouter),
+    'the health endpoint must expose nothing beyond { ok: true }'
+);
+// x-forwarded-for do client tự đặt được. Tin nó khi không có proxy là cho phép người ta
+// tự khai IP và vượt mọi giới hạn tính theo IP (phase 6 dựa vào hàm này).
+check(
+    /config\.panel\.trustProxy[\s\S]{0,400}x-forwarded-for/.test(panelHelpers),
+    'the client IP helper must only trust forwarding headers when a proxy is configured'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
