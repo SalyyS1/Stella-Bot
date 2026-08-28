@@ -35,3 +35,9 @@ lavalink/plugins/
 lavalink/logs/
 lavalink-host/plugins/
 lavalink-host/logs/
+
+# Ke hoach va tai lieu noi bo: giu tren may, khong day len repo public.
+# Repo nay la public — plans/ va reports/ chua so do he thong, ID kenh/role va
+# cac cho yeu ve bao mat. Saly da xoa chung khoi git ngay 2026-08-26.
+plans/
+docs/
