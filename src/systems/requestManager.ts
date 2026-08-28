@@ -16,6 +16,8 @@ import { lockVoteScores } from './voteScoreLock';
 import { pingSkillRole, isSkillKey } from './skillRoleManager';
 import { formatBudget } from './request/budget-parser';
 import { parseReferenceUrls } from './request/reference-image-validator';
+import { closeOrderChannel, createOrderChannel } from './request/order-channel';
+import { markInternalAntiRaidAction } from './antiRaidManager';
 
 export type RequestKind = 'PAID' | 'FREE';
 export const REQUEST_ALREADY_RATED = 'REQUEST_ALREADY_RATED';
@@ -241,8 +243,104 @@ export async function claimRequest(client: Client, guildId: string | null, id: n
         });
     });
 
+    // Kênh riêng mở SAU khi đơn đã claimed, và không nằm trong transaction: kênh là tiện
+    // nghi, không phải điều kiện. Tạo kênh lỗi thì đơn vẫn có người nhận.
+    await openOrderChannel(client, guildId, id, user.id).catch(error => {
+        console.error(`[request] mở kênh đơn #${id} lỗi:`, error);
+    });
+
     await refreshRequestMessage(client, id);
     return tr(locale, 'request.claimed', { id });
+}
+
+// Mở kênh riêng cho một đơn vừa được nhận. Tách hàm để route HTTP tương lai gọi lại được
+// cùng logic thay vì dựng lại từ đầu.
+async function openOrderChannel(client: Client, guildId: string | null, id: number, claimerId: string) {
+    if (!guildId) return;
+    const request = await prisma.requestPost.findUnique({ where: { id } });
+    if (!request) return;
+
+    // Đã có kênh còn sống thì đừng tạo kênh thứ hai — cột ticketChannelId là unique nên
+    // lần ghi thứ hai sẽ lỗi và để lại một kênh mồ côi.
+    if (request.ticketChannelId) {
+        const existing = await client.channels.fetch(request.ticketChannelId).catch(() => null);
+        if (existing) return;
+    }
+
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return;
+
+    // Đặt kênh đơn trong cùng category với bảng đơn: không cần thêm ô cấu hình category,
+    // và kênh đơn nằm cạnh nơi nó sinh ra. Category đầy 50 kênh thì create trả lỗi và
+    // createOrderChannel trả null — đơn vẫn claimed.
+    const boardChannel = await client.channels.fetch(request.channelId).catch(() => null);
+    const parentId = boardChannel && 'parentId' in boardChannel ? boardChannel.parentId : null;
+
+    const channel = await createOrderChannel({
+        guild,
+        requestId: id,
+        kind: request.kind,
+        service: request.service,
+        budgetLabel: request.kind === 'PAID'
+            ? formatBudget(request.budgetAmount, request.budgetCurrency, request.budget)
+            : 'Đơn giúp đỡ (free)',
+        requesterId: request.requesterId,
+        claimerId,
+        parentId
+    });
+
+    if (!channel) {
+        await sendAdminLog(client, {
+            title: 'Order channel not created',
+            color: '#e67e22',
+            fields: [
+                { name: 'Request', value: `#${id}`, inline: true },
+                { name: 'Claimer', value: `<@${claimerId}>`, inline: true },
+                { name: 'Hệ quả', value: 'Đơn vẫn CLAIMED, hai bên phải tự liên hệ. Kiểm quyền Manage Channels và số kênh trong category.' }
+            ]
+        }).catch(() => {});
+        return;
+    }
+
+    const saved = await prisma.requestPost.update({
+        where: { id },
+        data: { ticketChannelId: channel.id }
+    }).catch(error => {
+        console.error(`[request] ghi ticketChannelId cho đơn #${id} lỗi:`, error);
+        return null;
+    });
+
+    // Ghi DB hỏng mà để kênh lại thì đó là kênh không đơn nào trỏ tới: closeRequest sẽ
+    // không biết để xoá, và nó nằm đó với dữ liệu của khách.
+    if (!saved) {
+        markInternalAntiRaidAction('channelDelete', channel.id);
+        await channel.delete('Không ghi được kênh đơn vào DB').catch(() => {});
+    }
+}
+
+// Đóng kênh đơn nếu đơn có kênh. Xoá cột trước khi xoá kênh để trạng thái DB không bao giờ
+// trỏ tới một kênh đã biến mất.
+async function closeOrderChannelForRequest(
+    client: Client,
+    id: number,
+    channelId: string | null,
+    requesterId: string,
+    claimerId: string | null,
+    reason: string,
+    farewell?: string
+) {
+    if (!channelId) return;
+    await prisma.requestPost.update({ where: { id }, data: { ticketChannelId: null } }).catch(() => {});
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased()) return;
+    await closeOrderChannel({
+        channel: channel as TextChannel,
+        requestId: id,
+        requesterId,
+        claimerId,
+        reason,
+        farewell
+    }).catch(error => console.error(`[request] đóng kênh đơn #${id} lỗi:`, error));
 }
 
 export async function closeRequest(client: Client, guildId: string | null, id: number, actorId: string, isAdmin: boolean) {
@@ -256,6 +354,15 @@ export async function closeRequest(client: Client, guildId: string | null, id: n
         data: { status: 'CLOSED', closedAt: new Date() }
     });
     if (closed.count === 0) throw new Error('Request này không thể đóng ở trạng thái hiện tại.');
+    await closeOrderChannelForRequest(
+        client,
+        id,
+        request.ticketChannelId,
+        request.requesterId,
+        request.claimedById,
+        `đóng bởi ${actorId}`,
+        'Đơn đã bị đóng.'
+    );
     await refreshRequestMessage(client, id);
     return tr(locale, 'request.closed', { id });
 }
@@ -307,6 +414,29 @@ export async function completeRequest(client: Client, guildId: string | null, id
             allowedMentions: { users: [request.requesterId] }
         }).catch(() => {});
     }
+
+    // DM khách kèm nút đánh giá. Kênh đơn sẽ bị xoá sau vài giây nên nút đặt trong đó là
+    // nút chết; DM là đường bền duy nhất còn lại nếu khách không đọc kênh rate.
+    const requester = await client.users.fetch(request.requesterId).catch(() => null);
+    await requester?.send({
+        embeds: [new EmbedBuilder()
+            .setColor('#ff66cc')
+            .setTitle(`${config.ui.emojis.starJump} Đơn #${id} đã hoàn thành`)
+            .setDescription(`Đánh giá <@${request.claimedById}> giúp Stella nhé — điểm này là uy tín của họ với khách sau.`)
+            .addFields({ name: 'Dịch vụ', value: request.service.slice(0, 1000) })
+            .setTimestamp()],
+        components: ratingButtons(id)
+    }).catch(() => {});
+
+    await closeOrderChannelForRequest(
+        client,
+        id,
+        request.ticketChannelId,
+        request.requesterId,
+        request.claimedById,
+        'hoàn thành',
+        `Đơn đã hoàn thành. <@${request.requesterId}> hãy đánh giá ở <#${config.channels.rate}> hoặc trong DM Stella vừa gửi.`
+    );
 
     return tr(locale, 'request.completed', { id });
 }

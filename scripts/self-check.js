@@ -1101,4 +1101,49 @@ check(
     'a normalized budget amount must only be stored together with its currency'
 );
 
+// --- Kênh riêng của đơn hàng ---
+
+const orderChannel = source('systems/request/order-channel.ts');
+const requestManagerSource = source('systems/requestManager.ts');
+
+// Quyền phải đặt NGAY trong channels.create. Tạo kênh public rồi mới gỡ ViewChannel để lại
+// vài trăm ms cả server đọc được yêu cầu và giá của khách.
+check(
+    orderChannel.indexOf('permissionOverwrites: overwrites') > orderChannel.indexOf('deny: [PermissionFlagsBits.ViewChannel]') &&
+    orderChannel.includes('channels.create'),
+    'order channels must be created with permission overwrites, not locked down afterwards'
+);
+// Xin phép anti-raid trước cả create và delete: thiếu phép ở create thì bot tự xoá kênh nó
+// vừa tạo, thiếu ở delete thì guardChannelDelete khôi phục lại thành kênh zombie. Cả hai
+// từng thành vòng lặp tạo–xoá.
+check(
+    orderChannel.indexOf("markInternalAntiRaidAction('channelCreate', '*')") < orderChannel.indexOf('channels.create('),
+    'order-channel creation must ask anti-raid for permission before creating'
+);
+check(
+    orderChannel.indexOf("markInternalAntiRaidAction('channelDelete', channel.id)") < orderChannel.indexOf('channel.delete('),
+    'order-channel deletion must ask anti-raid for permission before deleting'
+);
+// Transcript phải chạy trước khi hẹn xoá kênh, nếu không nội dung đơn mất đúng lúc cần nhất.
+check(
+    orderChannel.indexOf('buildTranscript(') < orderChannel.indexOf('setTimeout('),
+    'the order-channel transcript must be built before the channel is scheduled for deletion'
+);
+// Kênh là tiện nghi, không phải điều kiện: tạo kênh lỗi thì đơn vẫn CLAIMED.
+check(
+    /openOrderChannel\(client, guildId, id, user\.id\)\.catch/.test(requestManagerSource),
+    'a failed order channel must not roll back a claimed request'
+);
+// Ghi DB hỏng sau khi tạo kênh thì phải xoá kênh vừa tạo — kênh mồ côi mang dữ liệu khách
+// mà không đơn nào trỏ tới để đóng.
+check(
+    requestManagerSource.includes('Không ghi được kênh đơn vào DB'),
+    'an order channel must be removed when its id cannot be persisted'
+);
+// /request add|remove chỉ ban quản trị: khách tự thêm người là tự làm lộ hồ sơ của chính họ.
+check(
+    source('commands/request.ts').includes('isTicketStaff(member)'),
+    'order-channel access changes must be limited to staff'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

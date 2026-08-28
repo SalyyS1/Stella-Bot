@@ -1,6 +1,56 @@
-import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, GuildMember, MessageFlags, SlashCommandBuilder, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
+import { isTicketStaff } from '../systems/ticket/ticket-service';
+
+// /request add|remove: sửa quyền xem của một kênh đơn.
+//
+// CHỈ ban quản trị. Khách tự thêm người khác vào kênh đơn của mình là tự làm lộ yêu cầu và
+// giá của chính họ cho người họ không lường được hậu quả — cùng chốt đã áp cho /ticket.
+//
+// Không cần xin phép anti-raid: guardChannelUpdate chỉ soi tên và topic, đổi permission
+// overwrite không kích hoạt nó.
+async function manageOrderChannelAccess(interaction: ChatInputCommandInteraction, sub: 'add' | 'remove') {
+    const emojis = config.ui.emojis;
+    const member = interaction.member as GuildMember | null;
+    if (!interaction.guild || !member || !interaction.channel) {
+        return interaction.reply({ content: `${emojis.error} Lệnh này chỉ dùng trong server.`, flags: MessageFlags.Ephemeral });
+    }
+
+    const request = await prisma.requestPost.findUnique({ where: { ticketChannelId: interaction.channelId } });
+    if (!request) {
+        return interaction.reply({ content: `${emojis.error} Kênh này không phải kênh đơn.`, flags: MessageFlags.Ephemeral });
+    }
+    if (!await isTicketStaff(member)) {
+        return interaction.reply({ content: `${emojis.error} Chỉ ban quản trị thêm/bỏ người được.`, flags: MessageFlags.Ephemeral });
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const target = interaction.options.getUser('user', true);
+    const channel = interaction.channel as TextChannel;
+
+    if (sub === 'add') {
+        const ok = await channel.permissionOverwrites.edit(target.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+            AttachFiles: true
+        }).then(() => true).catch(() => false);
+        return interaction.editReply(ok
+            ? `${emojis.success} Đã thêm ${target} vào kênh đơn #${request.id}.`
+            : `${emojis.error} Không sửa được quyền kênh.`);
+    }
+
+    // Hai bên của đơn không bỏ được: bỏ họ ra là còn lại một kênh đơn mà người trong đơn
+    // không đọc được. Muốn dừng thì đóng đơn.
+    if (target.id === request.requesterId || target.id === request.claimedById) {
+        return interaction.editReply(`${emojis.error} Không bỏ được khách hoặc người nhận đơn. Đóng đơn nếu cần.`);
+    }
+    const ok = await channel.permissionOverwrites.delete(target.id).then(() => true).catch(() => false);
+    return interaction.editReply(ok
+        ? `${emojis.success} Đã bỏ ${target} khỏi kênh đơn #${request.id}.`
+        : `${emojis.error} Không sửa được quyền kênh.`);
+}
 
 function requestLine(request: { id: number; kind: string; status: string; service: string; requesterId: string; claimedById: string | null }) {
     const claimed = request.claimedById ? ` -> <@${request.claimedById}>` : '';
@@ -46,11 +96,24 @@ export default {
                 .setDescription('Xem request của bạn'))
         .addSubcommand(sub =>
             sub.setName('stats')
-                .setDescription('Thống kê request')),
+                .setDescription('Thống kê request'))
+        .addSubcommand(sub =>
+            sub.setName('add')
+                .setDescription('Thêm người vào kênh đơn này (ban quản trị)')
+                .addUserOption(option => option.setName('user').setDescription('Thành viên').setRequired(true)))
+        .addSubcommand(sub =>
+            sub.setName('remove')
+                .setDescription('Bỏ người khỏi kênh đơn này (ban quản trị)')
+                .addUserOption(option => option.setName('user').setDescription('Thành viên').setRequired(true))),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const sub = interaction.options.getSubcommand();
+
+        if (sub === 'add' || sub === 'remove') {
+            return manageOrderChannelAccess(interaction, sub);
+        }
+
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         if (sub === 'stats') {
             const grouped = await prisma.requestPost.groupBy({
