@@ -1,4 +1,4 @@
-import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, GuildMember, StringSelectMenuBuilder, PermissionFlagsBits } from 'discord.js';
+import { Events, Interaction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, GuildMember, PermissionFlagsBits, LabelBuilder, RadioGroupBuilder, FileUploadBuilder } from 'discord.js';
 import { config } from '../config';
 import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { optOutShowcase, renderShowcaseControl, updateShowcaseTag, updateShowcaseTitle } from '../systems/showcaseManager';
@@ -12,6 +12,8 @@ import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } fro
 import { handleMusicComponent } from '../systems/music';
 import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
 import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
+import { budgetHintText, parseBudgetInput } from '../systems/request/budget-parser';
+import { serializeReferenceUrls, validateReferenceImages } from '../systems/request/reference-image-validator';
 import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerManager';
 import { approveCrossPost, rejectCrossPost } from '../systems/facebookCrossPostManager';
 import { safeDeferEphemeral, safeDeferUpdate, safeInteractionReply } from '../utils/interaction-safe-reply';
@@ -26,18 +28,45 @@ import { handleTempVoiceComponent } from '../systems/tempvoice/tempvoice-control
 import { handleJoinRiskButton } from '../systems/moderation/join-risk-alert';
 import { handleTicketComponent } from '../systems/ticket/ticket-interactions';
 
-async function createRequestFromModal(interaction: any, client: any, kind: 'PAID' | 'FREE', skill: string | null) {
+// Đọc một trường không bắt buộc của modal. getField() NÉM lỗi khi payload không có
+// trường đó (người dùng không chọn/không gửi gì), nên không thể gọi trực tiếp.
+function readOptionalModalField<T>(read: () => T): T | null {
+    try {
+        return read();
+    } catch {
+        return null;
+    }
+}
+
+async function createRequestFromModal(interaction: any, client: any, kind: 'PAID' | 'FREE') {
     const acknowledged = await safeDeferEphemeral(interaction);
     if (!acknowledged) return;
 
     try {
+        // Kỹ năng nay nằm TRONG modal (Radio Group) thay vì một bước chọn riêng trước đó.
+        const skill = readOptionalModalField(() => interaction.fields.getRadioGroup('skill'));
         const service = interaction.fields.getTextInputValue('service').trim();
         const description = interaction.fields.getTextInputValue('request_desc').trim();
-        const budget = kind === 'PAID' ? interaction.fields.getTextInputValue('budget').trim() : null;
-        const other = interaction.fields.getTextInputValue('other').trim();
-        if (!service || !description || (kind === 'PAID' && !budget)) {
+        const budgetRaw = kind === 'PAID' ? interaction.fields.getTextInputValue('budget').trim() : null;
+        const other = kind === 'FREE'
+            ? (readOptionalModalField(() => interaction.fields.getTextInputValue('other')) || '').trim()
+            : null;
+        if (!service || !description || (kind === 'PAID' && !budgetRaw)) {
             throw new Error('Vui lòng điền đầy đủ các trường bắt buộc.');
         }
+
+        // Giá phải ra được một con số. Đây là lý do tồn tại của cả phase này: chuỗi tự do
+        // thì không sort, không lọc tầm giá, không thống kê được. Không hiểu được thì bắt
+        // ghi lại chứ không lưu null ngầm — khoảng giá thì ghi vào phần chi tiết.
+        const parsedBudget = kind === 'PAID' ? parseBudgetInput(budgetRaw) : null;
+        if (kind === 'PAID' && !parsedBudget) {
+            throw new Error(`Ngân sách phải là một số cụ thể. ${budgetHintText()}`);
+        }
+
+        // file_types của Discord chỉ là gợi ý phía client — kiểm lại ở đây.
+        const uploaded = readOptionalModalField(() => interaction.fields.getUploadedFiles('refs'));
+        const references = validateReferenceImages(uploaded);
+        if (references.error) throw new Error(references.error);
 
         const channelKey = kind === 'PAID' ? 'requestPaid' : 'requestFree';
         const channelId = await getManagedChannelId(channelKey);
@@ -51,7 +80,10 @@ async function createRequestFromModal(interaction: any, client: any, kind: 'PAID
             kind,
             service,
             description,
-            budget,
+            budget: budgetRaw,
+            budgetAmount: parsedBudget?.amount ?? null,
+            budgetCurrency: parsedBudget?.currency ?? null,
+            referenceUrls: serializeReferenceUrls(references.urls),
             other,
             skill: isSkillKey(skill) ? skill : null
         });
@@ -82,36 +114,71 @@ async function showModalSafely(interaction: any, modal: ModalBuilder, client: an
     }
 }
 
-// Skill picker shown before the request modal (modals cannot hold select menus).
-// customId carries the request kind so the follow-up select knows which modal to open.
-function skillSelectRow(kind: 'paid' | 'free') {
-    return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId(`skill_select_${kind}`)
-            .setPlaceholder('Chọn lĩnh vực kỹ năng để định tuyến...')
-            .addOptions(config.skills.map(s => ({ label: s.label, value: s.key })))
-    );
-}
-
-function buildRequestModal(kind: 'PAID' | 'FREE', skill: string) {
-    // skill is embedded in the modal customId so the submit handler can read it
-    // (modal fields can't carry a hidden value).
+// Form đặt đơn: MỘT bước duy nhất.
+//
+// Trước đây phải bấm nút → chọn kỹ năng ở select menu → mới mở modal, vì hồi đó modal
+// không chứa được select. discord.js 14.27 có Radio Group (component type 21) dùng được
+// trong modal nên bước chọn riêng đã bỏ.
+//
+// Modal chỉ nhận TỐI ĐA 5 component ở tầng ngoài ("Between 1 and 5 (inclusive) components
+// that make up the modal"). Đó là lý do đơn PAID không có ô "Liên hệ/Khác" riêng: 5 chỗ đã
+// dùng cho lĩnh vực, dịch vụ, chi tiết, ngân sách, ảnh tham khảo. Liên hệ ghi vào phần chi
+// tiết, và khi đơn có người nhận thì đã có kênh riêng để nói chuyện.
+function buildRequestModal(kind: 'PAID' | 'FREE') {
     const modal = new ModalBuilder()
-        .setCustomId(`request${kind === 'PAID' ? 'paid' : 'free'}_modal_${skill}`)
+        .setCustomId(`request${kind === 'PAID' ? 'paid' : 'free'}_modal`)
         .setTitle(kind === 'PAID' ? 'Yêu Cầu Có Phí (Paid)' : 'Yêu Cầu Giúp Đỡ (Free)');
-    const s = new TextInputBuilder().setCustomId('service').setLabel(kind === 'PAID' ? 'Dịch vụ cần?' : 'Việc cần giúp?').setStyle(TextInputStyle.Short).setRequired(true);
-    const r = new TextInputBuilder().setCustomId('request_desc').setLabel('Chi tiết yêu cầu').setStyle(TextInputStyle.Paragraph).setRequired(true);
-    const o = new TextInputBuilder().setCustomId('other').setLabel('Liên hệ/Khác').setStyle(TextInputStyle.Paragraph).setRequired(false);
-    const rows = [
-        new ActionRowBuilder<TextInputBuilder>().addComponents(s),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(r)
-    ];
-    if (kind === 'PAID') {
-        const b = new TextInputBuilder().setCustomId('budget').setLabel('Ngân sách (Ví dụ: 1M)').setStyle(TextInputStyle.Short).setRequired(true);
-        rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(b));
-    }
-    rows.push(new ActionRowBuilder<TextInputBuilder>().addComponents(o));
-    modal.addComponents(...rows);
+
+    const skill = new LabelBuilder()
+        .setLabel('Lĩnh vực')
+        .setDescription('Stella chỉ ping đúng nhóm nhận việc này, không ping cả server.')
+        .setRadioGroupComponent(
+            new RadioGroupBuilder()
+                .setCustomId('skill')
+                .setRequired(true)
+                .setOptions(config.skills.map(s => ({ label: s.label, value: s.key })))
+        );
+
+    const service = new LabelBuilder()
+        .setLabel(kind === 'PAID' ? 'Dịch vụ cần?' : 'Việc cần giúp?')
+        .setTextInputComponent(
+            new TextInputBuilder().setCustomId('service').setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)
+        );
+
+    const description = new LabelBuilder()
+        .setLabel('Chi tiết yêu cầu')
+        .setDescription('Ghi cả hạn mong muốn và cách liên hệ nếu có.')
+        .setTextInputComponent(
+            new TextInputBuilder().setCustomId('request_desc').setStyle(TextInputStyle.Paragraph).setMaxLength(2000).setRequired(true)
+        );
+
+    const references = new LabelBuilder()
+        .setLabel('Ảnh tham khảo')
+        .setDescription(`Không bắt buộc, tối đa ${config.request.maxReferenceFiles} ảnh.`)
+        .setFileUploadComponent(
+            // file_types phải đi qua constructor — FileUploadBuilder KHÔNG có setFileTypes.
+            new FileUploadBuilder({
+                custom_id: 'refs',
+                max_values: config.request.maxReferenceFiles,
+                required: false,
+                file_types: ['image']
+            })
+        );
+
+    const fourth = kind === 'PAID'
+        ? new LabelBuilder()
+            .setLabel('Ngân sách')
+            .setDescription(budgetHintText())
+            .setTextInputComponent(
+                new TextInputBuilder().setCustomId('budget').setStyle(TextInputStyle.Short).setMaxLength(50).setRequired(true)
+            )
+        : new LabelBuilder()
+            .setLabel('Liên hệ / Khác')
+            .setTextInputComponent(
+                new TextInputBuilder().setCustomId('other').setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(false)
+            );
+
+    modal.addLabelComponents(skill, service, description, fourth, references);
     return modal;
 }
 
@@ -507,13 +574,14 @@ export default {
                 const type = part[1];
 
                 if (type === 'paid' || type === 'free') {
-                    // Modals cannot contain select menus, so pick the skill FIRST via an
-                    // ephemeral string-select; the modal opens after choosing (skill_select_<kind>).
-                    await safeInteractionReply(interaction, {
-                        content: `${config.ui.emojis.service} Chọn nhóm kỹ năng cho yêu cầu này để Stella ping đúng freelancer:`,
-                        components: [skillSelectRow(type)],
-                        flags: MessageFlags.Ephemeral
-                    });
+                    // Mở modal ngay từ nút. Kỹ năng chọn bằng Radio Group bên trong modal,
+                    // không còn bước select riêng.
+                    await showModalSafely(
+                        interaction,
+                        buildRequestModal(type === 'paid' ? 'PAID' : 'FREE'),
+                        client,
+                        `panel_request_${type}`
+                    );
                 }
                 else if (type === 'port') {
                     const modal = new ModalBuilder().setCustomId('portfolio_modal').setTitle('Quảng Bá Bản Thân');
@@ -686,12 +754,6 @@ export default {
                 if (rendered) await interaction.editReply(rendered).catch(() => {});
                 else await safeInteractionReply(interaction, { content: `${config.ui.emojis.success} Đã đổi tag thành ${tagName}.`, flags: MessageFlags.Ephemeral });
             }
-            // Skill picked for a new request → open the create modal carrying the skill.
-            else if (interaction.customId.startsWith('skill_select_')) {
-                const kind = interaction.customId === 'skill_select_paid' ? 'PAID' : 'FREE';
-                const skill = interaction.values[0];
-                await showModalSafely(interaction, buildRequestModal(kind, skill), client, `skill_select_${kind}`);
-            }
             // Self-serve skill-role toggle (multi-select). Add/remove each chosen role.
             else if (interaction.customId === 'skillrole_toggle') {
                 if (!interaction.guild) return;
@@ -721,13 +783,13 @@ export default {
             }
         }
         else if (interaction.isModalSubmit()) {
+            // startsWith chứ không phải so sánh bằng: modal mở trước lần deploy này có
+            // customId đuôi "_<skill>", vẫn phải nhận để người đang mở form không mất bài.
             if (interaction.customId.startsWith('requestpaid_modal')) {
-                const skill = interaction.customId.replace('requestpaid_modal_', '').replace('requestpaid_modal', '') || null;
-                await createRequestFromModal(interaction, interaction.client, 'PAID', skill);
+                await createRequestFromModal(interaction, interaction.client, 'PAID');
 
             } else if (interaction.customId.startsWith('requestfree_modal')) {
-                const skill = interaction.customId.replace('requestfree_modal_', '').replace('requestfree_modal', '') || null;
-                await createRequestFromModal(interaction, interaction.client, 'FREE', skill);
+                await createRequestFromModal(interaction, interaction.client, 'FREE');
 
             } else if (interaction.customId === 'portfolio_modal') {
                 const acknowledged = await safeDeferEphemeral(interaction);

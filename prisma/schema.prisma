@@ -325,7 +325,12 @@ model RequestPost {
   service       String
   skill         String?
   description   String
-  budget        String?
+  budget        String?  // nguyên văn người dùng gõ, giữ lại cho đơn cũ
+  budgetAmount  Int?     // giá đã chuẩn hoá: sort/lọc/thống kê đi qua cột này
+  budgetCurrency String? // VND / USD
+  dueDate       DateTime?
+  ticketChannelId String? @unique // kênh riêng của đơn, tạo khi có người nhận
+  referenceUrls String?  // JSON array URL ảnh tham khảo. URL CDN Discord HẾT HẠN — chỉ để xem ngay
   other         String?
   status        String   @default("OPEN")
   claimedById   String?
@@ -340,6 +345,8 @@ model RequestPost {
   @@index([requesterId])
   @@index([status])
   @@index([kind])
+  @@index([budgetAmount])
+  @@index([dueDate])
 }
 
 model RequestClaim {
@@ -373,6 +380,22 @@ model RequestReview {
 
   @@unique([requestId, reviewerId])
   @@index([targetId])
+}
+
+// Hồ sơ nhận việc do freelancer tự khai: đang nhận việc không, giới thiệu, bảng giá.
+// Tách khỏi User (bảng đó đã 20+ cột, 15 quan hệ) và để có updatedAt riêng — bảng giá
+// lâu chưa sửa là bảng giá gây hiểu lầm, hiển thị phải nói rõ lần cập nhật cuối.
+// Bảng giá là văn bản, KHÔNG phải số có cấu trúc như RequestPost.budgetAmount: giá đơn
+// hàng cần sort/lọc/thống kê, bảng giá cá nhân chỉ để đọc.
+model FreelancerProfile {
+  userId      String   @id
+  openForWork Boolean  @default(true)
+  headline    String?
+  priceText   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([openForWork])
 }
 
 model FacebookCrossPost {

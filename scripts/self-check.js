@@ -1037,4 +1037,68 @@ check(
     'esbuild must be a runtime dependency because the host builds during postinstall'
 );
 
+// --- Đơn hàng freelancer: form một bước, giá có cấu trúc ---
+
+const requestModalFlow = source('events/interactionCreate.ts');
+const budgetParser = source('systems/request/budget-parser.ts');
+const referenceValidator = source('systems/request/reference-image-validator.ts');
+
+// Bước chọn kỹ năng riêng trước modal đã bị bỏ vì modal chứa được Radio Group. Để lại
+// nhánh cũ là để lại đường chết: hai chỗ mở cùng một form, sửa một chỗ quên chỗ kia.
+check(
+    !requestModalFlow.includes('skill_select_') && !requestModalFlow.includes('skillSelectRow'),
+    'the pre-modal skill picker must be gone — the request modal carries its own radio group'
+);
+check(
+    requestModalFlow.includes('RadioGroupBuilder') && requestModalFlow.includes('setRadioGroupComponent'),
+    'the request modal must pick the skill with a radio group inside the modal'
+);
+// file_types chỉ đi qua constructor được: FileUploadBuilder KHÔNG có setFileTypes.
+check(
+    /new FileUploadBuilder\(\{[\s\S]*file_types:/.test(requestModalFlow),
+    'reference upload must declare file_types through the FileUploadBuilder constructor'
+);
+// Discord chỉ nhận TỐI ĐA 5 component ở tầng ngoài của modal ("Between 1 and 5
+// (inclusive) components that make up the modal"). Vượt trần là showModal trả lỗi và
+// KHÔNG ai đặt được đơn nữa — mà lỗi chỉ hiện lúc chạy thật, không có test nào bắt được.
+// Thêm trường mới thì phải bỏ một trường cũ.
+const modalArgs = requestModalFlow.match(/addLabelComponents\(([^)]*)\)/);
+check(
+    Boolean(modalArgs) && modalArgs[1].split(',').filter(a => a.trim()).length <= 5,
+    'the request modal must stay within Discord\'s 5 top-level modal components'
+);
+// Và file_types là gợi ý phía client, nên phải kiểm lại contentType sau khi submit.
+check(
+    referenceValidator.includes("contentType?.startsWith('image/')"),
+    'uploaded references must be re-checked server-side for an image content type'
+);
+check(
+    referenceValidator.includes('config.request.maxReferenceFiles'),
+    'the reference-image count must be re-checked against config, not trusted from the payload'
+);
+// Giá phải ra số. Đơn PAID không parse được thì phải báo lỗi, không lưu null ngầm —
+// null ngầm là cột budgetAmount rỗng dần mà không ai biết vì sao.
+check(
+    requestModalFlow.includes('parseBudgetInput') && requestModalFlow.includes('budgetHintText()'),
+    'the paid request modal must parse the budget and explain the format when parsing fails'
+);
+// Số âm và khoảng giá phải bị chặn TRƯỚC bước chỉ giữ chữ số, nếu không "-500k" thành
+// 500.000 và "500k-1tr" thành 500.000.001.
+check(
+    budgetParser.indexOf("normalized.startsWith('-')") < budgetParser.indexOf("replace(/[^\\d]/g"),
+    'the budget parser must reject negatives and ranges before stripping non-digits'
+);
+// Cột chuỗi cũ giữ lại: parser không hiểu thì vẫn còn nguyên văn người dùng gõ.
+check(
+    source('systems/requestManager.ts').includes('budget,') &&
+    source('systems/requestManager.ts').includes('budgetAmount: hasStructuredBudget'),
+    'the raw budget string must still be stored alongside the normalized amount'
+);
+// Số mà không có đơn vị là số không đọc được: 1500000 không biết VND hay USD thì sort
+// ra thứ tự vô nghĩa. Cặp số+đơn vị phải cùng có hoặc cùng không.
+check(
+    source('systems/requestManager.ts').includes("!!options.budgetCurrency"),
+    'a normalized budget amount must only be stored together with its currency'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

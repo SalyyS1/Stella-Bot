@@ -10,6 +10,7 @@ import { guardEveryoneMention } from '../systems/antiRaidManager';
 import { levelScoinReward } from '../systems/scoinManager';
 import { handleMusicPrefix } from '../systems/music';
 import { createCommunityRequest } from '../systems/requestManager';
+import { parseBudgetInput } from '../systems/request/budget-parser';
 import { isSkillKey } from '../systems/skillRoleManager';
 import { isAiEnabled } from '../systems/aiClient';
 import { reserveQaSlot, gateMessage, answerQuestion, splitForDiscord } from '../systems/aiQaManager';
@@ -365,6 +366,11 @@ export default {
                 await warnInvalidRequestForm(message, missing);
             } else {
                 try {
+                    // Form dạng tin nhắn là đường cũ, vẫn phải hỗ trợ. Parse được giá thì lưu
+                    // luôn dạng số để đơn từ đường này cũng sort/lọc được; không parse được
+                    // thì giữ nguyên chuỗi chứ không chặn người đăng — khác với modal, ở đây
+                    // không có cách nào bắt người ta sửa rồi gửi lại.
+                    const parsedBudget = parseBudgetInput(budget);
                     await createCommunityRequest({
                         client: message.client,
                         channel: message.channel as any,
@@ -373,6 +379,8 @@ export default {
                         service,
                         description: requestDesc,
                         budget,
+                        budgetAmount: parsedBudget?.amount ?? null,
+                        budgetCurrency: parsedBudget?.currency ?? null,
                         other,
                         skill: getSkill(content)
                     });

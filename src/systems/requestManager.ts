@@ -14,6 +14,8 @@ import { messageLink, sendAdminLog } from '../utils/adminLog';
 import { getGuildLocale, tr } from '../i18n';
 import { lockVoteScores } from './voteScoreLock';
 import { pingSkillRole, isSkillKey } from './skillRoleManager';
+import { formatBudget } from './request/budget-parser';
+import { parseReferenceUrls } from './request/reference-image-validator';
 
 export type RequestKind = 'PAID' | 'FREE';
 export const REQUEST_ALREADY_RATED = 'REQUEST_ALREADY_RATED';
@@ -86,10 +88,35 @@ async function buildRequestEmbed(id: number) {
         .setTimestamp(request.updatedAt);
 
     if (request.kind === 'PAID') {
-        embed.addFields({ name: `${emojis.budget} Ngân sách`, value: request.budget || 'Chưa ghi', inline: true });
+        embed.addFields({
+            name: `${emojis.budget} Ngân sách`,
+            value: formatBudget(request.budgetAmount, request.budgetCurrency, request.budget),
+            inline: true
+        });
+    }
+    if (request.dueDate) {
+        embed.addFields({
+            name: `${emojis.note} Hạn mong muốn`,
+            value: `<t:${Math.floor(request.dueDate.getTime() / 1000)}:D>`,
+            inline: true
+        });
     }
     if (request.other) {
         embed.addFields({ name: `${emojis.contact} Liên hệ / Ghi chú`, value: request.other.slice(0, 1000), inline: false });
+    }
+
+    // Ảnh tham khảo: đặt ảnh đầu làm ảnh của embed, các ảnh còn lại để dạng link.
+    // URL CDN Discord có hạn — xem ngay thì được, mở lại sau vài tuần thì hỏng.
+    const references = parseReferenceUrls(request.referenceUrls);
+    if (references.length > 0) {
+        embed.setImage(references[0]);
+        if (references.length > 1) {
+            embed.addFields({
+                name: `${emojis.service} Ảnh tham khảo khác`,
+                value: references.slice(1).map((url, i) => `[Ảnh ${i + 2}](${url})`).join(' · '),
+                inline: false
+            });
+        }
     }
 
     return { request, embed };
@@ -117,6 +144,10 @@ export async function createCommunityRequest(options: {
     service: string;
     description: string;
     budget?: string | null;
+    budgetAmount?: number | null;
+    budgetCurrency?: string | null;
+    dueDate?: Date | null;
+    referenceUrls?: string | null;
     other?: string | null;
     skill?: string | null;
 }) {
@@ -129,6 +160,9 @@ export async function createCommunityRequest(options: {
     // Skill is the routing category (a fixed enum key), distinct from the
     // free-text service description. Only accept known keys; ignore anything else.
     const skill = isSkillKey(options.skill) ? options.skill : null;
+    // Giá đã chuẩn hoá chỉ được ghi khi CẢ số và đơn vị đều có. Một nửa cặp là dữ liệu
+    // không đọc được: 1500000 mà không biết VND hay USD thì sort ra thứ tự vô nghĩa.
+    const hasStructuredBudget = typeof options.budgetAmount === 'number' && Number.isFinite(options.budgetAmount) && !!options.budgetCurrency;
     const request = await prisma.requestPost.create({
         data: {
             channelId: options.channel.id,
@@ -137,6 +171,10 @@ export async function createCommunityRequest(options: {
             service,
             description,
             budget,
+            budgetAmount: hasStructuredBudget ? Math.round(options.budgetAmount!) : null,
+            budgetCurrency: hasStructuredBudget ? options.budgetCurrency : null,
+            dueDate: options.dueDate ?? null,
+            referenceUrls: options.referenceUrls ?? null,
             other,
             skill
         }

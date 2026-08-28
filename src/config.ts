@@ -66,6 +66,23 @@ export const config = {
         { key: "writing", label: "Writing / Content", roleName: "✍️ Writer", color: "#1abc9c" as any },
         { key: "other", label: "Khác", roleName: "🌐 Other Skills", color: "#95a5a6" as any }
     ] as const,
+    // Đơn hàng: trần cho những gì người dùng gõ vào form đặt đơn.
+    //
+    // Trần giá đặt theo TỪNG đơn vị. Một trần chung thì hoặc chặn oan người ghi VND,
+    // hoặc mở toang cho người ghi USD — 500 triệu và 500 nghìn là hai câu chuyện khác nhau.
+    // Mọi trần phải nằm dưới 2.147.483.647 vì budgetAmount là INTEGER trong Postgres.
+    //
+    // Modal Discord chỉ nhận TỐI ĐA 5 component ở tầng ngoài (đã tra tài liệu:
+    // "Between 1 and 5 (inclusive) components that make up the modal"), nên form đặt đơn
+    // không thể có thêm ô — muốn thêm trường thì phải bỏ một trường khác.
+    request: {
+        maxReferenceFiles: 5,
+        currencies: [
+            { code: "VND", label: "VND", max: 500_000_000 },
+            { code: "USD", label: "USD", max: 20_000 }
+        ] as const,
+        defaultCurrency: "VND"
+    },
     channels: {
         requestFree: "1490702155898687528",
         requestPaid: "1490685483892867163",
