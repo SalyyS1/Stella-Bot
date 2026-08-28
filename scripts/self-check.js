@@ -1207,4 +1207,93 @@ check(
     'the client IP helper must only trust forwarding headers when a proxy is configured'
 );
 
+// --- Tầng dữ liệu panel: "chỉ đọc" phải là tính chất của cả thư mục, không phải lời hứa ---
+//
+// Panel dùng CHUNG PrismaClient với bot. Không có hàng rào kỹ thuật nào ngăn một hàm
+// trong src/panel/ gọi `prisma.user.update(...)`; thứ duy nhất ngăn là quy ước. Quy ước
+// không tự kiểm được, nên nó được kiểm ở đây — quét toàn bộ thư mục thay vì từng file, để
+// một file MỚI thêm sau này cũng bị soi.
+const panelDir = path.join(root, 'src', 'panel');
+const panelFiles = [];
+(function collect(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) collect(full);
+        else if (entry.name.endsWith('.ts')) panelFiles.push(full);
+    }
+})(panelDir);
+
+check(panelFiles.length >= 12, 'panel source files were not found — the read-only scan would pass vacuously');
+
+const PRISMA_WRITES = [
+    'create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany',
+    'createManyAndReturn', 'updateManyAndReturn', '$executeRaw', '$executeRawUnsafe', '$transaction'
+];
+for (const file of panelFiles) {
+    const text = fs.readFileSync(file, 'utf8');
+    const label = path.relative(root, file).replace(/\\/g, '/');
+    for (const method of PRISMA_WRITES) {
+        const pattern = method.startsWith('$')
+            ? new RegExp('prisma\\.\\' + method + '\\b')
+            : new RegExp('prisma\\.[A-Za-z0-9_]+\\.' + method + '\\s*\\(');
+        check(!pattern.test(text), `${label} must stay read-only — found prisma write \`${method}\``);
+    }
+    // SQL thô nối chuỗi trong panel là SQL injection với quyền của bot lên cả 65 bảng.
+    // `$queryRawUnsafe` và template `$queryRaw` không bọc `Prisma.sql` đều bị chặn.
+    check(!text.includes('$queryRawUnsafe'), `${label} must not use $queryRawUnsafe`);
+    if (text.includes('$queryRaw')) {
+        check(
+            /\$queryRaw<[^>]*>\(Prisma\.sql`/.test(text) || /\$queryRaw\(Prisma\.sql`/.test(text),
+            `${label} must build every raw query with Prisma.sql so parameters stay bound`
+        );
+    }
+}
+
+// Trần phân trang: không có nó thì một request `?pageSize=100000` đọc cả bảng vào RAM của
+// process đang giữ gateway Discord.
+const panelPaging = source('panel/data/pagination.ts');
+check(
+    /MAX_PAGE_SIZE\s*=\s*(?:[1-9]|[1-4][0-9]|50)\b/.test(panelPaging),
+    'the panel must cap pageSize at 50 or lower'
+);
+check(
+    /Math\.min|Math\.max/.test(panelPaging) && panelPaging.includes('MAX_PAGE_SIZE'),
+    'resolvePaging must clamp the requested page size instead of trusting it'
+);
+
+// Trần connection song song của panel. Đo trên DB thật 29/8/2026: bot một mình đã giữ
+// 14/15 client của pooler ở session mode, nên panel không được tự do fan-out.
+const panelQueryLimit = source('panel/data/query-limit.ts');
+check(
+    /MAX_CONCURRENT_QUERIES\s*=\s*[1-6]\b/.test(panelQueryLimit),
+    'the panel query limiter must stay well under the 15-client pooler ceiling'
+);
+check(
+    /finally\s*\{[\s\S]{0,60}release\(\)/.test(panelQueryLimit),
+    'the panel query limiter must release its slot in a finally block — a throwing query must not leak a slot'
+);
+for (const file of panelFiles.filter(f => f.includes(`${path.sep}data${path.sep}`))) {
+    const text = fs.readFileSync(file, 'utf8');
+    const label = path.relative(root, file).replace(/\\/g, '/');
+    if (!text.includes('prisma.')) continue;
+    check(
+        text.includes('withQueryLimit') || text.includes('limitedAll'),
+        `${label} queries the database and must go through the panel query limiter`
+    );
+    // Promise.all trực tiếp là chính xác cái đã làm vỡ pool lần chạy thử đầu tiên.
+    check(
+        !/\bPromise\.all\(/.test(text),
+        `${label} must use limitedAll instead of Promise.all so the connection ceiling holds`
+    );
+}
+
+// Prisma không thấy connection_limit trong URL thì tự lấy `physical_cpus * 2 + 1` và giữ
+// số connection đó idle mãi. Đo thấy 14 idle + 1 = 15/15: hết slot cho migration, cho
+// backup, cho máy dev. Trần này phải nằm trong code vì host không sửa được .env qua git.
+const prismaLib = source('lib/prisma.ts');
+check(
+    prismaLib.includes("searchParams.set('connection_limit'") && prismaLib.includes('DB_CONNECTION_LIMIT'),
+    'the Prisma client must cap connection_limit so the bot cannot exhaust the shared pooler'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
