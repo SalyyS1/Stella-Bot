@@ -1370,4 +1370,29 @@ check(
     'openForWork must stay informational — it must not gate the claim flow'
 );
 
+// --- Sticker: mô tả chứ không chỉ tên, và code tự chặn ở câu kỹ thuật ---
+//
+// Model không nhìn thấy sticker. Chỉ đưa tên là bắt nó đoán theo vibe của cái tên, và nó
+// đoán sai gần như mọi lần ("đính kèm bừa bãi sticker chả liên quan gì"). Prompt là lời
+// khuyên; chốt chặn câu kỹ thuật phải nằm trong code.
+check(
+    emojiPalette.includes('sticker.description') && emojiPalette.includes('sticker.tags'),
+    'the sticker hint must describe what each sticker looks like, not only its name'
+);
+check(
+    /MẶC ĐỊNH KHÔNG THẢ/.test(emojiPalette),
+    'the sticker rule must default to not sending one'
+);
+check(
+    /function looksTechnical/.test(emojiPalette) &&
+    /if \(looksTechnical\(cleaned\)\) return \{ text: cleaned \}/.test(emojiPalette),
+    'extractSticker must refuse to attach a sticker to a technical answer regardless of the model'
+);
+// Cloudflare 524 là "model quá chậm", không phải "gateway hỏng". Log phải nói thế thay vì
+// in 800 ký tự HTML.
+check(
+    /524:\s*'Cloudflare cắt sau 100s/.test(aiClient) && aiClient.includes('describeHttpError(res.status'),
+    'aiClient must translate Cloudflare 5xx pages into one actionable line'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

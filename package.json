@@ -21,6 +21,7 @@
     "test:budget": "node --require ts-node/register --test tests/request-budget-parser.test.ts",
     "test:panel": "node --require ts-node/register --test tests/panel-static-file-server.test.ts",
     "test:panel-limit": "node --require ts-node/register --test tests/panel-query-limit.test.ts",
+    "test:sticker": "node --require ts-node/register --test tests/ai-sticker-extraction.test.ts",
     "db:migrate": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",

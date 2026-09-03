@@ -88,6 +88,34 @@ export function redactAi(input: unknown): string {
     return s.slice(0, 800);
 }
 
+// Một dòng nói lỗi HTTP là GÌ, thay vì 800 ký tự HTML.
+//
+// Gateway đứng sau Cloudflare. Khi model trả chậm quá 100 giây, Cloudflare tự cắt và
+// trả 524 kèm cả một trang HTML lỗi — bản trước in nguyên trang đó vào log (doctype,
+// stylesheet, meta viewport...), tức là 800 ký tự rác và không có chữ nào nói "hết
+// giờ ở tầng CDN". Người đọc log tưởng gateway hỏng, trong khi thứ cần chỉnh là câu
+// hỏi quá dài hoặc max_tokens quá lớn.
+const CLOUDFLARE_STATUS: Record<number, string> = {
+    520: 'Cloudflare: origin trả lỗi không rõ',
+    521: 'Cloudflare: origin từ chối kết nối (gateway đang tắt?)',
+    522: 'Cloudflare: không bắt tay được với origin',
+    523: 'Cloudflare: không với tới origin',
+    524: 'Cloudflare cắt sau 100s vì origin chưa trả xong — model quá chậm, giảm max_tokens hoặc rút ngắn prompt',
+    525: 'Cloudflare: bắt tay TLS với origin thất bại',
+    526: 'Cloudflare: chứng chỉ origin không hợp lệ'
+};
+
+function describeHttpError(status: number, json: any, raw: string): string {
+    const fromJson = json?.error?.message;
+    if (typeof fromJson === 'string' && fromJson.trim()) return redactAi(fromJson);
+    const known = CLOUDFLARE_STATUS[status];
+    if (known) return known;
+    // Thân HTML: lấy đúng <title>, đủ để biết ai chặn và vì sao.
+    const title = raw.match(/<title>([^<]{1,160})<\/title>/i)?.[1]?.trim();
+    if (title) return `trang HTML "${title}"`;
+    return redactAi(raw.slice(0, 200)) || '(thân rỗng)';
+}
+
 // Normalize the base URL to the chat-completions endpoint. Accepts a base like
 // https://agentgw.cloud (append /v1/chat/completions) or a full endpoint.
 function completionsEndpoint(): string {
@@ -200,7 +228,7 @@ async function attempt(messages: AiMessage[], opts: AskOpts): Promise<Attempt> {
             json = null;
         }
         if (!res.ok) {
-            console.error(`[aiClient] HTTP ${res.status}: ${redactAi(json?.error?.message || raw)}`);
+            console.error(`[aiClient] HTTP ${res.status}: ${describeHttpError(res.status, json, raw)}`);
             // A 4xx means the gateway understood the request and refused it — an
             // unsupported image part lands here. 5xx/transport errors are not
             // attributable to the payload, so they are not retried differently.

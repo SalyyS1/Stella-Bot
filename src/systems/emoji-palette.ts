@@ -1,4 +1,4 @@
-import { Client, Guild } from 'discord.js';
+import { Client, Guild, Sticker } from 'discord.js';
 
 // Danh sách emoji THẬT của server, để Stella thả emoji cho vui mà không bị hiện
 // ra chữ lỗi.
@@ -72,31 +72,67 @@ export function invalidateEmojiHint(guildId: string): void {
 // Vì vậy quy ước: model viết `[[sticker:tên]]` ở cuối câu, code tra tên đó ra id
 // thật rồi gửi kèm. Code giữ quyền quyết định — tên không có trong server thì
 // marker bị xoá và tin vẫn gửi bình thường, thay vì hiện ra một đoạn rác.
-const stickerCache = new Map<string, { names: string[]; at: number }>();
+//
+// Vì sao phải kèm mô tả chứ không chỉ tên: bản đầu chỉ đưa danh sách TÊN. Model
+// không nhìn thấy sticker, nên nó chọn theo "vibe" của cái tên — và đoán sai gần
+// như mọi lần: sticker mèo khóc thả vào câu chúc mừng, sticker "gg" thả vào câu
+// hướng dẫn config. Saly gọi đó là "đính kèm bừa bãi sticker chả liên quan gì".
+// Discord có sẵn `description` (admin ghi lúc upload) và `tags` (emoji đại diện,
+// bắt buộc khi upload) — đó là hai thứ duy nhất nói sticker này TRÔNG NHƯ THẾ NÀO.
+const stickerCache = new Map<string, { text: string; at: number }>();
 const MAX_STICKERS = 15;
 
-function stickerNames(guild: Guild): string[] {
-    const hit = stickerCache.get(guild.id);
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.names;
-    const names = guild.stickers.cache
-        .filter(s => !!s.name)
-        .first(MAX_STICKERS)
-        .map(s => s.name);
-    stickerCache.set(guild.id, { names, at: Date.now() });
-    return names;
+function describeSticker(sticker: Sticker): string {
+    // `tags` là emoji đại diện admin chọn lúc upload (bắt buộc), `description` là
+    // chữ mô tả (tuỳ chọn). Ghép cả hai; thiếu cả hai thì đành chỉ có tên.
+    const parts = [sticker.description?.trim(), sticker.tags?.trim()].filter(Boolean);
+    return parts.length ? `${sticker.name} (${parts.join(' · ')})` : sticker.name;
 }
 
 export function buildStickerHint(guild: Guild | null): string {
     if (!guild) return '';
-    const names = stickerNames(guild);
-    if (!names.length) return '';
-    return (
-        `STICKER SERVER: ${names.join(', ')}\n` +
-        'Muốn thả sticker thì viết `[[sticker:tên]]` ở CUỐI câu trả lời, đúng một cái, ' +
-        'và chỉ dùng tên có trong danh sách trên. Stella sẽ tự gắn sticker thật vào — ' +
-        'đừng viết gì khác ngoài dạng đó. Thả sticker khi thật sự vui/đúng lúc thôi, ' +
-        'không phải câu nào cũng thả.'
-    );
+
+    const hit = stickerCache.get(guild.id);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.text;
+
+    const usable = guild.stickers.cache
+        // `available` false = sticker đang bị khoá (server tụt boost): Discord từ
+        // chối gửi, nên đừng đưa nó vào danh sách để rồi tin bị lỗi.
+        .filter(s => !!s.name && s.available !== false)
+        .first(MAX_STICKERS)
+        .map(describeSticker);
+
+    if (!usable.length) {
+        stickerCache.set(guild.id, { text: '', at: Date.now() });
+        return '';
+    }
+
+    // Quy tắc mặc định là KHÔNG thả. Bản trước nói "thả khi thật sự vui" — với
+    // persona cà khịa thì câu nào cũng "vui", nên nó thả gần như mọi câu. Giờ nêu
+    // rõ: chỉ khi nội dung sticker (mô tả trong ngoặc) khớp với cảm xúc của câu
+    // trả lời, và không bao giờ ở câu trả lời kỹ thuật.
+    const text =
+        `STICKER SERVER (tên (mô tả · emoji đại diện)): ${usable.join(', ')}\n` +
+        'MẶC ĐỊNH KHÔNG THẢ STICKER. Chỉ thả khi mô tả trong ngoặc khớp ĐÚNG cảm xúc ' +
+        'câu trả lời — tên sticker không nói lên nó vẽ gì, phải dựa vào mô tả. Không thả ' +
+        'ở câu trả lời kỹ thuật (config, code, hướng dẫn, lỗi). Nếu không chắc sticker nào ' +
+        'khớp thì không thả. Khi thả: viết `[[sticker:tên]]` ở CUỐI câu, đúng một cái, ' +
+        'đúng tên trong danh sách. Stella tự gắn sticker thật vào.';
+
+    stickerCache.set(guild.id, { text, at: Date.now() });
+    return text;
+}
+
+// Câu trả lời KỸ THUẬT thì không thả sticker, bất kể model muốn gì.
+//
+// Prompt đã dặn điều này, nhưng prompt là lời khuyên còn đây là luật: một đoạn
+// config YAML dài kèm cái sticker mèo khóc ở dưới đọc như bot bị lỗi. Dấu hiệu
+// dùng ở đây rẻ và khó sai: có code block, hoặc câu trả lời dài (hướng dẫn nhiều
+// bước). Câu tán gẫu ngắn không bao giờ chạm hai ngưỡng này.
+const TECHNICAL_ANSWER_CHARS = 700;
+
+function looksTechnical(text: string): boolean {
+    return text.includes('```') || text.length > TECHNICAL_ANSWER_CHARS;
 }
 
 // Tách marker khỏi nội dung và trả về id sticker thật (nếu tên có thật).
@@ -112,9 +148,14 @@ export function extractSticker(
 
     const cleaned = text.replace(match[0], '').trimEnd();
     if (!guild) return { text: cleaned };
+    if (looksTechnical(cleaned)) return { text: cleaned };
 
     const wanted = match[1].trim().toLowerCase();
-    const found = guild.stickers.cache.find(s => s.name?.toLowerCase() === wanted);
+    // Tra lại `available` lúc gửi chứ không chỉ lúc dựng prompt: prompt được cache
+    // 10 phút, server có thể tụt boost trong khoảng đó.
+    const found = guild.stickers.cache.find(
+        s => s.name?.toLowerCase() === wanted && s.available !== false
+    );
     return found ? { text: cleaned, stickerId: found.id } : { text: cleaned };
 }
 
