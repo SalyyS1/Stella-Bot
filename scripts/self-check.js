@@ -1296,4 +1296,78 @@ check(
     'the Prisma client must cap connection_limit so the bot cannot exhaust the shared pooler'
 );
 
+// --- /portfolio: chỉ bài ĐÃ DUYỆT, và chỉ một đường truy vấn ---
+//
+// `OPTED_OUT` là bài tác giả đã chủ động xin không đăng. Liệt kê lại nó ở một lệnh công
+// khai là đi ngược lựa chọn của họ, nên bộ lọc phải là equals `PUBLISHED` — một status mới
+// thêm sau này mặc định BỊ ẨN. Dùng `not in [...]` thì quên cập nhật là lộ bài.
+const portfolioQuery = source('systems/showcase/portfolio-query.ts');
+const portfolioView = source('systems/showcase/portfolio-view.ts');
+const portfolioCommand = source('commands/portfolio.ts');
+check(
+    /status:\s*'PUBLISHED'/.test(portfolioQuery) && !/status:\s*\{\s*(?:not|notIn|in)\b/.test(portfolioQuery),
+    'portfolio-query must filter status by equals PUBLISHED, never by exclusion'
+);
+check(
+    !portfolioCommand.includes('prisma.') && !portfolioView.includes('prisma.'),
+    'the /portfolio command and view must query only through portfolio-query'
+);
+// Tiêu đề bài là chữ người dùng gõ; sẽ có người đặt tên tác phẩm là "@everyone".
+check(
+    /allowedMentions:\s*\{\s*parse:\s*\[\]\s*\}/.test(portfolioCommand) &&
+    /allowedMentions:\s*\{\s*parse:\s*\[\]\s*\}/.test(portfolioView),
+    'portfolio replies must disable mention parsing — titles are user text'
+);
+// Link thread dựng từ id: `discord.com/channels/<guild>/null` là link chết.
+check(
+    /if\s*\(!forumThreadId\)\s*return null/.test(portfolioView),
+    'portfolio must not build a thread link when forumThreadId is missing'
+);
+
+// --- Hồ sơ nhận việc: cắt độ dài ở SERVICE, và không sửa hộ người khác ---
+//
+// `setMaxLength` của modal là kiểm phía client. Không cắt lại ở tầng service thì một
+// priceText 4000 ký tự làm vỡ embed (trần 1024/field) và biến hồ sơ thành công cụ spam.
+const freelancerProfile = source('systems/freelancer/freelancer-profile.ts');
+const freelancerCommand = source('commands/freelancer.ts');
+const freelancerView = source('systems/freelancer/freelancer-profile-view.ts');
+check(
+    /MAX_HEADLINE\s*=\s*\d+/.test(freelancerProfile) && /MAX_PRICE_TEXT\s*=\s*\d+/.test(freelancerProfile),
+    'the freelancer profile service must define its own length caps'
+);
+check(
+    /\.slice\(0,\s*max\)/.test(freelancerProfile) &&
+    /trimToNull\([^)]*MAX_HEADLINE\)/.test(freelancerProfile) &&
+    /trimToNull\([^)]*MAX_PRICE_TEXT\)/.test(freelancerProfile),
+    'the freelancer profile service must truncate input itself, not trust the modal'
+);
+// Không có option `user` ở edit/status: một cái nút sửa bảng giá của người khác là một
+// đường lạm quyền, không phải một tiện ích cho admin.
+const editAndStatusBlock = freelancerCommand.slice(freelancerCommand.indexOf("setName('edit')"));
+check(
+    editAndStatusBlock.length > 200 && !editAndStatusBlock.includes('addUserOption'),
+    'the /freelancer edit and status subcommands must not accept a user option'
+);
+check(
+    (freelancerCommand.match(/addUserOption/g) || []).length === 1,
+    'only /freelancer profile may take a user option'
+);
+// Modal submit ghi theo interaction.user.id, không đọc id từ customId.
+check(
+    freelancerView.includes('saveServiceProfile(interaction.user.id') &&
+    !/saveServiceProfile\((?!interaction\.user\.id)/.test(freelancerView),
+    'the freelancer edit modal must only ever write the submitter own profile'
+);
+check(
+    /allowedMentions:\s*\{\s*parse:\s*\[\]\s*\}/.test(freelancerCommand) &&
+    /allowedMentions:\s*\{\s*parse:\s*\[\]\s*\}/.test(freelancerView),
+    'freelancer profile replies must disable mention parsing — the price list is user text'
+);
+// Trạng thái nhận việc là THÔNG TIN. Nếu nó thành cổng chặn ở luồng nhận job thì người
+// bấm "Nhận job" sẽ gặp một cái nút không phản ứng và không đoán được vì sao.
+check(
+    !source('systems/requestManager.ts').includes('openForWork'),
+    'openForWork must stay informational — it must not gate the claim flow'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

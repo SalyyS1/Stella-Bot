@@ -7,6 +7,7 @@ import { getFreelancerStats } from '../systems/freelancerManager';
 import { getInviteStats } from '../systems/invite/invite-stats';
 import { formatVoiceTime, getVoiceStats } from '../systems/stats/voice-activity-manager';
 import { countActiveWarns } from '../systems/moderation/mod-case-manager';
+import { getServiceProfile } from '../systems/freelancer/freelancer-profile';
 
 export default {
     data: new SlashCommandBuilder()
@@ -94,6 +95,19 @@ export default {
                 embed.addFields({
                     name: 'Cảnh báo blacklist',
                     value: `> Lý do: \`${isBlacklisted.reason}\``,
+                    inline: false
+                });
+            }
+
+            // Một DÒNG trạng thái nhận việc, không dán cả bảng giá: /profile đã dài, và
+            // "người này đáng tin tới đâu" với "bao nhiêu tiền" là hai câu hỏi khác nhau.
+            const serviceProfile = await getServiceProfile(targetUser.id);
+            if (serviceProfile) {
+                embed.addFields({
+                    name: 'Nhận việc',
+                    value: serviceProfile.openForWork
+                        ? `> ${emojis.success} Đang nhận việc · bảng giá ở \`/freelancer profile\``
+                        : `> ${emojis.close} Tạm không nhận việc · xem lại sau ở \`/freelancer profile\``,
                     inline: false
                 });
             }

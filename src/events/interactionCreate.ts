@@ -26,6 +26,8 @@ import { handleAutomodButton } from '../systems/automod/automod-alert';
 import { handleRoleMenuComponent } from '../systems/rolemenu/rolemenu-handler';
 import { handleTempVoiceComponent } from '../systems/tempvoice/tempvoice-controls';
 import { handleJoinRiskButton } from '../systems/moderation/join-risk-alert';
+import { handlePortfolioPageButton, isPortfolioPageButton } from '../systems/showcase/portfolio-view';
+import { FREELANCER_EDIT_MODAL, handleFreelancerEditModal } from '../systems/freelancer/freelancer-profile-view';
 import { handleTicketComponent } from '../systems/ticket/ticket-interactions';
 
 // Đọc một trường không bắt buộc của modal. getField() NÉM lỗi khi payload không có
@@ -343,6 +345,13 @@ export default {
             // Nút Kick/Ban trên cảnh báo acc đáng ngờ lúc join.
             if (action === 'joinrisk') {
                 await handleJoinRiskButton(interaction);
+                return;
+            }
+
+            // Phân trang /portfolio: pfolio_<authorId>_<page>. Tiền tố riêng để không đụng
+            // luồng portfolio cũ (`portfolio_modal`, `bump_<userId>`).
+            if (isPortfolioPageButton(interaction.customId)) {
+                await handlePortfolioPageButton(interaction);
                 return;
             }
 
@@ -835,6 +844,14 @@ export default {
                 } catch (error: any) {
                     await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể đăng portfolio. Vui lòng thử lại.'}`).catch(() => {});
                 }
+            } else if (interaction.customId === FREELANCER_EDIT_MODAL) {
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                // Hai trường đều không bắt buộc: bỏ trống là muốn xoá trường đó, không phải
+                // lỗi. getTextInputValue NÉM khi thiếu field nên phải bọc.
+                await handleFreelancerEditModal(interaction, name =>
+                    readOptionalModalField(() => interaction.fields.getTextInputValue(name))
+                );
             }
             else if (interaction.customId.startsWith('showcasetitle_')) {
                 const messageId = interaction.customId.replace('showcasetitle_', '');
