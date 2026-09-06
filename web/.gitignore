@@ -1,0 +1,11 @@
+# Dependency cua rieng panel. Bot khong cai chung.
+/node_modules
+
+# Cache build cua Next. KHONG ignore /out: do la ket qua build, commit vao git
+# vi host deploy bang git pull va khong build duoc (da OOM khi chay tsc).
+/.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Khong co bien moi truong nao trong panel: moi thu trong bundle la cong khai.
+.env*

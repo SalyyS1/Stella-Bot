@@ -1395,4 +1395,211 @@ check(
     'aiClient must translate Cloudflare 5xx pages into one actionable line'
 );
 
+// --- Panel web: static export, không secret trong bundle ---
+//
+// Host đã OOM khi chạy `tsc`; `next build` nặng hơn thế. Nên panel PHẢI là static export
+// build ở máy dev, và `web/out` phải nằm TRONG git — host deploy bằng `git pull` và không
+// build được. Đây là điểm khác thường duy nhất của kế hoạch panel, nên nó được chốt ở đây.
+const webConfig = fs.readFileSync(path.join(root, 'web', 'next.config.ts'), 'utf8');
+check(
+    /output:\s*["']export["']/.test(webConfig),
+    'the panel must stay a static export — the host cannot run next build'
+);
+check(
+    /trailingSlash:\s*true/.test(webConfig),
+    'trailingSlash must stay on so /orders/ resolves to orders/index.html'
+);
+
+const rootGitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+const webGitignore = fs.readFileSync(path.join(root, 'web', '.gitignore'), 'utf8');
+check(
+    !/^\s*(?:\/)?web\/out\/?\s*$/m.test(rootGitignore) && !/^\s*(?:\/)?out\/?\s*$/m.test(webGitignore),
+    'web/out must be committed — the host deploys by git pull and cannot build the panel'
+);
+
+// Next chỉ được là dependency của web/. Kéo nó vào package.json gốc là bắt host cài cả
+// toolchain build mà nó không dùng.
+const rootPkg = require(path.join(root, 'package.json'));
+const rootDeps = Object.keys({ ...rootPkg.dependencies, ...rootPkg.devDependencies });
+check(
+    !rootDeps.some(name => name === 'next' || name.startsWith('@next/') || name === 'react' || name === 'react-dom'),
+    'Next/React must stay inside web/package.json, never in the bot package.json'
+);
+check(
+    typeof rootPkg.scripts['panel:build'] === 'string',
+    'panel:build must exist at the root so one command builds the panel on the dev machine'
+);
+// typecheck của bot không được đi vào web/: hai tsconfig khác nhau (bot CommonJS, web
+// bundler/ESM), trộn lại là một đống lỗi không nói gì về bot.
+const rootTsconfig = require(path.join(root, 'tsconfig.json'));
+check(
+    Array.isArray(rootTsconfig.exclude) && rootTsconfig.exclude.includes('web'),
+    'the bot tsconfig must exclude web/ so npm run typecheck stays about the bot'
+);
+
+// Mọi thứ trong bundle static là thứ người lạ đọc được. `NEXT_PUBLIC_*` nghĩa là "nhét
+// vào bundle", nên panel không được dùng nó, và không được có base URL từ biến môi trường
+// (panel luôn cùng origin với bot).
+const webSrcFiles = [];
+(function collectWeb(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) collectWeb(full);
+        else if (/\.(ts|tsx)$/.test(entry.name)) webSrcFiles.push(full);
+    }
+})(path.join(root, 'web', 'src'));
+check(webSrcFiles.length >= 5, 'panel source files were not found — the bundle scan would pass vacuously');
+
+// `dangerouslySetInnerHTML` chỉ được tồn tại ở ĐÚNG một chỗ: `components/ui/chart.tsx`
+// của shadcn, nơi nó bơm một khối <style> dựng từ ChartConfig — thứ ta viết trong code,
+// không phải dữ liệu từ API. Mọi chỗ khác đều là mất lớp escape mặc định của React, và
+// dữ liệu panel (title showcase, bảng giá, mô tả đơn) toàn là chữ người dùng gõ.
+const dangerousFiles = webSrcFiles
+    .filter(file => fs.readFileSync(file, 'utf8').includes('dangerouslySetInnerHTML'))
+    .map(file => path.relative(root, file).replace(/\\/g, '/'));
+check(
+    dangerousFiles.length === 1 && dangerousFiles[0] === 'web/src/components/ui/chart.tsx',
+    `dangerouslySetInnerHTML must exist only in the shadcn chart component, found: ${dangerousFiles.join(', ') || 'none'}`
+);
+
+for (const file of webSrcFiles) {
+    const text = fs.readFileSync(file, 'utf8');
+    const label = path.relative(root, file).replace(/\\/g, '/');
+    check(!text.includes('NEXT_PUBLIC_'), `${label} must not read NEXT_PUBLIC_* — that prefix means "put it in the public bundle"`);
+    check(!text.includes('process.env'), `${label} must not read env vars — the panel bundle is public and always same-origin`);
+}
+
+// --- Panel web: các trang (phase 5) ---
+//
+// Static export KHÔNG chạy được route động: `app/orders/[id]/page.tsx` bắt buộc phải có
+// `generateStaticParams`, tức là phải biết trước mọi ID lúc build. ID đơn sinh ra liên tục
+// sau khi build, nên trang chi tiết dùng `?id=`. Một thư mục `[...]` lọt vào đây là panel
+// 404 với mọi bản ghi mới — và nó chỉ lộ ra khi có người bấm vào một dòng.
+const appDir = path.join(root, 'web', 'src', 'app');
+const dynamicSegments = [];
+(function findDynamic(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.includes('[')) dynamicSegments.push(entry.name);
+        findDynamic(path.join(dir, entry.name));
+    }
+})(appDir);
+check(
+    dynamicSegments.length === 0,
+    `the panel must not use dynamic route segments (static export cannot resolve them): ${dynamicSegments.join(', ')}`
+);
+
+// Mọi link trong sidebar phải có trang thật. Link chết trong menu chính là thứ admin gặp
+// ngay ở lần bấm đầu tiên.
+const sidebarSource = fs.readFileSync(
+    path.join(root, 'web', 'src', 'components', 'sidebar-nav.tsx'), 'utf8'
+);
+const sidebarHrefs = [...sidebarSource.matchAll(/href:\s*["'](\/[^"']*)["']/g)].map(m => m[1]);
+check(sidebarHrefs.length >= 6, 'the sidebar links were not found — the route check would pass vacuously');
+for (const href of sidebarHrefs) {
+    const segments = href.split('/').filter(Boolean);
+    const pageFile = path.join(appDir, ...segments, 'page.tsx');
+    check(fs.existsSync(pageFile), `sidebar links to ${href} but ${path.relative(root, pageFile)} does not exist`);
+}
+
+// `useSearchParams` khi build static bắt buộc nằm trong Suspense; thiếu là build đổ với
+// một thông báo khó đọc. Kẹp ở đây để lỗi hiện ra bằng tiếng người.
+for (const file of webSrcFiles) {
+    const text = fs.readFileSync(file, 'utf8');
+    if (!text.includes('useSearchParams')) continue;
+    const label = path.relative(root, file).replace(/\\/g, '/');
+    check(
+        text.includes('Suspense'),
+        `${label} uses useSearchParams so it must sit inside a Suspense boundary or the static build fails`
+    );
+}
+
+// Danh sách kỹ năng của panel phải là TẬP CON của config.skills bên bot. Bản đầu của panel
+// đã bịa ra builder/plugin/config/artist/model — bộ lọc kỹ năng khi đó lọc theo những giá
+// trị không tồn tại trong DB, nên nó luôn trả về bảng trống và trông y như "chưa có đơn".
+const panelLabels = fs.readFileSync(
+    path.join(root, 'web', 'src', 'lib', 'panel-labels.ts'), 'utf8'
+);
+const botConfigSource = fs.readFileSync(path.join(root, 'src', 'config.ts'), 'utf8');
+const botSkillKeys = new Set(
+    [...botConfigSource.matchAll(/\{\s*key:\s*["'](\w+)["'],\s*label:/g)].map(m => m[1])
+);
+const panelSkillBlock = panelLabels.match(/SKILL_LABELS[^=]*=\s*\{([^}]*)\}/);
+check(botSkillKeys.size >= 3, 'config.skills keys were not found — the skill check would pass vacuously');
+check(Boolean(panelSkillBlock), 'panel-labels.ts must declare SKILL_LABELS');
+const panelSkillKeys = [...(panelSkillBlock?.[1] ?? '').matchAll(/^\s*(\w+):/gm)].map(m => m[1]);
+check(panelSkillKeys.length >= 3, 'SKILL_LABELS was parsed but came out empty');
+for (const key of panelSkillKeys) {
+    check(botSkillKeys.has(key), `panel skill "${key}" does not exist in config.skills — the filter would match nothing`);
+}
+
+// Trạng thái showcase panel cho chọn phải khớp `VIEWABLE_STATUS` bên tầng dữ liệu. Thêm
+// OPTED_OUT vào dropdown là mời admin đi xem lại đúng những bài tác giả xin đừng đăng —
+// server sẽ chặn, nhưng giao diện thì đã hứa một thứ nó không được phép làm.
+const showcaseQueries = fs.readFileSync(
+    path.join(root, 'src', 'panel', 'data', 'showcase-queries.ts'), 'utf8'
+);
+const viewableMatch = showcaseQueries.match(/VIEWABLE_STATUS\s*=\s*new Set\(\[([^\]]*)\]/);
+check(Boolean(viewableMatch), 'showcase-queries.ts must declare VIEWABLE_STATUS');
+const viewableStatuses = new Set(
+    [...(viewableMatch?.[1] ?? '').matchAll(/["'](\w+)["']/g)].map(m => m[1])
+);
+const showcaseBlock = panelLabels.match(/SHOWCASE_STATUS_OPTIONS[^=]*=\s*\[([\s\S]*?)\]/);
+check(Boolean(showcaseBlock), 'panel-labels.ts must declare SHOWCASE_STATUS_OPTIONS');
+const panelShowcaseStatuses = [...(showcaseBlock?.[1] ?? '').matchAll(/value:\s*["'](\w+)["']/g)]
+    .map(m => m[1]);
+check(panelShowcaseStatuses.length > 0, 'SHOWCASE_STATUS_OPTIONS was parsed but came out empty');
+for (const status of panelShowcaseStatuses) {
+    check(
+        viewableStatuses.has(status),
+        `the panel offers showcase status "${status}" which the data layer refuses to serve`
+    );
+}
+
+// Dữ liệu mẫu chỉ được đi qua api-client. Một trang import thẳng mock-data nghĩa là khi
+// phase 2 mở /api thật, trang đó vẫn hiển thị số liệu bịa — và không ai nhận ra, vì các
+// trang khác thì đã thật.
+const mockImporters = webSrcFiles
+    .filter(file => path.basename(file) !== 'mock-data.ts')
+    .filter(file => /mock-data/.test(fs.readFileSync(file, 'utf8')))
+    .map(file => path.relative(root, file).replace(/\\/g, '/'));
+check(
+    mockImporters.length === 1 && mockImporters[0] === 'web/src/lib/api-client.ts',
+    `mock data must only be reachable through api-client.ts, found: ${mockImporters.join(', ') || 'none'}`
+);
+check(
+    /const USE_MOCK = (?:true|false);/.test(
+        fs.readFileSync(path.join(root, 'web', 'src', 'lib', 'api-client.ts'), 'utf8')
+    ),
+    'api-client must keep USE_MOCK as one literal flag so switching to the real API is a one-line edit'
+);
+
+// Bảng chỉ được dựng qua DataTable. Bốn trang danh sách tự viết <table> là bốn chỗ phải sửa
+// mỗi lần đổi trạng thái rỗng/lỗi — và ba trong bốn chỗ sẽ bị quên.
+const appPages = webSrcFiles.filter(file => file.startsWith(appDir));
+check(appPages.length >= 6, 'panel pages were not found — the table check would pass vacuously');
+for (const file of appPages) {
+    const text = fs.readFileSync(file, 'utf8');
+    const label = path.relative(root, file).replace(/\\/g, '/');
+    check(!/<table[\s>]/.test(text), `${label} must render tables through DataTable, not raw <table>`);
+    check(
+        !/\bapiGet\b/.test(text),
+        `${label} must fetch through useApi/useListQuery so loading, error and empty states stay uniform`
+    );
+    // Link người dùng gõ (ảnh tham chiếu của đơn) mở ra tab mới thì phải qua safeHttpUrl:
+    // React escape nội dung nhưng KHÔNG kiểm scheme của href, nên `javascript:` trong href
+    // vẫn chạy. `noopener` để trang mở ra không với tay lại được vào panel qua window.opener.
+    if (!text.includes('target="_blank"')) continue;
+    check(
+        text.includes('safeHttpUrl'),
+        `${label} opens user-supplied links so every href must pass through safeHttpUrl`
+    );
+    check(
+        text.includes('rel="noopener noreferrer"'),
+        `${label} opens links in a new tab so they need rel="noopener noreferrer"`
+    );
+}
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
