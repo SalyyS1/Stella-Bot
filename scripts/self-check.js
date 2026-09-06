@@ -732,6 +732,27 @@ check(
     /record\.targetId === targetId && record\.kind === kind/.test(source('systems/logs/audit-actor-resolver.ts')),
     'member actor lookup must match on (target, kind) — matching on target alone mixes up concurrent mods'
 );
+// Sự kiện hẹn giờ: Discord lo nhắc và đếm người, bot chỉ tạo/đọc — không tự viết scheduler.
+// Múi giờ là chỗ dễ chết im lặng nhất: giờ nhập vào phải hiểu theo giờ Việt Nam.
+const eventCommand = source('commands/event.ts');
+const saigonTime = source('systems/scheduled-events/saigon-time.ts');
+check(
+    eventCommand.includes('setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)')
+    && eventCommand.includes('memberPermissions?.has(PermissionFlagsBits.ManageEvents)'),
+    '/event must gate on Manage Events both in the command definition and at runtime'
+);
+check(
+    eventCommand.includes('GuildScheduledEventEntityType.External') && eventCommand.includes('entityMetadata: { location'),
+    '/event create must use External events with a location — the community has no voice stage to attach to'
+);
+check(
+    eventCommand.includes('recurrenceRule') && eventCommand.includes('GuildScheduledEventRecurrenceRuleFrequency.Weekly'),
+    '/event repeat must use Discord recurrence rules, not a homegrown scheduler'
+);
+check(
+    /const TIME_ZONE = config\.maintenance\.timezone/.test(saigonTime) && !/(\+|\-)\s*7\s*\*\s*60/.test(saigonTime),
+    'event time parsing must use the configured timezone, never a hard-coded UTC+7 offset'
+);
 check(
     source('systems/logs/message-log-embeds.ts').includes('msglog_diff_') &&
     interaction.includes("action === 'msglog'") &&
