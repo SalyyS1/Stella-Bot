@@ -717,6 +717,21 @@ check(
     messageDelete.includes('resolveDeleterWithGrace'),
     'delete log must resolve whether a mod deleted the message'
 );
+// Log đổi role/nick/timeout phải ghi AI làm, và phải tách theo loại thay đổi — hai mod
+// cùng động vào một người trong cùng giây là chuyện thật lúc onboard.
+const memberUpdateLog = source('events/guildMemberUpdate.ts');
+check(
+    memberUpdateLog.includes('resolveMemberActorsWithGrace') && memberUpdateLog.includes("'Ai thực hiện'"),
+    'guildMemberUpdate log must resolve and show who made the change'
+);
+check(
+    source('events/guildAuditLogEntryCreate.ts').includes('rememberMemberUpdateEntry(entry)'),
+    'guildAuditLogEntryCreate must record member-update entries or the actor lookup has nothing to read'
+);
+check(
+    /record\.targetId === targetId && record\.kind === kind/.test(source('systems/logs/audit-actor-resolver.ts')),
+    'member actor lookup must match on (target, kind) — matching on target alone mixes up concurrent mods'
+);
 check(
     source('systems/logs/message-log-embeds.ts').includes('msglog_diff_') &&
     interaction.includes("action === 'msglog'") &&

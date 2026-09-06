@@ -1,6 +1,6 @@
 import { AuditLogEvent, Events, Guild, GuildAuditLogsEntry } from 'discord.js';
 import { config } from '../config';
-import { rememberDeletionEntry } from '../systems/logs/audit-actor-resolver';
+import { rememberDeletionEntry, rememberMemberUpdateEntry } from '../systems/logs/audit-actor-resolver';
 import { createModCase, ModCaseKind } from '../systems/moderation/mod-case-manager';
 
 // Loại hành động mod nào được ghi thành hồ sơ, và nhãn tiếng Việt để hiện trong log.
@@ -25,8 +25,11 @@ export default {
     async execute(entry: GuildAuditLogsEntry, _guild: Guild) {
         if (!config.logs.enabled) return;
 
-        // Ghi lại lượt xoá tin để messageDelete biết là mod xoá hay tác giả tự xoá.
+        // Ghi lại lượt xoá tin để messageDelete biết là mod xoá hay tác giả tự xoá, và
+        // lượt đổi role/nick/timeout để guildMemberUpdate ghi được AI làm. Ghi cả khi
+        // executor là bot: "Stella cấp role qua role menu" là câu trả lời hữu ích.
         rememberDeletionEntry(entry);
+        rememberMemberUpdateEntry(entry);
 
         // Bot tự làm (anti-raid, lệnh của bot) không ghi hồ sơ thêm lần nữa: những
         // đường đó đã có log riêng, ghi đôi làm hồ sơ đếm sai.
