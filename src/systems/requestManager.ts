@@ -17,6 +17,7 @@ import { pingSkillRole, isSkillKey } from './skillRoleManager';
 import { formatBudget } from './request/budget-parser';
 import { parseReferenceUrls } from './request/reference-image-validator';
 import { closeOrderChannel, createOrderChannel } from './request/order-channel';
+import { decideRateReward, type RateRewardDecision } from './request/rate-reward-guard';
 import { markInternalAntiRaidAction } from './antiRaidManager';
 
 export type RequestKind = 'PAID' | 'FREE';
@@ -449,7 +450,10 @@ export async function rateRequest(client: Client, guildId: string | null, id: nu
     if (!request.claimedById) throw new Error(tr(locale, 'request.rateNoTarget'));
     if (request.status !== 'DONE') throw alreadyRatedError(locale);
 
-    await prisma.$transaction(async tx => {
+    // Transaction TRẢ VỀ quyết định thưởng thay vì ghi vào một biến ngoài: biến ngoài gán
+    // trong callback thì TypeScript vẫn coi nó là `null` ở dưới, và cách chữa kiểu bằng cast
+    // sẽ che mất trường hợp thật là "transaction ném lỗi nên chưa có quyết định nào".
+    const reward = await prisma.$transaction(async tx => {
         await lockVoteScores(tx);
         // Atomic gate: only the DONE -> RATED transition pays out. A concurrent
         // second click finds count === 0 and aborts the tx before any reward write,
@@ -462,28 +466,43 @@ export async function rateRequest(client: Client, guildId: string | null, id: nu
 
         await tx.user.upsert({ where: { id: reviewerId }, update: {}, create: { id: reviewerId } });
         await tx.user.upsert({ where: { id: request.claimedById! }, update: {}, create: { id: request.claimedById! } });
+
+        // Quyết định thưởng TRƯỚC khi ghi review, để số đếm không tính chính lượt này.
+        const decision: RateRewardDecision = await decideRateReward(tx, {
+            requesterId: reviewerId,
+            claimerId: request.claimedById!,
+            rating
+        });
+
         await tx.requestReview.upsert({
             where: { requestId_reviewerId: { requestId: id, reviewerId } },
             update: { rating },
             create: { requestId: id, reviewerId, targetId: request.claimedById!, rating }
         });
-        await tx.user.update({
-            where: { id: request.claimedById! },
-            data: {
-                contributionScore: { increment: rating },
-                scoinBalance: { increment: rating * 10 },
-                scoinEarnedTotal: { increment: rating * 10 }
-            }
-        });
-        await tx.scoinTransaction.create({
-            data: {
-                userId: request.claimedById!,
-                amount: rating * 10,
-                reason: `Request #${id} rating reward`,
-                source: 'request:rate',
-                metadata: `rating:${rating};reviewer:${reviewerId}`
-            }
-        });
+
+        // Bị chặn thì KHÔNG ghi giao dịch scoin nào — không ghi cả dòng 0 đồng, vì luật ngày
+        // đếm số giao dịch và một dòng 0 đồng sẽ làm số đó nói sai.
+        if (!decision.suppressed) {
+            await tx.user.update({
+                where: { id: request.claimedById! },
+                data: {
+                    contributionScore: { increment: decision.contribution },
+                    scoinBalance: { increment: decision.scoin },
+                    scoinEarnedTotal: { increment: decision.scoin }
+                }
+            });
+            await tx.scoinTransaction.create({
+                data: {
+                    userId: request.claimedById!,
+                    amount: decision.scoin,
+                    reason: `Request #${id} rating reward`,
+                    source: 'request:rate',
+                    metadata: `rating:${rating};reviewer:${reviewerId}`
+                }
+            });
+        }
+
+        return decision;
     });
 
     await refreshRequestMessage(client, id);
@@ -496,6 +515,23 @@ export async function rateRequest(client: Client, guildId: string | null, id: nu
             { name: 'Target', value: `<@${request.claimedById}>`, inline: true }
         ]
     }).catch(() => {});
+
+    // Thưởng bị chặn thì Saly phải thấy — người đánh giá thì không. Đây là chỗ duy nhất
+    // chuyện đó lộ ra, nên nó là một dòng log riêng chứ không nhét vào log ở trên: log riêng
+    // thì lọc được, và không bị bỏ qua như một field thứ tư.
+    if (reward.suppressed) {
+        await sendAdminLog(client, {
+            title: 'Rating reward suppressed',
+            color: '#e67e22',
+            fields: [
+                { name: 'Request', value: `#${id}`, inline: true },
+                { name: 'Rule', value: reward.suppressed.reason, inline: true },
+                { name: 'Target', value: `<@${request.claimedById}>`, inline: true },
+                { name: 'Reviewer', value: `<@${reviewerId}>`, inline: true },
+                { name: 'Chi tiết', value: reward.suppressed.detail, inline: false }
+            ]
+        }).catch(() => {});
+    }
 
     return tr(locale, 'request.rateThanks', { rating, targetId: request.claimedById });
 }

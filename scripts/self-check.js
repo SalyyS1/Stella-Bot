@@ -1602,4 +1602,49 @@ for (const file of appPages) {
     );
 }
 
+// --- Chốt chống farm điểm đánh giá ---
+//
+// Đánh giá 5 sao in ra 50 scoin. Tự nhận đơn của mình đã bị chặn, nên farm cần hai tài
+// khoản — mười phút là có. Ba assertion dưới đây khoá lại đúng ba chỗ mà một lần sửa vô tình
+// sẽ mở lại lỗ, và cả ba đều là chuyện THỨ TỰ hoặc PHẠM VI, thứ mà đọc diff không thấy.
+const rateGuard = source('systems/request/rate-reward-guard.ts');
+
+// Trần đếm lượt/ngày phải lọc theo source. Thiếu lọc là tính cả /daily, level-up, trivia vào
+// trần này, và người chơi bình thường mất thưởng đánh giá chỉ vì hôm nay có điểm danh.
+check(
+    /source:\s*'request:rate'/.test(rateGuard),
+    'the rating anti-farm daily count must filter by source request:rate'
+);
+
+// Trần đặt quá cao là tắt chốt mà vẫn trông như có chốt.
+for (const name of ['RATE_PAIR_LIMIT', 'RATE_DAILY_LIMIT']) {
+    const match = rateGuard.match(new RegExp(`${name}\\s*=\\s*(\\d+)`));
+    check(Boolean(match), `${name} must stay a plain number literal so this check can read it`);
+    const value = Number(match?.[1]);
+    check(
+        value >= 1 && value <= 10,
+        `${name} is ${value} — outside 1..10 it either blocks real repeat clients or disables the guard`
+    );
+}
+
+// Guard phải chạy TRƯỚC khi ghi review, nếu không số đếm tính cả lượt đang xử lý và trần bị
+// lệch một đơn.
+const guardCallAt = requestManagerSource.indexOf('decideRateReward(tx');
+const reviewWriteAt = requestManagerSource.indexOf('tx.requestReview.upsert');
+check(guardCallAt !== -1 && reviewWriteAt !== -1, 'rateRequest must both call the guard and write the review');
+check(
+    guardCallAt < reviewWriteAt,
+    'the rating guard must run before the review row is written or the counts include the rating being processed'
+);
+
+// Phần trả thưởng phải nằm TRONG nhánh không bị chặn. Ghi giao dịch scoin ngoài nhánh đó là
+// trả thưởng cho mọi lượt, tức là chốt chỉ còn là một dòng log.
+const suppressedBranch = requestManagerSource.match(/if \(!\w+\.suppressed\)/);
+const payoutAt = requestManagerSource.indexOf("source: 'request:rate'");
+check(Boolean(suppressedBranch), 'rateRequest must branch on the guard decision before paying out');
+check(
+    payoutAt !== -1 && (suppressedBranch?.index ?? Infinity) < payoutAt,
+    'the Scoin payout in rateRequest must sit inside the "not suppressed" branch'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);
