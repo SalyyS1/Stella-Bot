@@ -25,12 +25,22 @@ import { reconcileTempVoiceChannels } from '../systems/tempvoice/tempvoice-servi
 import { startTempRoleScheduler } from '../systems/roles/temp-role-manager';
 import { startModDigestScheduler } from '../systems/moderation/mod-digest';
 import { startStatsScheduler } from '../systems/stats/stats-channel-manager';
+import { applyApplicationEmojiOverrides } from '../systems/app-emoji-registry';
 
 export default {
     name: Events.ClientReady,
     once: true,
     async execute(client: Client) {
         console.log(`Ready! Logged in as ${client.user?.tag}`);
+        // Emoji của app thay cho emoji server, NGAY trước mọi thứ khác gửi tin: một tin
+        // nhắn gửi trước lúc ghi đè sẽ mang markup cũ. Fail mềm và im lặng có chủ ý —
+        // thiếu bước này thì bot vẫn dùng emoji server như hôm nay.
+        try {
+            const applied = await applyApplicationEmojiOverrides(client);
+            if (applied > 0) console.log(`[emoji] dùng ${applied} emoji của app thay emoji server.`);
+        } catch (error) {
+            console.error('[emoji] không đọc được emoji của app:', error);
+        }
         // Font tờ báo nhật báo — đăng ký NGAY khi bot lên, trước khi tick đầu tiên
         // của scheduler (21h) có thể cần render. Fail mềm: thiếu font chỉ mất ảnh.
         try {

@@ -1647,4 +1647,38 @@ check(
     'the Scoin payout in rateRequest must sit inside the "not suppressed" branch'
 );
 
+// --- Emoji của app thay cho emoji server ---
+//
+// 23 emoji trong config thuộc MỘT server; server đó xoá là 271 chỗ hiện rỗng không lỗi. Ba
+// chốt: ghi đè phải chạy lúc ready (trước tin nhắn đầu tiên), việc TẠO emoji chỉ được chạy tay
+// qua lệnh (đó là ghi vào tài sản của app — một lần deploy không được tự làm), và mọi giá trị
+// trong config phải là markup custom đọc được (unicode lọt vào là không chuyển được).
+const appEmoji = source('systems/app-emoji-registry.ts');
+check(
+    ready.includes('applyApplicationEmojiOverrides'),
+    'ready.ts must apply application-emoji overrides or the config keeps pointing at server emojis'
+);
+check(
+    !ready.includes('syncApplicationEmojis'),
+    'ready.ts must never create application emojis on boot — that is a manual /maintenance step'
+);
+check(
+    source('commands/maintenance.ts').includes('syncApplicationEmojis'),
+    '/maintenance must expose sync-emojis so the one-time upload has a place to run from'
+);
+check(
+    /table\[key\]\s*=\s*markup/.test(appEmoji),
+    'the override must mutate config.ui.emojis in place — 271 call sites read that object, a copy reaches none of them'
+);
+const configEmojiBlock = source('config.ts').match(/emojis:\s*\{([\s\S]*?)\n\s*\}/);
+check(Boolean(configEmojiBlock), 'config.ui.emojis block was not found');
+const configEmojiValues = [...(configEmojiBlock?.[1] ?? '').matchAll(/:\s*"([^"]*)"/g)].map(m => m[1]);
+check(configEmojiValues.length >= 20, 'config.ui.emojis parsed to fewer than 20 values — the emoji check would pass vacuously');
+for (const value of configEmojiValues) {
+    check(
+        /^<a?:[A-Za-z0-9_]{2,32}:\d{15,25}>$/.test(value),
+        `config.ui.emojis value "${value}" is not custom-emoji markup, so it cannot be moved to an application emoji`
+    );
+}
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

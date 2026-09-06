@@ -8,6 +8,7 @@ import { getManagedChannelIds } from '../utils/managedChannels';
 import { runReport, reportChunkStatus } from '../systems/reportManager';
 import { listTerms, deleteTerm } from '../systems/knowledge/glossary-store';
 import { renderNewspaper, FrontPageData } from '../systems/report/newspaper/newspaper-canvas';
+import { syncApplicationEmojis } from '../systems/app-emoji-registry';
 import prisma from '../lib/prisma';
 
 export default {
@@ -78,6 +79,13 @@ export default {
                 // tiếng Việt và bố cục có ổn không trước khi bản tin thật đăng 21h.
                 .setName('newspaper-preview')
                 .setDescription('Render thử ảnh tờ báo (dữ liệu mẫu) và gửi vào kênh này')
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                // Chuyển 23 emoji trong config sang emoji của APP. Chạy TAY, một lần —
+                // và phải chạy khi emoji gốc còn sống, vì ảnh được tải lại từ CDN.
+                .setName('sync-emojis')
+                .setDescription('Tải emoji trong config thành emoji riêng của bot (chạy 1 lần)')
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -221,6 +229,30 @@ export default {
                 published: result.published
             });
             return interaction.editReply(`${config.ui.emojis.success} ${text}`);
+        }
+
+        if (interaction.options.getSubcommand() === 'sync-emojis') {
+            const result = await syncApplicationEmojis(interaction.client);
+            const lines = [
+                `${config.ui.emojis.success} Tạo mới **${result.created.length}** emoji cho app.`,
+                `Đã có sẵn: ${result.skipped.length}`
+            ];
+            if (result.failed.length > 0) {
+                // Nêu tên từng cái lỗi: emoji gốc đã bị xoá thì đây là chỗ duy nhất biết
+                // được, và biết muộn nghĩa là mất ảnh vĩnh viễn.
+                lines.push(
+                    `${config.ui.emojis.error} Lỗi ${result.failed.length}: ` +
+                    result.failed.map(item => `\`${item.key}\` (${item.error})`).join(', ')
+                );
+            }
+            if (result.unparsable.length > 0) {
+                lines.push(`Bỏ qua (không phải emoji custom): ${result.unparsable.join(', ')}`);
+            }
+            if (result.invalidName.length > 0) {
+                lines.push(`Khoá đặt tên sai: ${result.invalidName.join(', ')}`);
+            }
+            lines.push('Khởi động lại bot để bắt đầu dùng emoji của app.');
+            return interaction.editReply(lines.join('\n'));
         }
 
         if (interaction.options.getSubcommand() === 'newspaper-preview') {
