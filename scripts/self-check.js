@@ -1681,4 +1681,59 @@ for (const value of configEmojiValues) {
     );
 }
 
+// Báo video YouTube. Hai lỗi im lặng đáng sợ nhất: (1) thêm kênh xong dội cả kho video cũ vào
+// chat — chốt là con trỏ phải được đặt NGAY lúc thêm và pickNewVideos không đăng gì khi chưa
+// có con trỏ; (2) `/youtube add` nhận URL từ người dùng rồi bot fetch — chốt là host phải nằm
+// trong danh sách trắng, kể cả SAU redirect. Ngoài ra: tên kênh/tiêu đề là chữ từ YouTube nên
+// không được parse mention, và nhịp quét không được hạ dưới 5 phút (feed YouTube tự cache).
+const ytFeed = source('systems/youtube/youtube-feed.ts');
+const ytManager = source('systems/youtube/youtube-alert-manager.ts');
+const ytCommand = source('commands/youtube.ts');
+check(ready.includes('startYoutubeAlertScheduler'), 'ready.ts must start the YouTube alert scheduler');
+check(
+    !/from ['"]discord\.js['"]/.test(ytFeed) && !ytFeed.includes('lib/prisma'),
+    'youtube-feed.ts must stay pure (no discord.js, no prisma) so the parser tests need no network or DB'
+);
+check(
+    /if \(!cursor\.lastPublishedAt\) return \[\];/.test(ytFeed),
+    'pickNewVideos must announce nothing when there is no cursor — a fresh subscription must not dump the backlog'
+);
+check(
+    /lastPublishedAt:\s*cursor\?\.lastPublishedAt \?\? new Date\(\)/.test(ytManager),
+    'addSubscription must set the cursor at creation time, otherwise the first tick posts every video in the feed'
+);
+check(
+    /ALLOWED_HOSTS\.has\(url\.hostname\.toLowerCase\(\)\)/.test(ytFeed)
+    && /ALLOWED_HOSTS\.has\(new URL\(response\.url\)\.hostname\.toLowerCase\(\)\)/.test(ytFeed),
+    'resolveChannelId must whitelist the host both before fetching and after redirects — user-supplied URLs must not turn the bot into an SSRF proxy'
+);
+check(
+    /allowedMentions:\s*\{\s*parse:\s*\[\]/.test(ytManager),
+    'YouTube announcements must not parse mentions — channel names and titles are untrusted text'
+);
+check(
+    /Math\.max\(config\.youtube\.pollIntervalMs,\s*5 \* 60_000\)/.test(ytManager),
+    'the YouTube scheduler must clamp the interval to at least 5 minutes'
+);
+const ytInterval = source('config.ts').match(/pollIntervalMs:\s*(\d+)\s*\*\s*60_000/);
+check(Boolean(ytInterval) && Number(ytInterval[1]) >= 5, 'config.youtube.pollIntervalMs must be an N * 60_000 literal with N >= 5');
+check(
+    /i\\d\?\\\.ytimg\\\.com/.test(ytManager),
+    'the announcement embed must only use thumbnails from ytimg.com — the URL comes from the feed, not from us'
+);
+check(
+    ytCommand.includes('setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)')
+    && ytCommand.includes("memberPermissions?.has(PermissionFlagsBits.ManageGuild)"),
+    '/youtube must gate on Manage Server both in the command definition and at runtime'
+);
+check(
+    fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8').includes('model YoutubeSubscription')
+    && dbUtils.includes("name: 'YoutubeSubscription'"),
+    'YoutubeSubscription must exist in schema.prisma AND scripts/db-utils.js — a table missing from db-utils is wiped by restore --replace'
+);
+check(
+    fs.existsSync(path.join(root, 'prisma/migrations/20260906080500_youtube_subscription/migration.sql')),
+    'the YoutubeSubscription migration must be committed, or `prisma migrate deploy` on the host never creates the table'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

@@ -178,6 +178,12 @@ const tables = [
         client: 'birthday',
         key: row => ({ userId: row.userId }),
         dateFields: ['createdAt', 'updatedAt']
+    },
+    {
+        name: 'YoutubeSubscription',
+        client: 'youtubeSubscription',
+        key: row => ({ ytChannelId: row.ytChannelId }),
+        dateFields: ['lastPublishedAt', 'createdAt', 'updatedAt']
     }
 ];
 

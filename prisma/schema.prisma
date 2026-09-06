@@ -501,6 +501,25 @@ model WeeklyRewardRun {
   ranAt   DateTime @default(now())
 }
 
+// Kênh YouTube được theo dõi. Bot đọc feed RSS công khai của YouTube (không key, không
+// quota) rồi báo video mới vào một kênh Discord.
+//
+// `lastPublishedAt` là con trỏ chống đăng lại: video có `published` <= mốc này coi như đã
+// báo. Lúc mới thêm kênh, mốc được đặt bằng video MỚI NHẤT hiện có — nên không bao giờ dội
+// 15 video cũ vào chat ngay khi vừa bấm lệnh.
+model YoutubeSubscription {
+  ytChannelId      String    @id // "UC..." của YouTube, không phải kênh Discord
+  ytTitle          String
+  discordChannelId String
+  pingRoleId       String?
+  addedBy          String
+  lastVideoId      String?
+  lastPublishedAt  DateTime?
+  failCount        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
 // Sinh nhật thành viên tự đăng ký. lastCelebratedYear chặn chúc trùng trong năm.
 model Birthday {
   userId             String   @id

@@ -406,6 +406,20 @@ export const config = {
         prizes: [150, 100, 50],          // Scoin cho hạng 1/2/3
         minXp: 1                         // cần có hoạt động mới được xếp hạng
     },
+    // Báo video YouTube mới. Đọc feed RSS công khai của YouTube — không key, không quota.
+    youtube: {
+        // 10 phút: feed RSS của YouTube tự cache vài phút phía họ, hỏi dày hơn không ra
+        // sớm hơn, chỉ tốn request. Không hạ dưới 5 phút.
+        pollIntervalMs: 10 * 60_000,
+        // Một kênh đăng dồn 15 video (import kho cũ) không được thành 15 tin trong chat.
+        // Vượt trần thì chỉ báo những video mới nhất, phần còn lại coi như đã qua.
+        maxPerTick: 3,
+        maxSubscriptions: 10,
+        requestTimeoutMs: 10_000,
+        // Feed hỏng liên tục bấy nhiêu lần thì báo admin MỘT lần (kênh đổi ID / bị xoá).
+        // 12 lần × 10 phút = 2 giờ: đủ để bỏ qua một lần YouTube chập chờn.
+        failAlertAfter: 12
+    },
     // Sinh nhật: thành viên tự đăng ký, Stella chúc mừng + tặng Scoin mỗi sáng.
     birthday: {
         enabled: true,

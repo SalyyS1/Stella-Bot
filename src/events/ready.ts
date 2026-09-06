@@ -26,6 +26,7 @@ import { startTempRoleScheduler } from '../systems/roles/temp-role-manager';
 import { startModDigestScheduler } from '../systems/moderation/mod-digest';
 import { startStatsScheduler } from '../systems/stats/stats-channel-manager';
 import { applyApplicationEmojiOverrides } from '../systems/app-emoji-registry';
+import { startYoutubeAlertScheduler } from '../systems/youtube/youtube-alert-manager';
 
 export default {
     name: Events.ClientReady,
@@ -96,6 +97,9 @@ export default {
         // 2 lần mỗi 10 phút, và vượt trần thì request bị treo trong hàng đợi rate-limit
         // kéo theo mọi request khác của bot (xem stats-channel-manager.ts).
         startStatsScheduler(client);
+        // Báo video YouTube mới: nhịp 10 phút, lượt đầu sau 1 phút. Không có kênh nào được
+        // theo dõi thì tick là một truy vấn rỗng.
+        startYoutubeAlertScheduler(client);
         await ensureRecentVoteReactions(client).catch(error => console.error('Vote self-heal failed:', error));
         // Seed the plugin-wiki catalog (create-if-absent; never overwrites admin edits).
         await seedWikis().catch(error => console.error('Wiki seed failed:', error));
