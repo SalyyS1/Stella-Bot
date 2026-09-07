@@ -1909,4 +1909,44 @@ check(
     'bump must re-issue the edit button with the new message id — bump reposts, so the old id is dead'
 );
 
+// Dọn đơn bị bỏ quên. Đây là code tự đóng đơn của người khác mà không ai bấm nút, nên hai
+// chốt phải giữ nguyên: đơn chưa nhắc lần nào thì KHÔNG BAO GIỜ bị đóng thẳng, và đơn DONE
+// không bao giờ tự chốt (đánh giá là uy tín của người nhận, bot không bịa hộ).
+const lifecycle = source('systems/request/request-lifecycle.ts');
+const staleScheduler = source('systems/request/request-stale-scheduler.ts');
+const requestEdit = source('systems/request/request-edit.ts');
+check(
+    /if \(ageDays >= limits\.openCloseDays\) return remindedAt \? 'close' : 'remind';/.test(lifecycle),
+    'an order that was never reminded must be reminded first, never closed outright'
+);
+check(
+    !/status: 'RATED'/.test(staleScheduler) && !/status: 'DONE'[\s\S]{0,200}data:/.test(staleScheduler),
+    'the sweeper must never finalize a DONE order — rating is the customer decision, Saly chốt 7/9/2026'
+);
+check(
+    source('events/guildMemberRemove.ts').includes('handleMemberGone'),
+    'a member leaving must release their claimed orders, or those orders are stuck in CLAIMED forever'
+);
+check(
+    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null \}/.test(lifecycle),
+    'handleMemberGone must return claimed orders to OPEN with the claimer and channel detached'
+);
+check(
+    ready.includes('startRequestStaleScheduler'),
+    'ready.ts must start the stale-order sweeper'
+);
+check(
+    /staleRemindedAt: null/.test(requestEdit),
+    'editing an order must clear the reminder mark — an order just edited must not be closed on the next sweep'
+);
+check(
+    requestEdit.includes("!['OPEN', 'CLAIMED'].includes(request.status)"),
+    'a finished or closed order must not be editable — that content is the record of what was agreed'
+);
+check(
+    fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8').includes('staleRemindedAt')
+    && fs.existsSync(path.join(root, 'prisma/migrations/20260907140000_request_stale_reminders/migration.sql')),
+    'the reminder columns need both the schema field and a committed migration'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

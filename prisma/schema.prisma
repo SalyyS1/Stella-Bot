@@ -340,6 +340,10 @@ model RequestPost {
   claimedById   String?
   completedAt   DateTime?
   closedAt      DateTime?
+  // Mốc bot đã nhắc, để không nhắc lại mỗi lượt quét. `staleRemindedAt` cũng là điều kiện
+  // để được tự đóng: đơn chưa nhắc lần nào thì không bao giờ bị đóng thẳng.
+  staleRemindedAt DateTime?
+  rateRemindedAt  DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -60,7 +60,14 @@ function requestButtons(id: number, status: string, disabled = false) {
                 .setLabel('Đóng')
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji(config.ui.emojis.close)
-                .setDisabled(disabled || ['DONE', 'RATED', 'CLOSED'].includes(status))
+                .setDisabled(disabled || ['DONE', 'RATED', 'CLOSED'].includes(status)),
+            // Sửa được tới khi đơn xong: sai giá hay thiếu yêu cầu thì trước đây phải đóng
+            // rồi đăng lại, mất luôn lượt nhận và bình luận dưới bài.
+            new ButtonBuilder()
+                .setCustomId(`request_edit_${id}`)
+                .setLabel('Sửa')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(disabled || !['OPEN', 'CLAIMED'].includes(status))
         )
     ];
 }

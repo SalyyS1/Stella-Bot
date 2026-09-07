@@ -27,6 +27,7 @@ import { startModDigestScheduler } from '../systems/moderation/mod-digest';
 import { startStatsScheduler } from '../systems/stats/stats-channel-manager';
 import { applyApplicationEmojiOverrides } from '../systems/app-emoji-registry';
 import { startYoutubeAlertScheduler } from '../systems/youtube/youtube-alert-manager';
+import { startRequestStaleScheduler } from '../systems/request/request-stale-scheduler';
 
 export default {
     name: Events.ClientReady,
@@ -100,6 +101,9 @@ export default {
         // Báo video YouTube mới: nhịp 10 phút, lượt đầu sau 1 phút. Không có kênh nào được
         // theo dõi thì tick là một truy vấn rỗng.
         startYoutubeAlertScheduler(client);
+        // Dọn đơn bị bỏ quên: nhắc đơn OPEN quá 7 ngày, tự đóng ở ngày 14, nhắc khách đánh
+        // giá đơn DONE. Nhịp một giờ; tick rỗng chỉ là hai truy vấn.
+        startRequestStaleScheduler(client);
         await ensureRecentVoteReactions(client).catch(error => console.error('Vote self-heal failed:', error));
         // Seed the plugin-wiki catalog (create-if-absent; never overwrites admin edits).
         await seedWikis().catch(error => console.error('Wiki seed failed:', error));

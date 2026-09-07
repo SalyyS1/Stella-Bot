@@ -77,6 +77,15 @@ export const config = {
     // không thể có thêm ô — muốn thêm trường thì phải bỏ một trường khác.
     request: {
         maxReferenceFiles: 5,
+        // Dọn đơn không ai đụng tới. Saly chốt 7/9/2026: nhắc ở ngày 7, tự đóng ở ngày 14.
+        // Đơn CHƯA nhắc lần nào thì không bao giờ bị đóng thẳng — xem decideStaleOpen.
+        staleOpenRemindDays: 7,
+        staleOpenCloseDays: 14,
+        // Đơn DONE quá 3 ngày chưa đánh giá thì nhắc khách MỘT lần. Không bao giờ tự chốt:
+        // đánh giá là uy tín của người nhận, bot không được bịa hộ.
+        rateRemindDays: 3,
+        // Nhịp quét. Một giờ là đủ cho việc tính bằng ngày, và tick rỗng chỉ là hai truy vấn.
+        sweepIntervalMs: 60 * 60_000,
         currencies: [
             { code: "VND", label: "VND", max: 500_000_000 },
             { code: "USD", label: "USD", max: 20_000 }

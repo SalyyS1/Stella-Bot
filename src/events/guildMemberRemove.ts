@@ -4,6 +4,7 @@ import { sendAdminLog } from '../utils/adminLog';
 import { guardMemberRemove } from '../systems/antiRaidManager';
 import { markLeft } from '../systems/invite/invite-verification';
 import { saveStickyRoles } from '../systems/moderation/sticky-role-manager';
+import { handleMemberGone } from '../systems/request/request-lifecycle';
 
 export default {
     name: Events.GuildMemberRemove,
@@ -17,6 +18,12 @@ export default {
 
         // Lượt mời chưa qua cổng ở-lại thì mất; đã tính rồi thì giữ, chỉ ghi mốc rời.
         await markLeft(member.id).catch(error => console.error('[invite] markLeft lỗi:', error));
+
+        // Đơn hàng của người vừa rời. Không dọn thì đơn họ đang nhận KẸT VĨNH VIỄN ở
+        // CLAIMED: nút huỷ nhận việc cần người bấm, mà người phải bấm đã đi rồi. Ban cũng
+        // bắn event này nên một chỗ xử lý là đủ cho cả hai.
+        await handleMemberGone(member.client, member.id, 'đã rời server')
+            .catch(error => console.error('[request] dọn đơn khi member rời lỗi:', error));
 
         const channel = await member.client.channels.fetch(config.channels.welcome).catch(() => null);
         if (!channel || !channel.isTextBased()) {

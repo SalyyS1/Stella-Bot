@@ -119,7 +119,7 @@ const tables = [
         name: 'RequestPost',
         client: 'requestPost',
         key: row => ({ id: row.id }),
-        dateFields: ['completedAt', 'closedAt', 'createdAt', 'updatedAt'],
+        dateFields: ['completedAt', 'closedAt', 'staleRemindedAt', 'rateRemindedAt', 'createdAt', 'updatedAt'],
         sequence: '"RequestPost_id_seq"'
     },
     {

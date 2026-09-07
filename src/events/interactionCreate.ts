@@ -10,7 +10,8 @@ import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { handleMusicComponent } from '../systems/music';
-import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, releaseRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
+import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, refreshRequestMessage, releaseRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
+import { applyRequestEdit, buildRequestEditModal, parseRequestEditId } from '../systems/request/request-edit';
 import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
 import { budgetHintText, parseBudgetInput } from '../systems/request/budget-parser';
 import { serializeReferenceUrls, validateReferenceImages } from '../systems/request/reference-image-validator';
@@ -552,6 +553,27 @@ export default {
                     }
                 }
 
+                // Nút Sửa mở modal nên phải xử lý TRƯỚC mọi deferReply: đã ack thì không
+                // showModal được nữa.
+                if (type === 'edit') {
+                    const request = await prisma.requestPost.findUnique({ where: { id: requestId } });
+                    if (!request) {
+                        await interaction.reply({ content: `${config.ui.emojis.error} Không tìm thấy đơn.`, flags: MessageFlags.Ephemeral });
+                        return;
+                    }
+                    const isAdmin = interaction.memberPermissions?.has('Administrator') ?? false;
+                    if (!isAdmin && request.requesterId !== interaction.user.id) {
+                        await interaction.reply({ content: `${config.ui.emojis.error} Chỉ chủ đơn hoặc ban quản trị mới sửa được.`, flags: MessageFlags.Ephemeral });
+                        return;
+                    }
+                    if (!['OPEN', 'CLAIMED'].includes(request.status)) {
+                        await interaction.reply({ content: `${config.ui.emojis.error} Đơn đã xong hoặc đã đóng thì không sửa được nữa.`, flags: MessageFlags.Ephemeral });
+                        return;
+                    }
+                    await showModalSafely(interaction, buildRequestEditModal(request), client, 'request_edit');
+                    return;
+                }
+
                 if (!['claim', 'complete', 'close', 'release'].includes(type)) return;
                 const acknowledged = await safeDeferEphemeral(interaction);
                 if (!acknowledged) return;
@@ -891,6 +913,25 @@ export default {
                     }
                 } catch (error: any) {
                     await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể đăng portfolio. Vui lòng thử lại.'}`).catch(() => {});
+                }
+            } else if (parseRequestEditId(interaction.customId) !== null) {
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                try {
+                    const id = parseRequestEditId(interaction.customId)!;
+                    const result = await applyRequestEdit({
+                        id,
+                        actorId: interaction.user.id,
+                        isAdmin: interaction.memberPermissions?.has('Administrator') ?? false,
+                        service: interaction.fields.getTextInputValue('service'),
+                        description: interaction.fields.getTextInputValue('request_desc'),
+                        // Đơn FREE không có ô này; getTextInputValue NÉM khi thiếu field.
+                        budgetRaw: readOptionalModalField(() => interaction.fields.getTextInputValue('budget'))
+                    });
+                    await refreshRequestMessage(interaction.client, id).catch(() => {});
+                    await interaction.editReply(`${config.ui.emojis.success} ${result.message}`).catch(() => {});
+                } catch (error: any) {
+                    await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không sửa được đơn.'}`).catch(() => {});
                 }
             } else if (parsePortfolioEditId(interaction.customId)) {
                 const acknowledged = await safeDeferEphemeral(interaction);
