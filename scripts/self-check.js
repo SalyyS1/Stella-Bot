@@ -1865,4 +1865,48 @@ check(
     'options dropped for exceeding the onboarding cap must be reported, not silently trimmed'
 );
 
+// Huỷ nhận việc: đơn quay về OPEN cho người khác nhận thay vì chết hẳn như closeRequest.
+// Ca thật: người nhận vào kênh mới biết khách đòi nhiều hơn phần thoả thuận theo ngân sách.
+const requestManagerText = source('systems/requestManager.ts');
+const orderChannelSource = source('systems/request/order-channel.ts');
+check(
+    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null \}/.test(requestManagerText),
+    'releaseRequest must return the order to OPEN and detach both the claimer and the channel'
+);
+check(
+    /where: \{ id, status: 'CLAIMED' \}[\s\S]{0,120}status: 'OPEN'/.test(requestManagerText),
+    'the release must be gated on status CLAIMED so two people pressing the button cannot reopen twice'
+);
+check(
+    /status: 'RELEASED'/.test(requestManagerText),
+    'the old claim row must be marked RELEASED, not deleted — repeat claim-and-drop is a pattern mods need to see'
+);
+check(
+    orderChannelSource.includes("setCustomId(`request_release_${requestId}`)"),
+    'the order channel must carry the release button — that is the only place the claimer sees the scope creep'
+);
+check(
+    interaction.includes("'release'") && interaction.includes('releaseRequest('),
+    'interactionCreate must route the release button'
+);
+
+// Sửa bài portfolio. Bài không có row DB nào: nội dung cũ đọc ngược từ embed đang hiển thị.
+const portfolioEditor = source('systems/portfolio/portfolio-post-editor.ts');
+check(
+    !portfolioEditor.includes('lib/prisma'),
+    'portfolio-post-editor.ts must not reach for a DB — the message embed is the only source of truth for these posts'
+);
+check(
+    /if \(input\.value\) builder\.setValue/.test(portfolioEditor),
+    'setValue must be skipped for empty strings — Discord rejects them and the modal never opens'
+);
+check(
+    /input\.value\.slice\(0, input\.max\)/.test(portfolioEditor),
+    'prefilled values must be clipped to maxLength, or an old long post makes the edit modal fail to open'
+);
+check(
+    interaction.includes('portfolioPostButtons(authorId, reposted.id)'),
+    'bump must re-issue the edit button with the new message id — bump reposts, so the old id is dead'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

@@ -344,6 +344,92 @@ async function closeOrderChannelForRequest(
     }).catch(error => console.error(`[request] đóng kênh đơn #${id} lỗi:`, error));
 }
 
+/**
+ * Huỷ nhận việc: đơn quay về OPEN cho người khác nhận, kênh đơn đóng lại.
+ *
+ * Khác `closeRequest` ở chỗ đơn KHÔNG chết. Ca thật: người nhận vào kênh mới biết khách yêu
+ * cầu nhiều hơn phần đã thoả thuận theo ngân sách, nên muốn trả đơn — trước đây không có
+ * đường nào ngoài nhờ admin đóng hẳn, tức là khách mất luôn đơn và phải đăng lại từ đầu.
+ *
+ * Ai được huỷ: người nhận (trả đơn), khách (đổi ý về người nhận), admin. Ba vai này đều
+ * đang ở trong kênh đơn nên nút nằm ngay đó.
+ */
+export async function releaseRequest(
+    client: Client,
+    guildId: string | null,
+    id: number,
+    actorId: string,
+    isAdmin: boolean
+) {
+    const request = await prisma.requestPost.findUnique({ where: { id } });
+    if (!request) throw new Error('Không tìm thấy đơn.');
+    if (request.status !== 'CLAIMED') throw new Error('Chỉ đơn đang có người nhận mới huỷ nhận việc được.');
+    if (!isAdmin && request.requesterId !== actorId && request.claimedById !== actorId) {
+        throw new Error('Chỉ khách, người nhận đơn hoặc ban quản trị mới huỷ được.');
+    }
+
+    const previousClaimerId = request.claimedById;
+
+    // updateMany có điều kiện status: hai người cùng bấm nút thì chỉ lượt đầu đổi được
+    // trạng thái, lượt sau thấy count = 0 và dừng — không có chuyện đơn bị mở lại hai lần.
+    const released = await prisma.requestPost.updateMany({
+        where: { id, status: 'CLAIMED' },
+        data: { status: 'OPEN', claimedById: null, ticketChannelId: null }
+    });
+    if (released.count === 0) throw new Error('Đơn vừa đổi trạng thái, thử lại.');
+
+    // Lượt nhận cũ đánh dấu RELEASED chứ không xoá: đây là dấu vết ai đã nhận rồi trả, thứ
+    // cần đến khi một người liên tục nhận rồi bỏ.
+    if (previousClaimerId) {
+        await prisma.requestClaim.updateMany({
+            where: { requestId: id, claimerId: previousClaimerId },
+            data: { status: 'RELEASED' }
+        }).catch(error => console.error(`[request] cập nhật claim khi huỷ đơn #${id} lỗi:`, error));
+    }
+
+    // Cột ticketChannelId đã bị xoá ở trên nên truyền thẳng id kênh vào đây.
+    if (request.ticketChannelId) {
+        const channel = await client.channels.fetch(request.ticketChannelId).catch(() => null);
+        if (channel?.isTextBased()) {
+            await closeOrderChannel({
+                channel: channel as TextChannel,
+                requestId: id,
+                requesterId: request.requesterId,
+                claimerId: previousClaimerId,
+                reason: `huỷ nhận việc bởi ${actorId}`,
+                farewell: 'Đơn đã được trả lại, người khác có thể nhận.'
+            }).catch(error => console.error(`[request] đóng kênh đơn #${id} khi huỷ lỗi:`, error));
+        }
+    }
+
+    await refreshRequestMessage(client, id);
+
+    await sendAdminLog(client, {
+        title: 'Đơn được trả lại',
+        color: '#e67e22',
+        fields: [
+            { name: 'Đơn', value: `#${id}`, inline: true },
+            { name: 'Người nhận cũ', value: previousClaimerId ? `<@${previousClaimerId}>` : '*không rõ*', inline: true },
+            { name: 'Người bấm huỷ', value: `<@${actorId}>`, inline: true },
+            { name: 'Trạng thái', value: 'Đơn quay về OPEN, người khác nhận được.' }
+        ]
+    }).catch(() => {});
+
+    // Báo lại vào kênh đăng đơn để người đang theo dõi biết đơn mở lại — bảng đơn được sửa
+    // tại chỗ nên không ai nhận ra nếu chỉ đổi embed.
+    const boardChannel = await client.channels.fetch(request.channelId).catch(() => null);
+    if (boardChannel?.isTextBased() && request.messageId) {
+        await (boardChannel as TextChannel).send({
+            content:
+                `${config.ui.emojis.note} Đơn **#${id}** đã được trả lại và đang mở cho người khác nhận: ` +
+                messageLink(guildId, request.channelId, request.messageId),
+            allowedMentions: { parse: [] }
+        }).catch(() => {});
+    }
+
+    return `Đã huỷ nhận việc đơn #${id}. Đơn quay về trạng thái đang mở.`;
+}
+
 export async function closeRequest(client: Client, guildId: string | null, id: number, actorId: string, isAdmin: boolean) {
     const locale = await getGuildLocale(guildId);
     const request = await prisma.requestPost.findUnique({ where: { id } });

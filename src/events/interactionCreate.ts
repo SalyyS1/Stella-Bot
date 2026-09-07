@@ -10,11 +10,18 @@ import { takeGiveawayDraft } from '../systems/giveawayDraftManager';
 import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { handleMusicComponent } from '../systems/music';
-import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
+import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, releaseRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
 import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
 import { budgetHintText, parseBudgetInput } from '../systems/request/budget-parser';
 import { serializeReferenceUrls, validateReferenceImages } from '../systems/request/reference-image-validator';
 import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerManager';
+import {
+    buildPortfolioModal,
+    parsePortfolioEditId,
+    portfolioPostButtons,
+    readPortfolioEmbed,
+    PORTFOLIO_EDIT_PREFIX
+} from '../systems/portfolio/portfolio-post-editor';
 import { approveCrossPost, rejectCrossPost } from '../systems/facebookCrossPostManager';
 import { safeDeferEphemeral, safeDeferUpdate, safeInteractionReply } from '../utils/interaction-safe-reply';
 import { markRolePicked } from '../systems/invite/invite-verification';
@@ -545,7 +552,7 @@ export default {
                     }
                 }
 
-                if (!['claim', 'complete', 'close'].includes(type)) return;
+                if (!['claim', 'complete', 'close', 'release'].includes(type)) return;
                 const acknowledged = await safeDeferEphemeral(interaction);
                 if (!acknowledged) return;
                 try {
@@ -565,6 +572,16 @@ export default {
                     }
                     if (type === 'close') {
                         const text = await closeRequest(
+                            interaction.client,
+                            interaction.guildId,
+                            requestId,
+                            interaction.user.id,
+                            interaction.memberPermissions?.has('Administrator') ?? false
+                        );
+                        return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}` }).catch(() => {});
+                    }
+                    if (type === 'release') {
+                        const text = await releaseRequest(
                             interaction.client,
                             interaction.guildId,
                             requestId,
@@ -593,13 +610,7 @@ export default {
                     );
                 }
                 else if (type === 'port') {
-                    const modal = new ModalBuilder().setCustomId('portfolio_modal').setTitle('Quảng Bá Bản Thân');
-                    const n = new TextInputBuilder().setCustomId('name').setLabel('Tên/Tuổi').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
-                    const e = new TextInputBuilder().setCustomId('experience').setLabel('Kinh nghiệm').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true);
-                    const s = new TextInputBuilder().setCustomId('service').setLabel('Dịch vụ').setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(true);
-                    const p = new TextInputBuilder().setCustomId('portfolio_link').setLabel('Link Sản Phẩm').setStyle(TextInputStyle.Short).setMaxLength(1000).setRequired(true);
-                    const c = new TextInputBuilder().setCustomId('contact').setLabel('Liên hệ').setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(true);
-                    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(n), new ActionRowBuilder<TextInputBuilder>().addComponents(e), new ActionRowBuilder<TextInputBuilder>().addComponents(s), new ActionRowBuilder<TextInputBuilder>().addComponents(p), new ActionRowBuilder<TextInputBuilder>().addComponents(c));
+                    const modal = buildPortfolioModal('portfolio_modal');
                     await showModalSafely(interaction, modal, client, 'panel_portfolio');
                 }
                 else if (type === 'serverads') {
@@ -683,6 +694,34 @@ export default {
                 return;
             }
 
+            // Sửa bài portfolio. Chỉ tác giả (hoặc admin) sửa được, và nội dung cũ được đọc
+            // ngược từ chính embed đang hiển thị — bài portfolio không có row DB nào.
+            const portfolioEditId = parsePortfolioEditId(interaction.customId);
+            if (portfolioEditId) {
+                const postAuthorId = interaction.message.mentions.users.first()?.id
+                    ?? interaction.message.content.match(/^<@!?(\d{5,25})>/)?.[1]
+                    ?? null;
+                if (
+                    postAuthorId
+                    && interaction.user.id !== postAuthorId
+                    && !interaction.memberPermissions?.has('Administrator')
+                ) {
+                    await interaction.reply({
+                        content: `${config.ui.emojis.error} Chỉ tác giả bài này mới sửa được.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                    return;
+                }
+                const current = readPortfolioEmbed(interaction.message.embeds[0]);
+                await showModalSafely(
+                    interaction,
+                    buildPortfolioModal(`${PORTFOLIO_EDIT_PREFIX}${portfolioEditId}`, current),
+                    client,
+                    'portfolio_edit'
+                );
+                return;
+            }
+
             // Handling traditional buttons
             const authorId = part[1];
 
@@ -722,11 +761,18 @@ export default {
                         // Repost BEFORE deleting: if the send fails (e.g. missing
                         // permission), the original post must survive instead of
                         // being destroyed with nothing to replace it.
-                        await (interaction.channel as TextChannel).send({
+                        const reposted = await (interaction.channel as TextChannel).send({
                             content: oldContent,
                             embeds: [oldEmbed],
                             components: oldComponents as any
                         });
+                        // Nút Sửa mang messageId của tin CŨ; bump tạo tin mới nên phải gắn
+                        // lại nút theo id mới, không thì bấm Sửa sẽ tìm một tin vừa bị xoá.
+                        if (oldComponents.length) {
+                            await reposted.edit({
+                                components: [portfolioPostButtons(authorId, reposted.id)]
+                            }).catch(() => {});
+                        }
                         await interaction.message.delete().catch(() => {});
 
                         await interaction.reply({ content: `${config.ui.emojis.bump} Đã bump bài lên top!`, flags: MessageFlags.Ephemeral });
@@ -810,10 +856,12 @@ export default {
                     const p = interaction.fields.getTextInputValue('portfolio_link');
                     const c = interaction.fields.getTextInputValue('contact');
                     const embed = buildPortfolioEmbed(interaction.user, n, e, s, p, c);
-                    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`bump_${interaction.user.id}`).setLabel('Bump Bài').setStyle(ButtonStyle.Primary).setEmoji(config.ui.emojis.bump));
                     const targetChan = interaction.client.channels.cache.get(config.channels.portfolio) as TextChannel | undefined;
                     if (!targetChan?.isTextBased()) throw new Error('Không tìm thấy kênh portfolio đích.');
-                    await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+                    // Nút Sửa mang messageId của CHÍNH tin nhắn này, mà id chỉ có sau khi gửi
+                    // — nên gửi trước rồi mới gắn nút vào.
+                    const posted = await targetChan.send({ content: `<@${interaction.user.id}>`, embeds: [embed] });
+                    await posted.edit({ components: [portfolioPostButtons(interaction.user.id, posted.id)] }).catch(() => {});
                     await interaction.editReply(`${config.ui.emojis.success} Đã đăng portfolio thành công tại <#${config.channels.portfolio}>!`).catch(() => {});
 
                     // First portfolio → send a mod-approval prompt for the Verified
@@ -843,6 +891,41 @@ export default {
                     }
                 } catch (error: any) {
                     await interaction.editReply(`${config.ui.emojis.error} ${error?.message || 'Không thể đăng portfolio. Vui lòng thử lại.'}`).catch(() => {});
+                }
+            } else if (parsePortfolioEditId(interaction.customId)) {
+                const acknowledged = await safeDeferEphemeral(interaction);
+                if (!acknowledged) return;
+                try {
+                    const messageId = parsePortfolioEditId(interaction.customId)!;
+                    const channel = await interaction.client.channels
+                        .fetch(config.channels.portfolio)
+                        .catch(() => null);
+                    if (!channel?.isTextBased()) throw new Error('Không tìm thấy kênh portfolio.');
+                    const message = await (channel as TextChannel).messages.fetch(messageId).catch(() => null);
+                    if (!message) throw new Error('Bài này không còn nữa — có thể đã bị xoá hoặc bump lại (bump tạo tin mới).');
+
+                    // Sửa embed của tin cũ chứ không đăng tin mới: bài giữ nguyên vị trí,
+                    // và mọi link/ghim trỏ tới nó vẫn đúng.
+                    const author = message.mentions.users.first() ?? interaction.user;
+                    const embed = buildPortfolioEmbed(
+                        author,
+                        interaction.fields.getTextInputValue('name'),
+                        interaction.fields.getTextInputValue('experience'),
+                        interaction.fields.getTextInputValue('service'),
+                        interaction.fields.getTextInputValue('portfolio_link'),
+                        interaction.fields.getTextInputValue('contact')
+                    );
+                    await message.edit({
+                        embeds: [embed],
+                        components: [portfolioPostButtons(author.id, message.id)]
+                    });
+                    await interaction.editReply(
+                        `${config.ui.emojis.success} Đã cập nhật bài quảng bá của bạn tại <#${config.channels.portfolio}>.`
+                    ).catch(() => {});
+                } catch (error: any) {
+                    await interaction.editReply(
+                        `${config.ui.emojis.error} ${error?.message || 'Không sửa được bài. Thử lại sau.'}`
+                    ).catch(() => {});
                 }
             } else if (interaction.customId === FREELANCER_EDIT_MODAL) {
                 const acknowledged = await safeDeferEphemeral(interaction);

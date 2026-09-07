@@ -1,4 +1,7 @@
 import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     ChannelType,
     EmbedBuilder,
     Guild,
@@ -58,6 +61,22 @@ async function buildOverwrites(guild: Guild, requesterId: string, claimerId: str
     return overwrites;
 }
 
+/**
+ * Nút trong kênh đơn. Chỉ có "huỷ nhận việc" — hoàn thành và đóng đơn đã có nút ở bảng đơn,
+ * đặt lại ở đây là hai đường vào cùng một hành động và dễ bấm nhầm cái không định bấm.
+ *
+ * Quyền kiểm ở handler chứ không phải ở đây: ai thấy kênh cũng thấy nút, nhưng chỉ khách,
+ * người nhận và admin bấm được (releaseRequest tự chặn).
+ */
+export function orderChannelButtons(requestId: number): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`request_release_${requestId}`)
+            .setLabel('Huỷ nhận việc')
+            .setStyle(ButtonStyle.Danger)
+    );
+}
+
 export interface CreateOrderChannelOptions {
     guild: Guild;
     requestId: number;
@@ -96,7 +115,7 @@ export async function createOrderChannel(options: CreateOrderChannelOptions): Pr
     });
     if (!channel) return null;
 
-    await channel.send({
+    const opening = await channel.send({
         content: `<@${requesterId}> · <@${claimerId}>`,
         embeds: [new EmbedBuilder()
             .setColor(kind === 'PAID' ? config.ui.colors.requestPaid : config.ui.colors.requestFree)
@@ -104,13 +123,20 @@ export async function createOrderChannel(options: CreateOrderChannelOptions): Pr
             .setDescription(
                 `**Dịch vụ:** ${service.slice(0, 500)}\n**Ngân sách:** ${budgetLabel}\n\n` +
                 'Kênh này chỉ khách, người nhận và ban quản trị thấy. Thống nhất phạm vi, hạn và cách ' +
-                'trả tiền ở đây để có gì còn tra lại được.\n' +
+                'trả tiền ở đây để có gì còn tra lại được.\n\n' +
+                'Thấy yêu cầu vượt quá phần đã thoả thuận theo ngân sách? Bấm **Huỷ nhận việc** — đơn ' +
+                'quay về trạng thái đang mở cho người khác nhận, không mất đơn của khách.\n' +
                 '-# Đơn hoàn thành hoặc bị đóng thì kênh sẽ bị xoá, nội dung lưu vào log của ban quản trị.'
             )
             .setTimestamp()],
+        components: [orderChannelButtons(requestId)],
         // Ping đúng hai người trong đơn. Tên dịch vụ do khách gõ nên không cho nó ping thêm ai.
         allowedMentions: { users: [requesterId, claimerId] }
-    }).catch(() => {});
+    }).catch(() => null);
+
+    // Ghim tin mở kênh: kênh đơn chạy vài ngày thì nút huỷ trôi mất, và người cần nó nhất là
+    // người đang bực — không nên bắt họ cuộn ngược tìm.
+    await opening?.pin().catch(() => {});
 
     return channel as TextChannel;
 }
