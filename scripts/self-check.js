@@ -1839,4 +1839,30 @@ check(
     "'native' must stay out of AutomodRuleKey/ALL_RULE_KEYS — it is not a rule an admin can toggle"
 );
 
+// Đẩy role menu vào Onboarding. editOnboarding ghi đè CẢ danh sách prompt, nên gửi lên mỗi
+// prompt của mình là xoá sạch prompt admin dựng tay — mất im lặng, không hoàn tác được.
+const onboardingSync = source('systems/rolemenu/onboarding-sync.ts');
+const roleMenuCommand = source('commands/rolemenu.ts');
+check(
+    roleMenuCommand.includes('mergePrompts(existingPrompts, prompt)'),
+    'the onboarding sync must merge into the existing prompts, never replace the whole list'
+);
+check(
+    roleMenuCommand.indexOf('fetchOnboarding') < roleMenuCommand.indexOf('editOnboarding'),
+    'the current onboarding must be read before writing, or the write is based on nothing'
+);
+check(
+    /findPromptByTitle\(existingPrompts, menu\.title\)/.test(roleMenuCommand),
+    'a re-sync must reuse the existing prompt id, otherwise Discord appends a duplicate every time'
+);
+check(
+    !/from ['"]\.\.\/\.\.\/lib\/prisma['"]/.test(onboardingSync)
+    && /^import \{ GuildOnboardingPromptType \} from 'discord\.js';/m.test(onboardingSync),
+    'onboarding-sync.ts must stay a pure payload builder — its tests must not need a gateway or DB'
+);
+check(
+    roleMenuCommand.includes('dropped.length'),
+    'options dropped for exceeding the onboarding cap must be reported, not silently trimmed'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

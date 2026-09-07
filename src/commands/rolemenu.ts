@@ -19,6 +19,13 @@ import {
     type RoleMenuMode,
     type RoleMenuStyle
 } from '../systems/rolemenu/rolemenu-store';
+import {
+    buildOnboardingPrompt,
+    findPromptByTitle,
+    mergePrompts,
+    removePromptByTitle,
+    MAX_ONBOARDING_OPTIONS
+} from '../systems/rolemenu/onboarding-sync';
 
 export default {
     data: new SlashCommandBuilder()
@@ -59,6 +66,12 @@ export default {
                 .addChannelOption(option =>
                     option.setName('channel').setDescription('Kênh đăng').addChannelTypes(ChannelType.GuildText)))
         .addSubcommand(sub => sub.setName('list').setDescription('Danh sách menu'))
+        .addSubcommand(sub =>
+            sub.setName('onboarding')
+                .setDescription('Đẩy menu vào màn hình Onboarding của Discord (hiện ngay lúc join)')
+                .addIntegerOption(option => option.setName('id').setDescription('ID menu').setRequired(true))
+                .addBooleanOption(option =>
+                    option.setName('remove').setDescription('true = gỡ menu này khỏi onboarding')))
         .addSubcommand(sub =>
             sub.setName('delete')
                 .setDescription('Xoá menu và tin đã đăng')
@@ -143,6 +156,48 @@ export default {
             const channel = interaction.options.getChannel('channel');
             const url = await publishMenu(interaction.guild, id, channel?.id);
             return interaction.editReply(`${emojis.success} Đã đăng menu #${id}: ${url}`);
+        }
+
+        if (sub === 'onboarding') {
+            const id = interaction.options.getInteger('id', true);
+            const menu = await getMenu(id);
+            if (!menu) return interaction.editReply(`${emojis.error} Không tìm thấy menu #${id}.`);
+
+            // Onboarding chỉ có ở server đã bật Community; guild thường thì API từ chối.
+            const onboarding = await interaction.guild.fetchOnboarding().catch(() => null);
+            if (!onboarding) {
+                return interaction.editReply(
+                    `${emojis.error} Không đọc được cấu hình Onboarding. Server phải bật **Community** trước.`
+                );
+            }
+            const existingPrompts = [...onboarding.prompts.values()];
+
+            if (interaction.options.getBoolean('remove')) {
+                const next = removePromptByTitle(existingPrompts, menu.title);
+                if (!next) return interaction.editReply(`${emojis.close} Menu #${id} không có trong onboarding.`);
+                await interaction.guild.editOnboarding({ prompts: next as any, reason: `rolemenu #${id} gỡ khỏi onboarding` });
+                return interaction.editReply(`${emojis.success} Đã gỡ **${menu.title}** khỏi màn hình onboarding.`);
+            }
+
+            if (!menu.options.length) {
+                return interaction.editReply(`${emojis.error} Menu #${id} chưa có role nào để đẩy lên.`);
+            }
+
+            const { prompt, dropped } = buildOnboardingPrompt(menu, findPromptByTitle(existingPrompts, menu.title));
+            // mergePrompts giữ nguyên prompt admin dựng tay: editOnboarding ghi đè cả danh
+            // sách, gửi mỗi prompt của mình lên là xoá sạch phần còn lại.
+            const merged = mergePrompts(existingPrompts, prompt);
+            await interaction.guild.editOnboarding({ prompts: merged as any, reason: `rolemenu #${id} sync onboarding` });
+
+            return interaction.editReply(
+                `${emojis.success} Đã đẩy **${menu.title}** vào màn hình onboarding (${prompt.options.length} lựa chọn` +
+                `${prompt.singleSelect ? ', chọn một' : ''}).\n` +
+                (dropped.length
+                    ? `${emojis.close} Bỏ ${dropped.length} lựa chọn vượt trần ${MAX_ONBOARDING_OPTIONS}: ` +
+                      dropped.map(option => option.label).join(', ').slice(0, 300) + '\n'
+                    : '') +
+                '-# Chạy lại lệnh này sau mỗi lần đổi role trong menu. Prompt do admin tự dựng không bị đụng.'
+            );
         }
 
         if (sub === 'delete') {
