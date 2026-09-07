@@ -57,7 +57,8 @@ export default {
                 totalMessages: user.totalMessages,
                 dailyStreak: user.dailyStreak,
                 tierName,
-                tierColor: tierColor as string
+                tierColor: tierColor as string,
+                minecraftIgn: user.minecraftIgn
             });
 
             const member = await interaction.guild?.members.fetch(targetUser.id).catch(() => null);

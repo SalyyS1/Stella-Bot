@@ -28,6 +28,10 @@ model User {
   joinedAt      DateTime? // persisted on guildMemberAdd; enables 7-day retention metric
   hasPortfolio  Boolean  @default(false) // set on first portfolio post (first-portfolio detection)
   verifiedAt    DateTime? // set when a mod approves the Verified Freelancer role
+  // IGN tự khai (`/mc ign set`). KHÔNG được xác minh: không có server Minecraft của riêng
+  // cộng đồng nên không có bằng chứng sở hữu tên nào. Chỉ dùng để hiện đầu skin trên thẻ hồ
+  // sơ — không gate quyền lợi gì, nên khai sai chỉ làm xấu thẻ của chính người đó.
+  minecraftIgn  String?
 
   scoinTransactions ScoinTransaction[]
   musicPlaylistTracks MusicPlaylistTrack[]

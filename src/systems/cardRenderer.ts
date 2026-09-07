@@ -83,6 +83,8 @@ interface ProfileData {
     dailyStreak: number;
     tierName: string;
     tierColor: string;
+    // Tên Minecraft tự khai (`/mc ign`). Có thì vẽ thêm đầu skin cạnh tên.
+    minecraftIgn?: string | null;
 }
 
 export async function renderProfileCard(data: ProfileData): Promise<AttachmentBuilder> {
@@ -125,6 +127,19 @@ export async function renderProfileCard(data: ProfileData): Promise<AttachmentBu
     ctx.fillStyle = data.tierColor;
     ctx.font = 'bold 22px "Noto Sans", Arial, sans-serif';
     ctx.fillText(data.username, textX, 55);
+
+    // Đầu skin Minecraft cạnh tên, chỉ khi người đó đã khai IGN. Fail mềm: mc-heads.net
+    // chết hoặc IGN không tồn tại thì thẻ vẫn render, chỉ thiếu cái đầu — một dịch vụ ảnh
+    // bên thứ ba không được phép làm hỏng cả thẻ hồ sơ.
+    if (data.minecraftIgn) {
+        try {
+            const head = await loadImage(`https://mc-heads.net/avatar/${encodeURIComponent(data.minecraftIgn)}/32`);
+            const headX = textX + ctx.measureText(data.username).width + 10;
+            ctx.drawImage(head, headX, 36, 24, 24);
+        } catch {
+            // không vẽ gì
+        }
+    }
 
     // Tier badge
     ctx.fillStyle = 'rgba(255,255,255,0.5)';

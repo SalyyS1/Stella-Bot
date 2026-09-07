@@ -1772,4 +1772,36 @@ check(
     'the YoutubeSubscription migration must be committed, or `prisma migrate deploy` on the host never creates the table'
 );
 
+// Công cụ Minecraft. Địa chỉ và IGN đều do người dùng gõ rồi đi thẳng vào một request ra
+// ngoài (mcstatus.io, mc-heads.net) — parser lỏng là bot gọi API với thứ người dùng bịa.
+// IGN cố ý KHÔNG được xác minh nên không được gate quyền lợi nào.
+const mcStatus = source('systems/minecraft/minecraft-status.ts');
+const mcCommand = source('commands/mc.ts');
+check(
+    /if \(parts\.length > 2\) return null;/.test(mcStatus),
+    'parseMinecraftAddress must reject more than one ":" instead of guessing which part is the port'
+);
+check(
+    /Number\.isInteger\(port\)/.test(mcStatus),
+    'the port must be an integer — Number() accepts "25.5" and mcstatus.io would be called with a bogus port'
+);
+check(
+    !/from ['"]discord\.js['"]/.test(mcStatus),
+    'minecraft-status.ts must stay free of discord.js so the parser tests need no gateway'
+);
+check(
+    mcCommand.includes("/^[A-Za-z0-9_]{3,16}$/"),
+    '/mc ign must validate against the real Minecraft name rules before storing or rendering it'
+);
+check(
+    source('systems/cardRenderer.ts').includes('mc-heads.net/avatar/')
+    && /catch \{[\s\S]{0,80}không vẽ gì/.test(source('systems/cardRenderer.ts')),
+    'the profile card must fail soft when the skin-head service is down — a third-party image cannot break the card'
+);
+check(
+    fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8').includes('minecraftIgn')
+    && fs.existsSync(path.join(root, 'prisma/migrations/20260906122500_user_minecraft_ign/migration.sql')),
+    'minecraftIgn needs both the schema field and a committed migration, or the host never gets the column'
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

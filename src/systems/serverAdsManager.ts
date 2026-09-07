@@ -2,6 +2,15 @@ import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedB
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { config } from '../config';
 import { sendAdminLog } from '../utils/adminLog';
+import {
+    cleanMinecraftText,
+    fetchMinecraftStatus,
+    parseMinecraftAddress,
+    type McStatusResponse
+} from './minecraft/minecraft-status';
+
+// Tên cũ của kiểu trạng thái server: giữ nguyên trong file này để khỏi phải sửa mọi chỗ dùng.
+type McStatusApiResponse = McStatusResponse;
 
 export interface ServerAdInput {
     name: string;
@@ -47,39 +56,6 @@ export function parseServerAd(text: string): ServerAdInput | null {
         link: normalizeLink(link),
         ip: ip.slice(0, 120)
     };
-}
-
-function parseMinecraftAddress(ip: string): { host: string; port: number } | null {
-    const cleaned = ip.trim().replace(/^minecraft:\/\//i, '');
-    if (!cleaned || /\s/.test(cleaned)) return null;
-    const [host, portRaw] = cleaned.split(':');
-    const port = portRaw ? Number(portRaw) : 25565;
-    if (!host || Number.isNaN(port) || port < 1 || port > 65535) return null;
-    return { host, port };
-}
-
-interface McStatusApiResponse {
-    online: boolean;
-    host?: string;
-    port?: number;
-    ip_address?: string;
-    version?: { name_clean?: string; name_raw?: string; name?: string };
-    players?: { online?: number; max?: number };
-    motd?: { clean?: string; raw?: string };
-    icon?: string | null;
-}
-
-function cleanMinecraftText(text?: string): string {
-    return (text || '').replace(/§[0-9a-fk-or]/gi, '').replace(/\s+/g, ' ').trim();
-}
-
-async function fetchMinecraftStatus(address: { host: string; port: number }): Promise<McStatusApiResponse> {
-    const target = address.port === 25565 ? address.host : `${address.host}:${address.port}`;
-    const response = await fetch(`https://api.mcstatus.io/v2/status/java/${encodeURIComponent(target)}`, {
-        signal: AbortSignal.timeout(8000)
-    });
-    if (!response.ok) throw new Error(`mcstatus.io ${response.status}`);
-    return await response.json() as McStatusApiResponse;
 }
 
 async function renderMinecraftStatusCard(input: ServerAdInput, result: McStatusApiResponse): Promise<AttachmentBuilder> {
