@@ -15,7 +15,7 @@ import { createModCase, notifyWarnTarget } from '../moderation/mod-case-manager'
 import { timeoutMember } from '../moderation/mod-actions';
 import { safeInteractionReply } from '../../utils/interaction-safe-reply';
 import { clearStrikes, type EscalationTier } from './automod-strikes';
-import { RULE_LABEL, type AutomodRuleKey } from './automod-settings';
+import { RULE_LABEL, type AutomodStrikeKey } from './automod-settings';
 
 // Log vi phạm + cảnh báo mod.
 //
@@ -29,7 +29,7 @@ export interface ViolationLogInput {
     userId: string;
     userTag: string;
     channelId: string;
-    rule: AutomodRuleKey;
+    rule: AutomodStrikeKey;
     detail: string;
     content: string;
     strikeCount: number;

@@ -1804,4 +1804,39 @@ check(
     'minecraftIgn needs both the schema field and a committed migration, or the host never gets the column'
 );
 
+// AutoMod gốc của Discord đổ vào cùng kênh log và cùng bộ đếm strike của Stella. Hai chốt:
+// một lượt vi phạm bắn nhiều event nên chỉ được tính strike MỘT lần, và bot vẫn không tự
+// phạt — chạm mốc thì hiện nút cho mod, giống đường automod của Stella.
+const nativeBridge = source('systems/automod/automod-native-bridge.ts');
+const nativeEvent = source('events/autoModerationActionExecution.ts');
+const automodSettingsSource = source('systems/automod/automod-settings.ts');
+const ALL_RULE_KEYS_BLOCK = (automodSettingsSource.match(/ALL_RULE_KEYS[^=]*=\s*\[([\s\S]*?)\]/) || ['', ''])[1];
+check(ALL_RULE_KEYS_BLOCK.includes("'flood'"), 'ALL_RULE_KEYS block was not parsed — the checks below would pass vacuously');
+check(
+    /countsAsStrike:\s*actionType !== AutoModerationActionType\.SendAlertMessage/.test(nativeBridge),
+    'the alert-message action must not count as a strike — Discord fires it alongside the block, doubling every violation'
+);
+check(
+    nativeEvent.includes('if (!violation.countsAsStrike) return;'),
+    'the native AutoMod event must skip strike recording for non-strike actions'
+);
+check(
+    !/timeoutMember|\.ban\(|\.kick\(/.test(nativeEvent),
+    'the native AutoMod bridge must never punish on its own — Stella shows mods a button instead'
+);
+check(
+    !/from ['"]discord\.js['"];[\s\S]*?prisma/.test(nativeBridge) && !nativeBridge.includes('lib/prisma'),
+    'automod-native-bridge.ts must stay a pure translator so its tests need no gateway or DB'
+);
+check(
+    /export type AutomodStrikeKey = AutomodRuleKey \| 'native';/.test(automodSettingsSource)
+    && /native:\s*'AutoMod của Discord'/.test(automodSettingsSource),
+    "'native' needs its own strike-key type plus a RULE_LABEL entry, or the log renders a raw key"
+);
+check(
+    !ALL_RULE_KEYS_BLOCK.includes("'native'")
+    && /export type AutomodRuleKey = ContentRuleKey \| 'flood' \| 'duplicate';/.test(automodSettingsSource),
+    "'native' must stay out of AutomodRuleKey/ALL_RULE_KEYS — it is not a rule an admin can toggle"
+);
+
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

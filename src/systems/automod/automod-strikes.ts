@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma';
 import { config } from '../../config';
-import type { AutomodRuleKey } from './automod-settings';
+import type { AutomodStrikeKey } from './automod-settings';
 
 // Lượt vi phạm automod và ngưỡng leo thang.
 //
@@ -49,7 +49,7 @@ export async function countStrikes(userId: string, windowMs = config.automod.str
  */
 export async function recordStrike(
     userId: string,
-    rule: AutomodRuleKey,
+    rule: AutomodStrikeKey,
     channelId: string | null
 ): Promise<StrikeResult> {
     await prisma.automodStrike

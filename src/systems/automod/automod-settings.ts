@@ -8,7 +8,16 @@ import type { ContentRuleKey, RuleTable } from './automod-rules';
 // việc BẬT/TẮT phải đổi được giữa một đợt spam lúc 3h sáng — sửa config.ts thì phải
 // deploy lại bot, mà lúc đó thì đợt spam đã xong từ lâu.
 
+// Luật CỦA STELLA — bật/tắt được, có ngưỡng, nằm trong `settings.rules`.
 export type AutomodRuleKey = ContentRuleKey | 'flood' | 'duplicate';
+
+// Khoá dùng khi GHI STRIKE và LOG. Rộng hơn AutomodRuleKey vì có thêm 'native': lượt do
+// AutoMod GỐC của Discord chặn (xem automod-native-bridge.ts). Nó phải dồn vào cùng một bộ
+// đếm — người bị Discord chặn 5 lần phải hiện đúng 5 strike trong `/automod strikes`,
+// không phải 0. Nhưng nó KHÔNG phải luật admin chỉnh được, nên cố ý không nằm trong
+// AutomodRuleKey: để chung thì `settings.rules['native']` trở thành một ô hợp lệ mà không
+// bao giờ có dữ liệu.
+export type AutomodStrikeKey = AutomodRuleKey | 'native';
 
 export const ALL_RULE_KEYS: AutomodRuleKey[] = [
     'flood',
@@ -24,7 +33,7 @@ export const ALL_RULE_KEYS: AutomodRuleKey[] = [
     'zalgo'
 ];
 
-export const RULE_LABEL: Record<AutomodRuleKey, string> = {
+export const RULE_LABEL: Record<AutomodStrikeKey, string> = {
     flood: 'Spam nhiều tin liên tục',
     duplicate: 'Gửi lại cùng một nội dung',
     massMention: 'Ping quá nhiều người',
@@ -35,7 +44,8 @@ export const RULE_LABEL: Record<AutomodRuleKey, string> = {
     emojiSpam: 'Spam emoji',
     newlineSpam: 'Spam dòng trống',
     bannedWords: 'Từ khoá bị cấm',
-    zalgo: 'Ký tự phá layout'
+    zalgo: 'Ký tự phá layout',
+    native: 'AutoMod của Discord'
 };
 
 export interface AutomodSettings {
