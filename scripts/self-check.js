@@ -68,6 +68,8 @@ const dbUtils = fs.readFileSync(path.join(root, 'scripts', 'db-utils.js'), 'utf8
 const backup = fs.readFileSync(path.join(root, 'scripts', 'backup-db.js'), 'utf8');
 const restore = fs.readFileSync(path.join(root, 'scripts', 'restore-db.js'), 'utf8');
 const sqliteImport = fs.readFileSync(path.join(root, 'scripts', 'import-sqlite-to-postgres.js'), 'utf8');
+const lavalinkHostConfig = fs.readFileSync(path.join(root, 'lavalink-host', 'application.yml'), 'utf8');
+const lavalinkLocalConfig = fs.readFileSync(path.join(root, 'lavalink', 'application.yml'), 'utf8');
 
 check(interaction.includes("cmdName !== 'panel'"), 'panel restricted-channel exception missing');
 check(panel.includes("setName('channel')") && panel.includes('PermissionFlagsBits.EmbedLinks'), 'panel target/permission checks missing');
@@ -94,6 +96,7 @@ check(antiRaid.includes("markInternalAntiRaidAction('roleUpdate'") && antiRaid.i
 check(maintenance.includes("setName('status')"), 'maintenance status command missing');
 check(musicRouter.includes('findSessionByVoiceChannel(guildId, voiceChannelId)') && musicRouter.includes('describeBusyEntries(busy)'), 'music session channel isolation missing');
 check(musicQueue.includes('acquireSession(member, textChannelId)') && musicPlaylistPlay.includes('acquireSession(member, textChannelId)'), 'music play paths bypass session router');
+check(!musicRouter.includes('setSponsorBlock') && !lavalinkHostConfig.includes('sponsorblock-plugin') && !lavalinkLocalConfig.includes('sponsorblock-plugin'), 'broken SponsorBlock integration can block track start and silently cycle the queue');
 check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSatellite.includes('MessageContent') && !musicSatellite.includes('GuildMembers'), 'satellite music bots ask for more intents than a speaker needs');
 check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
 check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');

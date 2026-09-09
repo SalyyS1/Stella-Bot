@@ -12,24 +12,3 @@ export const DEFAULT_VOLUME = 100;
 /** Tren muc nay thi canh bao nguoi dung co the bi re tieng. */
 export const LOUD_VOLUME_WARNING = 130;
 export const SEEK_STEP_MS = 10_000;
-
-// ============================================================
-//  SPONSORBLOCK
-// ============================================================
-// Bo doan sponsor/tu quang cao/intro/outro ngay trong video YouTube.
-// Bo "filler" vi no hay cat luon phan nguoi ta muon nghe.
-// Can plugin sponsorblock tren Lavalink; neu node khong co plugin thi lenh
-// setSponsorBlock se loi va bi bo qua (khong lam chet player).
-export const SPONSORBLOCK_CATEGORIES = [
-    'sponsor',
-    'selfpromo',
-    'interaction',
-    'intro',
-    'outro',
-    'preview',
-    'music_offtopic'
-] as const;
-
-export function sponsorBlockEnabled() {
-    return process.env.MUSIC_SPONSORBLOCK !== '0';
-}

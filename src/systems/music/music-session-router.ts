@@ -1,5 +1,5 @@
 import { GuildMember } from 'discord.js';
-import { DEFAULT_VOLUME, SPONSORBLOCK_CATEGORIES, sponsorBlockEnabled } from './music-audio-config';
+import { DEFAULT_VOLUME } from './music-audio-config';
 import { listMusicEntries, MusicClientEntry } from './music-client-pool';
 import { canBotUseVoiceChannel, ensureVoice } from './music-voice-guards';
 
@@ -117,16 +117,5 @@ export async function acquireSession(member: GuildMember | null, textChannelId: 
         volume: DEFAULT_VOLUME
     });
     await player.connect();
-    await applySponsorBlock(player);
     return { entry: free, player, guildId, voiceChannelId };
-}
-
-/** Bat SponsorBlock cho player moi. Node chua co plugin thi bo qua im lang. */
-async function applySponsorBlock(player: any) {
-    if (!sponsorBlockEnabled()) return;
-    try {
-        await player.setSponsorBlock([...SPONSORBLOCK_CATEGORIES]);
-    } catch (error: any) {
-        console.warn('[music] SponsorBlock chưa dùng được (thiếu plugin?):', error?.message || error);
-    }
 }
