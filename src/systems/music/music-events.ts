@@ -18,6 +18,12 @@ async function sendToTextChannel(textChannelId: string, content: string) {
 export function attachMusicEntryEvents(entry: MusicClientEntry) {
     entry.lavalink.nodeManager.on('connect', (node: any) => console.log(`[Lavalink][${entry.label}] Node connected: ${node.id}`));
     entry.lavalink.nodeManager.on('error', (node: any, error: any) => console.error(`[Lavalink][${entry.label}] Node error ${node?.id}:`, error?.message || error));
+    entry.lavalink.nodeManager.on('disconnect', (node: any, reason: any) => console.error(`[Lavalink][${entry.label}] Node disconnected ${node?.id}:`, reason));
+
+    entry.lavalink.on('debug', (eventKey: string, eventData: any) => {
+        if (eventData?.state === 'log') return;
+        console.warn(`[Lavalink][${entry.label}][${eventKey}] ${eventData?.message || ''}`);
+    });
 
     // Doi bai -> render lai card cho panel dang mo.
     entry.lavalink.on('trackStart', async (player: any) => {
@@ -35,5 +41,9 @@ export function attachMusicEntryEvents(entry: MusicClientEntry) {
 
     entry.lavalink.on('trackError', (player: any, track: any, payload: any) => {
         console.error(`[Lavalink][${entry.label}] Track error: ${track?.info?.title || 'unknown'} —`, payload?.exception?.message || payload?.error || '');
+    });
+
+    entry.lavalink.on('trackStuck', (_player: any, track: any, payload: any) => {
+        console.error(`[Lavalink][${entry.label}] Track stuck: ${track?.info?.title || 'unknown'} — threshold ${payload?.thresholdMs ?? 'unknown'}ms`);
     });
 }

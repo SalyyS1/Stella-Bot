@@ -30,6 +30,8 @@ const vote = source('systems/voteManager.ts');
 const maintenance = source('commands/maintenance.ts');
 const musicRouter = source('systems/music/music-session-router.ts');
 const musicQueue = source('systems/music/music-queue-service.ts');
+const musicClientPool = source('systems/music/music-client-pool.ts');
+const musicEvents = source('systems/music/music-events.ts');
 const musicPlaylistPlay = source('systems/music/music-playlist-play.ts');
 const musicSpotifyCollection = source('systems/music/music-spotify-collection-resolver.ts');
 const musicPlaylistCommands = source('systems/music/music-playlist-commands.ts');
@@ -97,6 +99,8 @@ check(maintenance.includes("setName('status')"), 'maintenance status command mis
 check(musicRouter.includes('findSessionByVoiceChannel(guildId, voiceChannelId)') && musicRouter.includes('describeBusyEntries(busy)'), 'music session channel isolation missing');
 check(musicQueue.includes('acquireSession(member, textChannelId)') && musicPlaylistPlay.includes('acquireSession(member, textChannelId)'), 'music play paths bypass session router');
 check(!musicRouter.includes('setSponsorBlock') && !lavalinkHostConfig.includes('sponsorblock-plugin') && !lavalinkLocalConfig.includes('sponsorblock-plugin'), 'broken SponsorBlock integration can block track start and silently cycle the queue');
+check(musicClientPool.includes('requestSignalTimeoutMS: NODE_REQUEST_TIMEOUT_MS') && musicClientPool.includes("eventName === 'VOICE_SERVER_UPDATE' ? 2 : 1"), 'remote Lavalink voice update can time out without a retry');
+check(musicClientPool.includes('void forwardRawData(entry, payload)') && musicEvents.includes("entry.lavalink.on('trackStuck'"), 'music no-audio failures are not logged at the Lavalink boundary');
 check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSatellite.includes('MessageContent') && !musicSatellite.includes('GuildMembers'), 'satellite music bots ask for more intents than a speaker needs');
 check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
 check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');

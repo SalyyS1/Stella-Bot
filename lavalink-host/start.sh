@@ -5,6 +5,10 @@ VERSION="${LAVALINK_VERSION:-4.2.2}"
 JAR_FILE="${LAVALINK_JAR_FILE:-Lavalink.jar}"
 DOWNLOAD_URL="https://github.com/lavalink-devs/Lavalink/releases/download/${VERSION}/Lavalink.jar"
 
+# Plugin manager tai jar vao thu muc persistent. Xoa ban SponsorBlock cu ke ca
+# khi dependency da bo khoi application.yml, neu khong Lavalink van load jar do.
+rm -f ./plugins/sponsorblock-plugin-*.jar
+
 if [ -z "${LAVALINK_SERVER_PASSWORD:-}" ]; then
   echo "LAVALINK_SERVER_PASSWORD is required. Refusing to start with an empty or default password." >&2
   exit 1

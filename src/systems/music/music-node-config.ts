@@ -15,6 +15,10 @@ export type LavalinkNodeConfig = {
 // Lavalink kip tai jar/plugin; thu lai lau hon de khoi phai restart bot bang tay.
 export const NODE_RETRY_AMOUNT = 30;
 export const NODE_RETRY_DELAY_MS = 15_000;
+// Lavalink 4.2.x doi PATCH voice cho den khi ket noi Discord voice hoan tat.
+// Node remote co the vuot timeout mac dinh 10s cua lavalink-client khi host
+// vua thuc day hoac route voice cham, lam mat voice token va bot vao kenh ma im.
+export const NODE_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Doc prefix moi lan goi thay vi cache o top-level.
