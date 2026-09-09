@@ -14,6 +14,7 @@ const check = (cond, message) => {
 
 const root = path.resolve(__dirname, '..');
 const source = relative => fs.readFileSync(path.join(root, 'src', relative), 'utf8');
+const rootEntrypoint = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
 
 const interaction = source('events/interactionCreate.ts');
 const panel = source('commands/panel.ts');
@@ -74,6 +75,7 @@ const lavalinkHostConfig = fs.readFileSync(path.join(root, 'lavalink-host', 'app
 const lavalinkLocalConfig = fs.readFileSync(path.join(root, 'lavalink', 'application.yml'), 'utf8');
 
 check(interaction.includes("cmdName !== 'panel'"), 'panel restricted-channel exception missing');
+check(rootEntrypoint.includes('execFileSync(process.execPath, [buildScript]') && rootEntrypoint.includes('refusing to run a stale dist'), 'root entrypoint can silently run stale dist after git pull');
 check(panel.includes("setName('channel')") && panel.includes('PermissionFlagsBits.EmbedLinks'), 'panel target/permission checks missing');
 check(!ads.includes('directMinecraftStatus'), 'direct Minecraft status SSRF fallback remains');
 check(message.includes('if (await guardEveryoneMention(message)) return;'), 'anti-raid message fallthrough remains');
