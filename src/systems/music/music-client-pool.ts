@@ -53,7 +53,9 @@ function createLavalinkManager(client: Client, clientId: string, username: strin
         client: { id: clientId, username },
         advancedOptions: {
             enableDebugEvents: true,
-            debugOptions: { noAudio: true }
+            // Thu vien bao "No Player" cho ca voice-state khong lien quan va
+            // lam log rat nhieu. Router tu log/repair voice mo coi ro rang hon.
+            debugOptions: { noAudio: false }
         },
         playerOptions: {
             defaultSearchPlatform: 'ytmsearch',
@@ -146,8 +148,8 @@ export function unregisterMusicClient(client: Client) {
 }
 
 /** Goi trong event ready: luc nay client.user da co that. */
-export function initLavalink(client: Client) {
+export async function initLavalink(client: Client): Promise<void> {
     const entry = findMusicEntryByClient(client);
     if (!entry || !client.user) return;
-    entry.lavalink.init({ id: client.user.id, username: client.user.username });
+    await entry.lavalink.init({ id: client.user.id, username: client.user.username });
 }

@@ -25,8 +25,13 @@ export function attachMusicEntryEvents(entry: MusicClientEntry) {
         console.warn(`[Lavalink][${entry.label}][${eventKey}] ${eventData?.message || ''}`);
     });
 
+    entry.lavalink.on('playerCreate', (player: any) => {
+        console.log(`[Lavalink][${entry.label}] Player created: guild ${player?.guildId}, voice ${player?.voiceChannelId || player?.options?.voiceChannelId || 'unknown'}`);
+    });
+
     // Doi bai -> render lai card cho panel dang mo.
-    entry.lavalink.on('trackStart', async (player: any) => {
+    entry.lavalink.on('trackStart', async (player: any, track: any) => {
+        console.log(`[Lavalink][${entry.label}] Track started: ${track?.info?.title || 'unknown'} (voice connected: ${Boolean(player?.connected)})`);
         await refreshSessionPanel(sessionFromPlayer(entry, player)).catch(() => {});
     });
 
@@ -35,7 +40,8 @@ export function attachMusicEntryEvents(entry: MusicClientEntry) {
         await sendToTextChannel(String(player.textChannelId || ''), 'Queue đã hết, Stella sẽ rời voice nếu không có bài mới.');
     });
 
-    entry.lavalink.on('playerDestroy', (player: any) => {
+    entry.lavalink.on('playerDestroy', (player: any, reason: any) => {
+        console.warn(`[Lavalink][${entry.label}] Player destroyed: guild ${player?.guildId || 'unknown'} — ${reason || 'unknown reason'}`);
         forgetPanelMessage(entry.key, String(player?.guildId || ''));
     });
 

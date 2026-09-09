@@ -50,7 +50,7 @@ export default {
         } catch (error) {
             console.error('[ready] newspaper font registration failed:', error);
         }
-        initLavalink(client);
+        await initLavalink(client);
         startMaintenanceScheduler(client);
         startGiveawayScheduler(client);
         startReportScheduler(client);

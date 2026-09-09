@@ -1,4 +1,4 @@
-import { GuildMember } from 'discord.js';
+import { Events, GuildMember } from 'discord.js';
 import { DEFAULT_VOLUME } from './music-audio-config';
 import { listMusicEntries, MusicClientEntry } from './music-client-pool';
 import { canBotUseVoiceChannel, ensureVoice } from './music-voice-guards';
@@ -82,6 +82,49 @@ function describeBusyEntries(sessions: MusicSession[]) {
     return `Tất cả bot nhạc đang bận: ${list}. Vào một trong các kênh đó để thêm bài nhé.`;
 }
 
+const ORPHAN_VOICE_LEAVE_TIMEOUT_MS = 5_000;
+
+/**
+ * Sau restart Discord co the resume bot vao voice cu trong khi player trong RAM
+ * da mat. Neu gui join lai dung channel do, Discord co the khong cap mot
+ * VOICE_SERVER_UPDATE moi va Lavalink se khong bao gio co token de phat am thanh.
+ * Buoc nay ep roi han, cho gateway xac nhan, roi acquireSession moi join lai.
+ */
+export async function disconnectOrphanVoice(entry: MusicClientEntry, guildId: string): Promise<boolean> {
+    if (entry.lavalink?.getPlayer(guildId)) return false;
+
+    const guild = entry.client.guilds.cache.get(guildId);
+    const botMember = guild?.members.me;
+    const orphanChannelId = botMember?.voice?.channelId;
+    if (!guild || !botMember || !orphanChannelId) return false;
+
+    console.warn(`[music][${entry.label}] Phat hien voice mo coi o ${orphanChannelId}; roi kenh truoc khi tao player moi.`);
+
+    const left = new Promise<void>(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            entry.client.off(Events.VoiceStateUpdate, onVoiceStateUpdate);
+            resolve();
+        };
+        const onVoiceStateUpdate = (_oldState: any, newState: any) => {
+            if (newState?.guild?.id === guildId && newState?.id === entry.client.user?.id && !newState.channelId) finish();
+        };
+        const timer = setTimeout(finish, ORPHAN_VOICE_LEAVE_TIMEOUT_MS);
+        entry.client.on(Events.VoiceStateUpdate, onVoiceStateUpdate);
+        if (!botMember.voice.channelId) finish();
+    });
+
+    await guild.shard.send({
+        op: 4,
+        d: { guild_id: guildId, channel_id: null, self_mute: false, self_deaf: false }
+    });
+    await left;
+    return true;
+}
+
 /**
  * Lay session cho kenh voice cua member, tao moi neu con bot ranh.
  * Throw loi tieng Viet neu het bot ranh hoac bot khong vao duoc kenh.
@@ -107,6 +150,8 @@ export async function acquireSession(member: GuildMember | null, textChannelId: 
         if (busy.length) throw new Error(describeBusyEntries(busy));
         throw new Error('Không có bot nhạc nào vào được voice channel này. Kiểm tra quyền Connect/Speak.');
     }
+
+    await disconnectOrphanVoice(free, guildId);
 
     const player = free.lavalink.createPlayer({
         guildId,

@@ -1,5 +1,5 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
-import { initLavalink, registerMusicClient, unregisterMusicClient } from './music-client-pool';
+import { Client, GatewayIntentBits } from 'discord.js';
+import { initLavalink, listMusicEntries, registerMusicClient, unregisterMusicClient } from './music-client-pool';
 import { attachMusicEntryEvents } from './music-events';
 import { getLavalinkNodes } from './music-node-config';
 
@@ -37,7 +37,20 @@ function createSatelliteClient() {
  * la tinh nang phu, mat no thi chi con phat mot kenh cung luc.
  */
 export async function startSatelliteMusicBots(): Promise<number> {
-    const tokens = getSatelliteTokens();
+    const mainToken = (process.env.BOT_TOKEN || '').trim();
+    const seenTokens = new Set<string>();
+    const tokens = getSatelliteTokens().filter(token => {
+        if (token === mainToken) {
+            console.error('[music] Bo qua token loa phu trung BOT_TOKEN; moi loa phai la mot Discord bot rieng.');
+            return false;
+        }
+        if (seenTokens.has(token)) {
+            console.error('[music] Bo qua token loa phu bi lap trong MUSIC_SATELLITE_TOKENS.');
+            return false;
+        }
+        seenTokens.add(token);
+        return true;
+    });
     if (!tokens.length) return 0;
 
     if (!getLavalinkNodes().length) {
@@ -50,19 +63,26 @@ export async function startSatelliteMusicBots(): Promise<number> {
         // Bot chinh la "loa 1" nen satellite dau tien duoc goi la loa 2.
         const label = `Stella Loa ${index + 2}`;
         const client = createSatelliteClient();
-
-        const entry = registerMusicClient({ client, key: `satellite-${index + 1}`, label, role: 'satellite' });
-        if (!entry) continue;
-        attachMusicEntryEvents(entry);
-
         client.on('error', error => console.error(`[music][${label}] client error:`, error));
-        client.once(Events.ClientReady, () => {
-            initLavalink(client);
-            console.log(`[music] ${label} online: ${client.user?.tag}`);
-        });
 
         try {
             await client.login(tokens[index]);
+
+            const duplicateIdentity = listMusicEntries().find(entry => entry.client.user?.id === client.user?.id);
+            if (duplicateIdentity) {
+                console.error(`[music] Bo qua ${label}: cung Discord bot voi ${duplicateIdentity.label}; moi loa phai dung application/token rieng.`);
+                await client.destroy().catch(() => {});
+                continue;
+            }
+
+            const entry = registerMusicClient({ client, key: `satellite-${index + 1}`, label, role: 'satellite' });
+            if (!entry) {
+                await client.destroy().catch(() => {});
+                continue;
+            }
+            attachMusicEntryEvents(entry);
+            await initLavalink(client);
+            console.log(`[music] ${label} online: ${client.user?.tag}`);
             started++;
         } catch (error: any) {
             console.error(`[music] ${label} login thất bại (token sai hoặc bot chưa được mời vào server?):`, error?.message || error);

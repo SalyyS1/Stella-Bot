@@ -101,6 +101,8 @@ check(musicQueue.includes('acquireSession(member, textChannelId)') && musicPlayl
 check(!musicRouter.includes('setSponsorBlock') && !lavalinkHostConfig.includes('sponsorblock-plugin') && !lavalinkLocalConfig.includes('sponsorblock-plugin'), 'broken SponsorBlock integration can block track start and silently cycle the queue');
 check(musicClientPool.includes('requestSignalTimeoutMS: NODE_REQUEST_TIMEOUT_MS') && musicClientPool.includes("eventName === 'VOICE_SERVER_UPDATE' ? 2 : 1"), 'remote Lavalink voice update can time out without a retry');
 check(musicClientPool.includes('void forwardRawData(entry, payload)') && musicEvents.includes("entry.lavalink.on('trackStuck'"), 'music no-audio failures are not logged at the Lavalink boundary');
+check(musicRouter.includes('disconnectOrphanVoice(free, guildId)') && musicRouter.includes('channel_id: null'), 'orphan Discord voice state can prevent Lavalink from receiving a fresh voice token');
+check(musicSatellite.includes("token === mainToken") && musicSatellite.includes('duplicateIdentity'), 'duplicate music bot tokens can split one Discord voice state across multiple Lavalink managers');
 check(musicSatellite.includes('GatewayIntentBits.GuildVoiceStates') && !musicSatellite.includes('MessageContent') && !musicSatellite.includes('GuildMembers'), 'satellite music bots ask for more intents than a speaker needs');
 check(musicPlaylistCommands.includes('isPlaylist ? tracks : [tracks[0]]') && musicPlaylistService.includes('addTracksToPlaylist'), 'playlist add drops the rest of a playlist link');
 check(musicPlaylistService.includes('known.has(track.uri)'), 'playlist add duplicates tracks when the same link is pasted twice');
