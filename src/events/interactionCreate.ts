@@ -11,7 +11,7 @@ import prisma from '../lib/prisma';
 import { getPendingAnnouncement, sendAnnouncement, takePendingAnnouncement } from '../systems/announceManager';
 import { handleMusicComponent } from '../systems/music';
 import { claimRequest, closeRequest, completeRequest, createCommunityRequest, rateRequest, refreshRequestMessage, releaseRequest, REQUEST_ALREADY_RATED } from '../systems/requestManager';
-import { applyRequestEdit, buildRequestEditModal, parseRequestEditId } from '../systems/request/request-edit';
+import { applyRequestEdit, buildRequestEditModal, isRequestEditable, parseRequestEditId } from '../systems/request/request-edit';
 import { isSkillKey, toggleSkillRole, getSkillMeta } from '../systems/skillRoleManager';
 import { budgetHintText, parseBudgetInput } from '../systems/request/budget-parser';
 import { serializeReferenceUrls, validateReferenceImages } from '../systems/request/reference-image-validator';
@@ -19,6 +19,7 @@ import { markFirstPortfolio, grantVerifiedRole } from '../systems/freelancerMana
 import {
     buildPortfolioModal,
     parsePortfolioEditId,
+    portfolioAuthorId,
     portfolioPostButtons,
     readPortfolioEmbed,
     PORTFOLIO_EDIT_PREFIX
@@ -37,6 +38,7 @@ import { handleJoinRiskButton } from '../systems/moderation/join-risk-alert';
 import { handlePortfolioPageButton, isPortfolioPageButton } from '../systems/showcase/portfolio-view';
 import { FREELANCER_EDIT_MODAL, handleFreelancerEditModal } from '../systems/freelancer/freelancer-profile-view';
 import { handleTicketComponent } from '../systems/ticket/ticket-interactions';
+import { handleUserReportButton } from '../systems/user-report/report-interactions';
 
 // Đọc một trường không bắt buộc của modal. getField() NÉM lỗi khi payload không có
 // trường đó (người dùng không chọn/không gửi gì), nên không thể gọi trực tiếp.
@@ -215,6 +217,13 @@ export default {
             return;
         }
 
+        // Proposal kick từ report: bắt trước router chung vì custom id có token và không
+        // thuộc nhóm `action_part_...` cũ. Handler tự kiểm Administrator + token + DB state.
+        if (interaction.isButton() && interaction.customId.startsWith('userreport_kick_')) {
+            await handleUserReportButton(interaction);
+            return;
+        }
+
         // Autocomplete phải trả lời trong 3s và không được defer, nên xử lý trước
         // mọi nhánh khác; lệnh không khai báo hàm này thì bỏ qua im lặng.
         if (interaction.isAutocomplete()) {
@@ -274,7 +283,9 @@ export default {
                 managedChannels.serverAds
             ];
 
-            if (!expectedChannel && cmdName !== 'panel' && restrictedChannels.includes(interaction.channelId)) {
+            // /request deadline và /report đều trả lời ephemeral nên được phép chạy ngay
+            // trong kênh đơn/kênh board mà không làm trôi nội dung giao dịch.
+            if (!expectedChannel && !['panel', 'request', 'report'].includes(cmdName) && restrictedChannels.includes(interaction.channelId)) {
                 return safeInteractionReply(interaction, { content: `${config.ui.emojis.error} Không được phép dùng lệnh \`/${cmdName}\` ở kênh này để tránh trôi tin nhắn giao dịch!`, flags: MessageFlags.Ephemeral });
             }
 
@@ -535,12 +546,25 @@ export default {
             if (action === 'request') {
                 const type = part[1];
                 const requestId = Number(part[2]);
-                if (!Number.isFinite(requestId)) return;
+                if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+                    await safeInteractionReply(interaction, {
+                        content: `${config.ui.emojis.error} ID request không hợp lệ.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                    return;
+                }
 
                 if (type === 'rate') {
+                    const rating = Number(part[3]);
+                    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+                        await safeInteractionReply(interaction, {
+                            content: `${config.ui.emojis.error} Điểm đánh giá không hợp lệ.`,
+                            flags: MessageFlags.Ephemeral
+                        });
+                        return;
+                    }
                     const acknowledged = await safeDeferUpdate(interaction);
                     if (!acknowledged) return;
-                    const rating = Math.max(1, Math.min(5, Number(part[3]) || 1));
                     try {
                         const text = await rateRequest(interaction.client, interaction.guildId, requestId, interaction.user.id, rating);
                         return await interaction.editReply({ content: `${config.ui.emojis.success} ${text}`, embeds: [], components: [] }).catch(() => {});
@@ -566,8 +590,11 @@ export default {
                         await interaction.reply({ content: `${config.ui.emojis.error} Chỉ chủ đơn hoặc ban quản trị mới sửa được.`, flags: MessageFlags.Ephemeral });
                         return;
                     }
-                    if (!['OPEN', 'CLAIMED'].includes(request.status)) {
-                        await interaction.reply({ content: `${config.ui.emojis.error} Đơn đã xong hoặc đã đóng thì không sửa được nữa.`, flags: MessageFlags.Ephemeral });
+                    if (!isRequestEditable(request.status)) {
+                        const detail = request.status === 'CLAIMED'
+                            ? 'Đơn đã có người nhận. Hãy huỷ nhận việc trước khi đổi phạm vi/ngân sách.'
+                            : 'Đơn đã xong hoặc đã đóng thì không sửa được nữa.';
+                        await interaction.reply({ content: `${config.ui.emojis.error} ${detail}`, flags: MessageFlags.Ephemeral });
                         return;
                     }
                     await showModalSafely(interaction, buildRequestEditModal(request), client, 'request_edit');
@@ -720,12 +747,19 @@ export default {
             // ngược từ chính embed đang hiển thị — bài portfolio không có row DB nào.
             const portfolioEditId = parsePortfolioEditId(interaction.customId);
             if (portfolioEditId) {
-                const postAuthorId = interaction.message.mentions.users.first()?.id
-                    ?? interaction.message.content.match(/^<@!?(\d{5,25})>/)?.[1]
-                    ?? null;
+                const postAuthorId = portfolioAuthorId(
+                    interaction.message.mentions.users.first()?.id,
+                    interaction.message.content
+                );
+                if (!postAuthorId) {
+                    await interaction.reply({
+                        content: `${config.ui.emojis.error} Không xác định được tác giả bài này nên không thể sửa an toàn.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                    return;
+                }
                 if (
-                    postAuthorId
-                    && interaction.user.id !== postAuthorId
+                    interaction.user.id !== postAuthorId
                     && !interaction.memberPermissions?.has('Administrator')
                 ) {
                     await interaction.reply({
@@ -945,9 +979,20 @@ export default {
                     const message = await (channel as TextChannel).messages.fetch(messageId).catch(() => null);
                     if (!message) throw new Error('Bài này không còn nữa — có thể đã bị xoá hoặc bump lại (bump tạo tin mới).');
 
+                    // Kiểm quyền LẠI lúc submit. Modal custom id là dữ liệu client gửi lên;
+                    // chỉ kiểm lúc mở modal thì người khác vẫn có thể forge payload submit.
+                    const authorId = portfolioAuthorId(message.mentions.users.first()?.id, message.content);
+                    if (!authorId) throw new Error('Không xác định được tác giả bài này nên không thể sửa an toàn.');
+                    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
+                    if (!isAdmin && interaction.user.id !== authorId) {
+                        throw new Error('Chỉ tác giả bài này hoặc Administrator mới sửa được.');
+                    }
+
                     // Sửa embed của tin cũ chứ không đăng tin mới: bài giữ nguyên vị trí,
                     // và mọi link/ghim trỏ tới nó vẫn đúng.
-                    const author = message.mentions.users.first() ?? interaction.user;
+                    const author = message.mentions.users.get(authorId)
+                        ?? await interaction.client.users.fetch(authorId).catch(() => null);
+                    if (!author) throw new Error('Không đọc được tài khoản tác giả của bài.');
                     const embed = buildPortfolioEmbed(
                         author,
                         interaction.fields.getTextInputValue('name'),

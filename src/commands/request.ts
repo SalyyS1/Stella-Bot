@@ -1,7 +1,8 @@
-import { ChatInputCommandInteraction, EmbedBuilder, GuildMember, MessageFlags, SlashCommandBuilder, TextChannel } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, GuildMember, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, TextChannel } from 'discord.js';
 import prisma from '../lib/prisma';
 import { config } from '../config';
 import { isTicketStaff } from '../systems/ticket/ticket-service';
+import { setRequestDeadline } from '../systems/request/request-deadline';
 
 // /request add|remove: sửa quyền xem của một kênh đơn.
 //
@@ -98,6 +99,19 @@ export default {
             sub.setName('stats')
                 .setDescription('Thống kê request'))
         .addSubcommand(sub =>
+            sub.setName('deadline')
+                .setDescription('Đặt hoặc xoá hạn mong muốn cho đơn (VD: 3d, 12h, none)')
+                .addIntegerOption(option => option
+                    .setName('id')
+                    .setDescription('ID đơn')
+                    .setRequired(true)
+                    .setMinValue(1))
+                .addStringOption(option => option
+                    .setName('when')
+                    .setDescription('Thời lượng từ bây giờ: 1h, 3d; dùng none để xoá')
+                    .setRequired(true)
+                    .setMaxLength(30)))
+        .addSubcommand(sub =>
             sub.setName('add')
                 .setDescription('Thêm người vào kênh đơn này (ban quản trị)')
                 .addUserOption(option => option.setName('user').setDescription('Thành viên').setRequired(true)))
@@ -111,6 +125,30 @@ export default {
 
         if (sub === 'add' || sub === 'remove') {
             return manageOrderChannelAccess(interaction, sub);
+        }
+
+        if (sub === 'deadline') {
+            if (!interaction.guild) {
+                return interaction.reply({ content: `${config.ui.emojis.error} Lệnh này chỉ dùng trong server.`, flags: MessageFlags.Ephemeral });
+            }
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            const actor = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+            if (!actor) return interaction.editReply(`${config.ui.emojis.error} Không đọc được thành viên trong server.`);
+            try {
+                const text = await setRequestDeadline(
+                    interaction.client,
+                    interaction.options.getInteger('id', true),
+                    actor,
+                    interaction.options.getString('when', true),
+                    interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false
+                );
+                return interaction.editReply({ content: `${config.ui.emojis.success} ${text}`, allowedMentions: { parse: [] } });
+            } catch (error: any) {
+                return interaction.editReply({
+                    content: `${config.ui.emojis.error} ${error?.message || 'Không cập nhật được hạn đơn.'}`,
+                    allowedMentions: { parse: [] }
+                });
+            }
         }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });

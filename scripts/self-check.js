@@ -74,7 +74,10 @@ const sqliteImport = fs.readFileSync(path.join(root, 'scripts', 'import-sqlite-t
 const lavalinkHostConfig = fs.readFileSync(path.join(root, 'lavalink-host', 'application.yml'), 'utf8');
 const lavalinkLocalConfig = fs.readFileSync(path.join(root, 'lavalink', 'application.yml'), 'utf8');
 
-check(interaction.includes("cmdName !== 'panel'"), 'panel restricted-channel exception missing');
+check(
+    interaction.includes("!['panel', 'request', 'report'].includes(cmdName)"),
+    'panel/request/report restricted-channel exceptions missing'
+);
 check(rootEntrypoint.includes('execFileSync(process.execPath, [buildScript]') && rootEntrypoint.includes('refusing to run a stale dist'), 'root entrypoint can silently run stale dist after git pull');
 check(panel.includes("setName('channel')") && panel.includes('PermissionFlagsBits.EmbedLinks'), 'panel target/permission checks missing');
 check(!ads.includes('directMinecraftStatus'), 'direct Minecraft status SSRF fallback remains');
@@ -1184,7 +1187,8 @@ check(
 // Ghi DB hỏng sau khi tạo kênh thì phải xoá kênh vừa tạo — kênh mồ côi mang dữ liệu khách
 // mà không đơn nào trỏ tới để đóng.
 check(
-    requestManagerSource.includes('Không ghi được kênh đơn vào DB'),
+    requestManagerSource.includes("if (!saved?.count)")
+    && requestManagerSource.includes("channel.delete('Đơn đã đổi trạng thái trước khi kênh được gắn vào DB')"),
     'an order channel must be removed when its id cannot be persisted'
 );
 // /request add|remove chỉ ban quản trị: khách tự thêm người là tự làm lộ hồ sơ của chính họ.
@@ -1456,6 +1460,10 @@ check(
     /trailingSlash:\s*true/.test(webConfig),
     'trailingSlash must stay on so /orders/ resolves to orders/index.html'
 );
+check(
+    /turbopack:\s*\{\s*root:\s*process\.cwd\(\)\s*\}/.test(webConfig),
+    'Turbopack root must stay inside web/ instead of scanning the bot workspace lockfile'
+);
 
 const rootGitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
 const webGitignore = fs.readFileSync(path.join(root, 'web', '.gitignore'), 'utf8');
@@ -1621,6 +1629,18 @@ check(
         fs.readFileSync(path.join(root, 'web', 'src', 'lib', 'api-client.ts'), 'utf8')
     ),
     'api-client must keep USE_MOCK as one literal flag so switching to the real API is a one-line edit'
+);
+const panelApiClientText = fs.readFileSync(path.join(root, 'web', 'src', 'lib', 'api-client.ts'), 'utf8');
+const panelUseApiText = fs.readFileSync(path.join(root, 'web', 'src', 'lib', 'use-api.ts'), 'utf8');
+check(
+    !panelApiClientText.includes('window.location')
+    && panelUseApiText.includes('router.replace("/auth/login")'),
+    '401 navigation must use the Next router from a client hook, not hard window.location assignment'
+);
+check(
+    !panelUseApiText.includes('setLoading(')
+    && panelUseApiText.includes('snapshot.key === requestKey'),
+    'panel loading state must be derived from the request key, not synchronously set inside an effect'
 );
 
 // Bảng chỉ được dựng qua DataTable. Bốn trang danh sách tự viết <table> là bốn chỗ phải sửa
@@ -1881,7 +1901,7 @@ check(
 const requestManagerText = source('systems/requestManager.ts');
 const orderChannelSource = source('systems/request/order-channel.ts');
 check(
-    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null \}/.test(requestManagerText),
+    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null, staleRemindedAt: null \}/.test(requestManagerText),
     'releaseRequest must return the order to OPEN and detach both the claimer and the channel'
 );
 check(
@@ -1939,7 +1959,7 @@ check(
     'a member leaving must release their claimed orders, or those orders are stuck in CLAIMED forever'
 );
 check(
-    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null \}/.test(lifecycle),
+    /data: \{ status: 'OPEN', claimedById: null, ticketChannelId: null, staleRemindedAt: null \}/.test(lifecycle),
     'handleMemberGone must return claimed orders to OPEN with the claimer and channel detached'
 );
 check(
@@ -1951,13 +1971,212 @@ check(
     'editing an order must clear the reminder mark — an order just edited must not be closed on the next sweep'
 );
 check(
-    requestEdit.includes("!['OPEN', 'CLAIMED'].includes(request.status)"),
-    'a finished or closed order must not be editable — that content is the record of what was agreed'
+    requestEdit.includes("return status === 'OPEN'"),
+    'a claimed/finished/closed order must not be editable — that content is the record of what was agreed'
 );
 check(
     fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8').includes('staleRemindedAt')
     && fs.existsSync(path.join(root, 'prisma/migrations/20260907140000_request_stale_reminders/migration.sql')),
     'the reminder columns need both the schema field and a committed migration'
+);
+
+// Member-report escalation. Đây là đường public có thể tự timeout người khác, nên khóa
+// cả chống brigade, CAS chống double-action và nguyên tắc kick chỉ sau admin duyệt.
+const memberReportSchemaText = fs.readFileSync(path.join(root, 'prisma/schema.prisma'), 'utf8');
+const memberReportMigrationText = fs.readFileSync(
+    path.join(root, 'prisma/migrations/20260912080000_member_reports/migration.sql'),
+    'utf8'
+);
+const userReportPolicyText = source('systems/user-report/report-policy.ts');
+const userReportStoreText = source('systems/user-report/report-store.ts');
+const userReportServiceText = source('systems/user-report/report-service.ts');
+const userReportAlertText = source('systems/user-report/report-alert.ts');
+const userReportInteractionText = source('systems/user-report/report-interactions.ts');
+const userReportCommandText = source('commands/report.ts');
+const userReportSubmitSection = userReportServiceText.slice(
+    userReportServiceText.indexOf('export async function submitMemberReport'),
+    userReportServiceText.indexOf('export type KickApprovalResult')
+);
+const userReportApprovalSection = userReportServiceText.slice(
+    userReportServiceText.indexOf('export async function approvePendingKick'),
+    userReportServiceText.indexOf('export async function rejectPendingKick')
+);
+check(
+    memberReportSchemaText.includes('model MemberReport')
+    && memberReportSchemaText.includes('model ReportEscalation')
+    && memberReportSchemaText.includes('@@unique([guildId, reporterId, targetId, reportDay])'),
+    'member reports need durable rows and a DB unique key for reporter/target/day'
+);
+check(
+    /CREATE TABLE IF NOT EXISTS "MemberReport"/.test(memberReportMigrationText)
+    && /CREATE TABLE IF NOT EXISTS "ReportEscalation"/.test(memberReportMigrationText),
+    'member-report migration must be idempotent for git-pull deploy retries'
+);
+check(
+    dbUtils.includes("name: 'MemberReport'") && dbUtils.includes("name: 'ReportEscalation'"),
+    'database backup/restore must include both member-report tables'
+);
+check(
+    /reportsPerEscalation:\s*3/.test(config_ts)
+    && /firstTimeoutMs:\s*10 \* 60_000/.test(config_ts)
+    && /secondTimeoutMs:\s*60 \* 60_000/.test(config_ts),
+    'report escalation must remain 3 distinct reporters -> 10m -> 60m before kick proposal'
+);
+check(
+    /if \(!Number\.isFinite\(threshold\)\) return null;/.test(userReportPolicyText),
+    'an invalid report threshold must fail closed instead of accidentally triggering punishment'
+);
+check(
+    userReportStoreText.includes('const reporterLocks = new Map')
+    && userReportStoreText.includes('guildId_reporterId_targetId_reportDay'),
+    'report submission must guard daily races in-process and with a DB unique key'
+);
+check(
+    /new Set\(openReports\.map\(row => row\.reporterId\)\)\.size/.test(userReportStoreText)
+    && /countsTowardEscalation:\s*true/.test(userReportStoreText),
+    'escalation must count distinct eligible reporters, never raw report rows'
+);
+check(
+    userReportStoreText.includes('effectiveEscalationLevel(')
+    && userReportPolicyText.includes('ageMs <= windowMs ? level : 0'),
+    'old moderation history must decay instead of keeping a member one step from kick forever'
+);
+check(
+    /pendingAction:\s*null[\s\S]{0,260}pendingToken:\s*token/.test(userReportStoreText)
+    && userReportStoreText.includes('updateMany({'),
+    'escalation reservation needs conditional updateMany CAS to prevent double punishment'
+);
+check(
+    !userReportPolicyText.includes('fetch(')
+    && userReportPolicyText.includes("['http:', 'https:'].includes(url.protocol)")
+    && userReportPolicyText.includes('url.username || url.password'),
+    'evidence URLs must be validated but never fetched by the bot (SSRF/credential guard)'
+);
+check(
+    userReportServiceText.includes('minReporterAccountAgeDays')
+    && userReportServiceText.includes('minReporterGuildHours')
+    && userReportServiceText.includes('PermissionFlagsBits.ModerateMembers')
+    && userReportServiceText.includes('PermissionFlagsBits.ManageMessages'),
+    'new accounts and moderation staff must not participate in automatic punishment'
+);
+check(
+    userReportSubmitSection.includes('timeoutMember(')
+    && !userReportSubmitSection.includes('kickMember(')
+    && userReportSubmitSection.includes("escalation.action === 'KICK'")
+    && userReportSubmitSection.includes('sendKickApproval('),
+    'public report submission may timeout but must only create a kick proposal'
+);
+check(
+    userReportApprovalSection.includes('PermissionFlagsBits.Administrator')
+    && userReportApprovalSection.includes("claimPendingKick(guild.id, targetId, token, 'KICK_PROCESSING')")
+    && userReportApprovalSection.includes('kickMember('),
+    'kick execution requires Administrator plus a one-winner DB claim and central moderation checks'
+);
+check(
+    userReportInteractionText.includes('PermissionFlagsBits.Administrator')
+    && interaction.includes("customId.startsWith('userreport_kick_')"),
+    'report approval buttons need an early router and a runtime Administrator check'
+);
+check(
+    userReportAlertText.includes('allowedMentions: { parse: [] }')
+    && /\^\$\{USER_REPORT_KICK_PREFIX\}\(approve\|reject\)/.test(userReportAlertText),
+    'kick proposal must not ping and its custom id parser must accept only approve/reject'
+);
+check(
+    !userReportCommandText.includes('.setDefaultMemberPermissions(')
+    && userReportCommandText.includes("sub === 'list' || sub === 'dismiss'")
+    && userReportCommandText.includes("sub === 'pending' || sub === 'reset'"),
+    '/report user must stay public while list/dismiss/reset remain runtime-gated'
+);
+check(
+    userReportStoreText.includes('resetMemberReportState')
+    && userReportStoreText.includes('updatedAt: state.updatedAt')
+    && userReportStoreText.includes("status: 'DISMISSED'"),
+    'admin reset must preserve reports as dismissed audit rows and use an optimistic lock'
+);
+check(
+    userReportStoreText.includes('Number.isFinite(requestedTake)')
+    && userReportStoreText.includes('Number.isFinite(requestedSkip)'),
+    'report-list pagination must reject NaN before passing skip/take to Prisma'
+);
+check(
+    userReportServiceText.includes('force: true')
+    && userReportServiceText.includes('timeoutMatchesRequest(')
+    && userReportPolicyText.includes('Math.abs(refreshedUntil - previousUntil) > 5_000'),
+    'an old timeout must never be mistaken for a newly successful Discord PATCH'
+);
+
+// Request paid safety: once claimed, the visible scope becomes immutable. The private
+// channel must show that exact snapshot; changes require release -> OPEN -> edit -> claim.
+const requestDeadlineText = source('systems/request/request-deadline.ts');
+const requestEditText = source('systems/request/request-edit.ts');
+check(
+    requestDeadlineText.includes("!['OPEN', 'CLAIMED'].includes(request.status)")
+    && requestDeadlineText.includes('request.requesterId === actorId')
+    && requestDeadlineText.includes('request.claimedById === actorId'),
+    'only participants/admin may set a deadline and only while an order is active'
+);
+check(
+    /deadlineMinMs:\s*60 \* 60_000/.test(config_ts)
+    && /deadlineMaxDays:\s*365/.test(config_ts),
+    'request deadlines need hard lower/upper bounds'
+);
+check(
+    requestEditText.includes("return status === 'OPEN'")
+    && /setDisabled\(disabled \|\| status !== 'OPEN'\)/.test(requestManagerText)
+    && interaction.includes('if (!isRequestEditable(request.status))'),
+    'scope and budget edits must be disabled as soon as an order is claimed'
+);
+check(
+    interaction.includes('!Number.isSafeInteger(requestId) || requestId <= 0')
+    && interaction.includes('!Number.isInteger(rating) || rating < 1 || rating > 5')
+    && !interaction.includes('Math.max(1, Math.min(5, Number(part[3]) || 1))'),
+    'forged request/rating custom ids must be rejected, never coerced into a valid 1-star vote'
+);
+check(
+    orderChannelSource.includes('**Phạm vi lúc nhận:**')
+    && orderChannelSource.includes('description.slice(0, 1800)')
+    && requestManagerText.includes('description: request.description'),
+    'the private order channel must preserve the exact scope snapshot seen at claim time'
+);
+check(
+    /where: \{ id, status: 'CLAIMED', claimedById: claimerId, ticketChannelId: null \}/.test(requestManagerText)
+    && /if \(!saved\?\.count\)/.test(requestManagerText),
+    'a channel created during a concurrent release must fail CAS and be deleted, never attach to an OPEN order'
+);
+check(
+    /ticketChannelId: request\.ticketChannelId[\s\S]{0,100}data: \{ ticketChannelId: null \}/.test(requestManagerText),
+    'a missing Discord order channel must clear its stale DB pointer before recreation'
+);
+check(
+    /if \(!isAdmin && request\.requesterId !== actorId && request\.claimedById !== actorId\)/.test(requestManagerText),
+    'only requester, claimer or admin may release a claimed order'
+);
+
+// Hai lỗi audit nhỏ nhưng có hậu quả thật: sửa portfolio phải re-check quyền khi submit;
+// gỡ timeout phải ghi đúng loại case, không giả làm UNBAN.
+const portfolioSubmitSection = interaction.slice(
+    interaction.indexOf("} else if (parsePortfolioEditId(interaction.customId))"),
+    interaction.indexOf("} else if (interaction.customId === FREELANCER_EDIT_MODAL)")
+);
+const legacyPortfolioSuccess = message.slice(message.indexOf('// Gửi bản thay thế TRƯỚC'));
+const moderationActionsText = source('systems/moderation/mod-actions.ts');
+const moderationCaseText = source('systems/moderation/mod-case-manager.ts');
+check(
+    portfolioSubmitSection.includes('portfolioAuthorId(')
+    && portfolioSubmitSection.includes('PermissionFlagsBits.Administrator')
+    && !portfolioSubmitSection.includes('?? interaction.user'),
+    'portfolio edit authorization must be rechecked on modal submit without user fallback'
+);
+check(
+    legacyPortfolioSuccess.indexOf('const posted =') < legacyPortfolioSuccess.indexOf('await message.delete()'),
+    'legacy portfolio conversion must post the replacement before deleting user content'
+);
+check(
+    moderationActionsText.includes("record(context, target.id, 'UNTIMEOUT'")
+    && !/untimeoutMember[\s\S]{0,500}'UNBAN'/.test(moderationActionsText)
+    && moderationCaseText.includes("'UNTIMEOUT'"),
+    'untimeout must record its own auditable case kind, never masquerade as UNBAN'
 );
 
 console.log(`Stella self-check passed (${assertionsRun} assertions).`);

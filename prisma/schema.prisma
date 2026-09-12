@@ -390,6 +390,51 @@ model RequestReview {
   @@index([targetId])
 }
 
+// Report thành viên do member gửi. Report không được gắn quan hệ User vì người bị
+// report có thể đã rời server; giữ nguyên ID Discord để admin vẫn tra được lịch sử.
+// `reportDay` là chốt chống một người gửi lại cùng mục tiêu vô hạn trong một ngày.
+model MemberReport {
+  id          Int      @id @default(autoincrement())
+  guildId     String
+  reporterId  String
+  targetId    String
+  reportDay   String
+  category    String
+  reason      String
+  evidenceUrl String?
+  countsTowardEscalation Boolean @default(true)
+  status      String   @default("OPEN") // OPEN | DISMISSED | ACTIONED
+  resolution  String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([guildId, reporterId, targetId, reportDay])
+  @@index([guildId, targetId, status, createdAt])
+  @@index([guildId, status, createdAt])
+  @@index([reporterId, reportDay])
+}
+
+// Trạng thái leo thang theo từng mục tiêu. Tách khỏi MemberReport để hai report đến gần
+// như cùng lúc không cùng kích hoạt hai timeout, và proposal kick cũ không bị nút mới
+// ghi đè. `pendingToken` chỉ là định danh proposal; quyền vẫn phải kiểm lại ở handler.
+model ReportEscalation {
+  guildId          String
+  targetId         String
+  level            Int      @default(0)
+  lastActionAt     DateTime?
+  pendingAction    String?
+  pendingLevel     Int?
+  pendingToken     String?
+  pendingThroughAt DateTime?
+  pendingExpiresAt DateTime?
+  updatedAt        DateTime @updatedAt
+
+  @@id([guildId, targetId])
+  @@index([pendingAction])
+}
+
 // Hồ sơ nhận việc do freelancer tự khai: đang nhận việc không, giới thiệu, bảng giá.
 // Tách khỏi User (bảng đó đã 20+ cột, 15 quan hệ) và để có updatedAt riêng — bảng giá
 // lâu chưa sửa là bảng giá gây hiểu lầm, hiển thị phải nói rõ lần cập nhật cuối.
@@ -750,7 +795,7 @@ model ModCase {
   id        Int       @id @default(autoincrement())
   targetId  String
   actorId   String
-  kind      String // WARN | NOTE | TIMEOUT | KICK | BAN | UNBAN | GHOST_PING | WATCH
+  kind      String // WARN | NOTE | TIMEOUT | UNTIMEOUT | KICK | BAN | UNBAN | GHOST_PING | WATCH
   reason    String?
   evidence  String? // link tin nhắn hoặc message id
   active    Boolean   @default(true)

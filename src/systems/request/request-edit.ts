@@ -97,11 +97,17 @@ export interface ApplyEditResult {
     message: string;
 }
 
+/** Trạng thái nào còn được đổi phạm vi/ngân sách; tách riêng để regression-test. */
+export function isRequestEditable(status: string): boolean {
+    return status === 'OPEN';
+}
+
 /**
  * Ghi nội dung sửa. Ném lỗi có câu tiếng Việt đọc được nếu không được phép hoặc sai trạng thái.
  *
- * Đơn đã DONE/RATED/CLOSED thì không sửa: nội dung lúc đó là bằng chứng của việc đã xong,
- * sửa sau là viết lại lịch sử của một giao dịch giữa hai người.
+ * Chỉ đơn OPEN được sửa. Từ lúc có người nhận, nội dung và ngân sách là bản chụp phạm vi
+ * hai bên đã nhìn thấy khi claim; cho chủ đơn sửa tiếp sẽ biến scope creep thành thay đổi
+ * lịch sử. Muốn đổi phải Huỷ nhận việc -> sửa khi OPEN -> để người khác nhận lại.
  */
 export async function applyRequestEdit(input: ApplyEditInput): Promise<ApplyEditResult> {
     const request = await prisma.requestPost.findUnique({ where: { id: input.id } });
@@ -109,8 +115,12 @@ export async function applyRequestEdit(input: ApplyEditInput): Promise<ApplyEdit
     if (!input.isAdmin && request.requesterId !== input.actorId) {
         throw new Error('Chỉ chủ đơn hoặc ban quản trị mới sửa được.');
     }
-    if (!['OPEN', 'CLAIMED'].includes(request.status)) {
-        throw new Error('Đơn đã xong hoặc đã đóng thì không sửa được nữa.');
+    if (!isRequestEditable(request.status)) {
+        throw new Error(
+            request.status === 'CLAIMED'
+                ? 'Đơn đã có người nhận nên phạm vi/ngân sách được khoá. Hãy huỷ nhận việc trước khi sửa.'
+                : 'Đơn đã xong hoặc đã đóng thì không sửa được nữa.'
+        );
     }
 
     const service = input.service.trim().slice(0, 500) || request.service;

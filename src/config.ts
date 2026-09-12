@@ -84,6 +84,10 @@ export const config = {
         // Đơn DONE quá 3 ngày chưa đánh giá thì nhắc khách MỘT lần. Không bao giờ tự chốt:
         // đánh giá là uy tín của người nhận, bot không được bịa hộ.
         rateRemindDays: 3,
+        // Hạn đơn được đặt bằng thời lượng tương đối (1h, 3d...). Giữ trần ở đây để
+        // một lỗi nhập liệu không tạo deadline cách hiện tại hàng chục năm.
+        deadlineMinMs: 60 * 60_000,
+        deadlineMaxDays: 365,
         // Nhịp quét. Một giờ là đủ cho việc tính bằng ngày, và tick rỗng chỉ là hai truy vấn.
         sweepIntervalMs: 60 * 60_000,
         currencies: [
@@ -796,6 +800,29 @@ export const config = {
         watchMaxDays: 30,
         // Trần thời hạn role tạm.
         tempRoleMaxDays: 365
+    },
+    // Report thành viên: tự động chỉ xử lý timeout theo ngưỡng bảo thủ; kick luôn là
+    // proposal chờ Administrator duyệt. Mọi ngưỡng nằm ở config để chỉnh được mà không
+    // phải sửa logic hoặc đổi schema.
+    userReports: {
+        enabled: true,
+        windowDays: 30,
+        reporterDailyLimit: 5,
+        reportsPerEscalation: 3,
+        // Report vẫn được lưu nếu tài khoản mới hơn các mốc này, nhưng không tự đẩy
+        // hình phạt. Chặn nhóm alt mới vào phối hợp đủ 3 phiếu để mute người thật.
+        minReporterAccountAgeDays: 7,
+        minReporterGuildHours: 24,
+        firstTimeoutMs: 10 * 60_000,
+        secondTimeoutMs: 60 * 60_000,
+        // Reservation timeout chỉ để cứu trạng thái nếu bot chết giữa lúc giữ ngưỡng
+        // và lúc gọi Discord. Timeout ngắn cần được thử lại nhanh; proposal kick có thể
+        // chờ admin vài ngày nhưng không được treo vĩnh viễn.
+        timeoutReservationTtlMs: 15 * 60_000,
+        kickApprovalTtlMs: 7 * 86_400_000,
+        reasonMinLength: 5,
+        reasonMaxLength: 1000,
+        evidenceMaxLength: 300
     },
     // Automod: ngưỡng MẶC ĐỊNH. Trạng thái bật/tắt thật nằm ở bảng AutomodSetting
     // để đổi được giữa một đợt spam mà không phải deploy lại bot.

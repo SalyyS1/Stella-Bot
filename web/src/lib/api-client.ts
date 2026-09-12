@@ -40,8 +40,8 @@ export async function apiGet<T>(path: string): Promise<T> {
     });
 
     if (res.status === 401) {
-        // Xu ly dang nhap o MOT cho. Tung trang khong tu xu 401.
-        if (typeof window !== "undefined") window.location.href = "/auth/login";
+        // Điều hướng do hook React xử lý bằng router. Client HTTP chỉ phân loại lỗi để
+        // không phụ thuộc window và vẫn test/dùng lại được ngoài component.
         throw new ApiError(401, "Chưa đăng nhập");
     }
     if (!res.ok) {

@@ -136,6 +136,19 @@ const tables = [
         dateFields: ['createdAt'],
         sequence: '"RequestReview_id_seq"'
     },
+    {
+        name: 'MemberReport',
+        client: 'memberReport',
+        key: row => ({ id: row.id }),
+        dateFields: ['reviewedAt', 'createdAt', 'updatedAt'],
+        sequence: '"MemberReport_id_seq"'
+    },
+    {
+        name: 'ReportEscalation',
+        client: 'reportEscalation',
+        key: row => ({ guildId_targetId: { guildId: row.guildId, targetId: row.targetId } }),
+        dateFields: ['lastActionAt', 'pendingThroughAt', 'pendingExpiresAt', 'updatedAt']
+    },
     // Các bảng dưới đây từng bị bỏ sót. Việc bỏ sót không phải "không được backup"
     // mà tệ hơn: restore --replace xoá User trước, cascade quét sạch chúng, rồi
     // restore chỉ dựng lại những bảng có trong danh sách này. Một lần restore là

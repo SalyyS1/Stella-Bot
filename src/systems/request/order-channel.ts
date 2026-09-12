@@ -82,7 +82,9 @@ export interface CreateOrderChannelOptions {
     requestId: number;
     kind: string;
     service: string;
+    description: string;
     budgetLabel: string;
+    dueDate: Date | null;
     requesterId: string;
     claimerId: string;
     /** Category của kênh request — đặt kênh đơn cạnh bảng đơn của nó. */
@@ -95,7 +97,10 @@ export interface CreateOrderChannelOptions {
  * trạng thái CLAIMED và chỉ ghi log.
  */
 export async function createOrderChannel(options: CreateOrderChannelOptions): Promise<TextChannel | null> {
-    const { guild, requestId, kind, service, budgetLabel, requesterId, claimerId, parentId } = options;
+    const {
+        guild, requestId, kind, service, description, budgetLabel,
+        dueDate, requesterId, claimerId, parentId
+    } = options;
     if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) return null;
 
     const overwrites = await buildOverwrites(guild, requesterId, claimerId);
@@ -121,7 +126,11 @@ export async function createOrderChannel(options: CreateOrderChannelOptions): Pr
             .setColor(kind === 'PAID' ? config.ui.colors.requestPaid : config.ui.colors.requestFree)
             .setTitle(`${config.ui.emojis.keep} Đơn #${requestId}`)
             .setDescription(
-                `**Dịch vụ:** ${service.slice(0, 500)}\n**Ngân sách:** ${budgetLabel}\n\n` +
+                `**Dịch vụ:** ${service.slice(0, 500)}\n` +
+                `**Phạm vi lúc nhận:**\n${description.slice(0, 1800)}\n\n` +
+                `**Ngân sách lúc nhận:** ${budgetLabel}\n` +
+                (dueDate ? `**Hạn mong muốn:** <t:${Math.floor(dueDate.getTime() / 1000)}:f> (<t:${Math.floor(dueDate.getTime() / 1000)}:R>)\n` : '') +
+                '\n' +
                 'Kênh này chỉ khách, người nhận và ban quản trị thấy. Thống nhất phạm vi, hạn và cách ' +
                 'trả tiền ở đây để có gì còn tra lại được.\n\n' +
                 'Thấy yêu cầu vượt quá phần đã thoả thuận theo ngân sách? Bấm **Huỷ nhận việc** — đơn ' +

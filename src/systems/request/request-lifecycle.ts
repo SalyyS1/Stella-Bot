@@ -124,7 +124,7 @@ export async function handleMemberGone(
     for (const request of claimed) {
         const updated = await prisma.requestPost.updateMany({
             where: { id: request.id, status: 'CLAIMED', claimedById: userId },
-            data: { status: 'OPEN', claimedById: null, ticketChannelId: null }
+            data: { status: 'OPEN', claimedById: null, ticketChannelId: null, staleRemindedAt: null }
         }).catch(() => ({ count: 0 }));
         if (updated.count === 0) continue;
         released.push(request.id);

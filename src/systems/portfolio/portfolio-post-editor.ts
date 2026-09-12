@@ -27,6 +27,17 @@ export interface PortfolioFields {
     contact: string;
 }
 
+/**
+ * Xác định tác giả từ mention do chính Stella đặt ở đầu bài. Tách thành hàm thuần để cả
+ * lúc bấm nút và lúc submit modal dùng đúng một chốt; tuyệt đối không fallback sang người
+ * đang bấm, vì custom id modal có thể tự forge.
+ */
+export function portfolioAuthorId(mentionedId: string | null | undefined, content: string): string | null {
+    if (mentionedId && /^\d{5,25}$/.test(mentionedId)) return mentionedId;
+    const fromContent = content.match(/^<@!?(\d{5,25})>/)?.[1] ?? null;
+    return fromContent && /^\d{5,25}$/.test(fromContent) ? fromContent : null;
+}
+
 // Khớp theo TỪ KHOÁ trong nhãn, không khớp nguyên chuỗi: nhãn thật có emoji đứng trước
 // ("<:customer:...> Tên / Tuổi") và emoji đổi được qua config, còn phần chữ thì không.
 const FIELD_MATCHERS: { key: keyof PortfolioFields; test: (label: string) => boolean }[] = [

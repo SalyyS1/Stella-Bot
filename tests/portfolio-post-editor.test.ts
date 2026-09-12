@@ -4,6 +4,7 @@ import { buildPortfolioEmbed } from '../src/utils/embedFormatter';
 import {
     buildPortfolioModal,
     parsePortfolioEditId,
+    portfolioAuthorId,
     readPortfolioEmbed,
     PORTFOLIO_EDIT_PREFIX
 } from '../src/systems/portfolio/portfolio-post-editor';
@@ -88,4 +89,11 @@ test('parse id nut sua: chi nhan id dang so, tu choi thu khac', () => {
     assert.equal(parsePortfolioEditId(`${PORTFOLIO_EDIT_PREFIX}abc`), null);
     assert.equal(parsePortfolioEditId(PORTFOLIO_EDIT_PREFIX), null);
     assert.equal(parsePortfolioEditId(''), null);
+});
+
+test('tac gia portfolio khong bao gio fallback sang nguoi dang bam', () => {
+    assert.equal(portfolioAuthorId('123456789012345', ''), '123456789012345');
+    assert.equal(portfolioAuthorId(null, '<@!987654321098765> noi dung'), '987654321098765');
+    assert.equal(portfolioAuthorId(null, 'khong co mention'), null);
+    assert.equal(portfolioAuthorId('fake', '<@123456789012345>'), '123456789012345');
 });

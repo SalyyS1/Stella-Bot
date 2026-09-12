@@ -61,13 +61,13 @@ function requestButtons(id: number, status: string, disabled = false) {
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji(config.ui.emojis.close)
                 .setDisabled(disabled || ['DONE', 'RATED', 'CLOSED'].includes(status)),
-            // Sửa được tới khi đơn xong: sai giá hay thiếu yêu cầu thì trước đây phải đóng
-            // rồi đăng lại, mất luôn lượt nhận và bình luận dưới bài.
+            // Chỉ sửa khi OPEN. Sau lúc claim, mô tả/ngân sách là bản chụp thoả thuận;
+            // muốn đổi phải trả đơn về OPEN để người nhận không bị scope creep âm thầm.
             new ButtonBuilder()
                 .setCustomId(`request_edit_${id}`)
                 .setLabel('Sửa')
                 .setStyle(ButtonStyle.Secondary)
-                .setDisabled(disabled || !['OPEN', 'CLAIMED'].includes(status))
+                .setDisabled(disabled || status !== 'OPEN')
         )
     ];
 }
@@ -241,7 +241,9 @@ export async function claimRequest(client: Client, guildId: string | null, id: n
         await tx.user.upsert({ where: { id: user.id }, update: {}, create: { id: user.id } });
         const claimed = await tx.requestPost.updateMany({
             where: { id, status: 'OPEN' },
-            data: { status: 'CLAIMED', claimedById: user.id }
+            // Một vòng làm việc mới bắt đầu: mốc nhắc của thời kỳ OPEN không được
+            // làm mất cảnh báo deadline của người nhận mới.
+            data: { status: 'CLAIMED', claimedById: user.id, staleRemindedAt: null }
         });
         if (claimed.count === 0) throw new Error(tr(locale, 'request.alreadyClaimed'));
         await tx.requestClaim.upsert({
@@ -273,6 +275,18 @@ async function openOrderChannel(client: Client, guildId: string | null, id: numb
     if (request.ticketChannelId) {
         const existing = await client.channels.fetch(request.ticketChannelId).catch(() => null);
         if (existing) return;
+        // Kênh đã bị xoá tay nhưng DB còn trỏ tới nó. Dọn pointer bằng CAS trước khi tạo
+        // lại; nếu đơn vừa release/đổi người nhận thì dừng, không tạo kênh cho state cũ.
+        const detached = await prisma.requestPost.updateMany({
+            where: {
+                id,
+                status: 'CLAIMED',
+                claimedById: claimerId,
+                ticketChannelId: request.ticketChannelId
+            },
+            data: { ticketChannelId: null }
+        });
+        if (!detached.count) return;
     }
 
     const guild = await client.guilds.fetch(guildId).catch(() => null);
@@ -289,9 +303,11 @@ async function openOrderChannel(client: Client, guildId: string | null, id: numb
         requestId: id,
         kind: request.kind,
         service: request.service,
+        description: request.description,
         budgetLabel: request.kind === 'PAID'
             ? formatBudget(request.budgetAmount, request.budgetCurrency, request.budget)
             : 'Đơn giúp đỡ (free)',
+        dueDate: request.dueDate,
         requesterId: request.requesterId,
         claimerId,
         parentId
@@ -310,8 +326,10 @@ async function openOrderChannel(client: Client, guildId: string | null, id: numb
         return;
     }
 
-    const saved = await prisma.requestPost.update({
-        where: { id },
+    // CAS theo đúng người nhận: nếu hai bên bấm Huỷ nhận việc trong lúc Discord đang tạo
+    // kênh, không được gắn kênh vừa tạo vào một đơn đã quay về OPEN (kênh mồ côi/rò dữ liệu).
+    const saved = await prisma.requestPost.updateMany({
+        where: { id, status: 'CLAIMED', claimedById: claimerId, ticketChannelId: null },
         data: { ticketChannelId: channel.id }
     }).catch(error => {
         console.error(`[request] ghi ticketChannelId cho đơn #${id} lỗi:`, error);
@@ -320,9 +338,9 @@ async function openOrderChannel(client: Client, guildId: string | null, id: numb
 
     // Ghi DB hỏng mà để kênh lại thì đó là kênh không đơn nào trỏ tới: closeRequest sẽ
     // không biết để xoá, và nó nằm đó với dữ liệu của khách.
-    if (!saved) {
+    if (!saved?.count) {
         markInternalAntiRaidAction('channelDelete', channel.id);
-        await channel.delete('Không ghi được kênh đơn vào DB').catch(() => {});
+        await channel.delete('Đơn đã đổi trạng thái trước khi kênh được gắn vào DB').catch(() => {});
     }
 }
 
@@ -381,7 +399,7 @@ export async function releaseRequest(
     // trạng thái, lượt sau thấy count = 0 và dừng — không có chuyện đơn bị mở lại hai lần.
     const released = await prisma.requestPost.updateMany({
         where: { id, status: 'CLAIMED' },
-        data: { status: 'OPEN', claimedById: null, ticketChannelId: null }
+        data: { status: 'OPEN', claimedById: null, ticketChannelId: null, staleRemindedAt: null }
     });
     if (released.count === 0) throw new Error('Đơn vừa đổi trạng thái, thử lại.');
 

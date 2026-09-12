@@ -136,10 +136,11 @@ export async function timeoutMember(
 }
 
 export async function untimeoutMember(context: ActorContext, target: GuildMember, reason: string): Promise<ModActionResult> {
+    assertCanModerate(context, target, 'gỡ timeout cho');
     if (!target.isCommunicationDisabled()) throw new Error('Thành viên này không đang bị timeout.');
     if (!target.moderatable) throw new Error('Stella không có quyền gỡ timeout cho thành viên này.');
     await target.timeout(null, `${context.actor.user.tag}: ${reason}`);
-    return record(context, target.id, 'UNBAN', `Gỡ timeout: ${reason}`, false);
+    return record(context, target.id, 'UNTIMEOUT', `Gỡ timeout: ${reason}`, false);
 }
 
 // Softban = ban rồi unban ngay, để xoá tin nhắn gần đây mà vẫn cho người ta vào lại.

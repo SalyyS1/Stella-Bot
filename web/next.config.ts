@@ -5,6 +5,9 @@ import type { NextConfig } from "next";
 // next build nang hon the. Mat SSR va API routes cua Next, nhung khong can: API nam o bot.
 const nextConfig: NextConfig = {
   output: "export",
+  // Repo có lockfile bot ở thư mục cha và lockfile web riêng. Chỉ rõ root để Turbopack
+  // không coi toàn bộ bot là workspace frontend rồi scan/build thừa.
+  turbopack: { root: process.cwd() },
   // Toi uu anh cua Next can server; static export thi phai tat.
   images: { unoptimized: true },
   // /orders/ -> web/out/orders/index.html, de static server cua bot giai duoc bang

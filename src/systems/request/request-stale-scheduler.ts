@@ -151,8 +151,9 @@ export async function sweepStaleRequests(client: Client): Promise<{ reminded: nu
     }
 
     // Đơn đang làm mà đã quá hạn mong muốn. `staleRemindedAt` dùng chung với nhắc đơn OPEN:
-    // một đơn không thể vừa OPEN vừa CLAIMED nên không đụng nhau, và đơn được trả lại rồi
-    // nhận lại thì cũng chỉ nên nhắc một lần cho tới khi có người sửa hạn.
+    // một đơn không thể vừa OPEN vừa CLAIMED nên không đụng nhau. Claim/release reset mốc
+    // này để người nhận mới vẫn được nhắc về deadline, còn cùng một vòng làm việc chỉ nhắc
+    // một lần.
     const overdueOnes = await prisma.requestPost.findMany({
         where: {
             status: 'CLAIMED',

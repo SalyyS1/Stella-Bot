@@ -6,7 +6,11 @@ import {
     shouldRemindRating,
     type StaleThresholds
 } from '../src/systems/request/request-lifecycle';
-import { parseRequestEditId, REQUEST_EDIT_PREFIX } from '../src/systems/request/request-edit';
+import {
+    isRequestEditable,
+    parseRequestEditId,
+    REQUEST_EDIT_PREFIX
+} from '../src/systems/request/request-edit';
 
 // Lý do có test này: đây là code TỰ ĐÓNG ĐƠN CỦA NGƯỜI KHÁC mà không ai bấm nút. Sai ngưỡng
 // một chiều thì đơn còn sống bị đóng oan; sai chiều kia thì bảng đơn đầy rác. Cả hai đều chỉ
@@ -65,4 +69,12 @@ test('parse id nut sua don: chi nhan so duong', () => {
     assert.equal(parseRequestEditId(`${REQUEST_EDIT_PREFIX}abc`), null);
     assert.equal(parseRequestEditId('request_close_42'), null);
     assert.equal(parseRequestEditId(''), null);
+});
+
+test('pham vi va ngan sach bi khoa ngay khi co nguoi nhan', () => {
+    assert.equal(isRequestEditable('OPEN'), true);
+    assert.equal(isRequestEditable('CLAIMED'), false);
+    assert.equal(isRequestEditable('DONE'), false);
+    assert.equal(isRequestEditable('RATED'), false);
+    assert.equal(isRequestEditable('CLOSED'), false);
 });

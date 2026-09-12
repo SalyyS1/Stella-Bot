@@ -3,12 +3,13 @@ import prisma from '../../lib/prisma';
 import { config } from '../../config';
 import { sendMessageLog } from '../logs/message-log-sender';
 
-export type ModCaseKind = 'WARN' | 'NOTE' | 'TIMEOUT' | 'KICK' | 'BAN' | 'UNBAN' | 'GHOST_PING' | 'WATCH';
+export type ModCaseKind = 'WARN' | 'NOTE' | 'TIMEOUT' | 'UNTIMEOUT' | 'KICK' | 'BAN' | 'UNBAN' | 'GHOST_PING' | 'WATCH';
 
 const KIND_LABEL: Record<ModCaseKind, string> = {
     WARN: 'Cảnh cáo',
     NOTE: 'Ghi chú nội bộ',
     TIMEOUT: 'Timeout',
+    UNTIMEOUT: 'Gỡ timeout',
     KICK: 'Kick',
     BAN: 'Ban',
     UNBAN: 'Bỏ ban',
@@ -20,6 +21,7 @@ const KIND_COLOR: Record<ModCaseKind, string> = {
     WARN: '#e67e22',
     NOTE: '#95a5a6',
     TIMEOUT: '#e67e22',
+    UNTIMEOUT: '#2ecc71',
     KICK: '#e74c3c',
     BAN: '#c0392b',
     UNBAN: '#2ecc71',

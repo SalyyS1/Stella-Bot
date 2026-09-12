@@ -1,4 +1,4 @@
-import { Events, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { Events, Message, EmbedBuilder } from 'discord.js';
 import { config } from '../config';
 import { buildPortfolioEmbed } from '../utils/embedFormatter';
 import { processMessageXp } from '../systems/xpManager';
@@ -28,6 +28,7 @@ import { clearAfkOnMessage, notifyAfkMentions } from '../systems/utility/afk-man
 import { mirrorWatched } from '../systems/moderation/watch-manager';
 import { notifyHighlights } from '../systems/utility/highlight-manager';
 import { openAutoThread } from '../systems/utility/autothread-manager';
+import { portfolioPostButtons } from '../systems/portfolio/portfolio-post-editor';
 
 const getPart = (text: string, kw: string) => {
     // Regex lấy nội dung đằng sau [Keyword] cho tới gặp dấu [ tiếp theo hoặc hết chuỗi
@@ -417,10 +418,7 @@ export default {
                 }
             }
         }
-        else if ([
-            config.channels.portfolio,
-            config.channels.botLog
-        ].includes(message.channelId)) {
+        else if (message.channelId === config.channels.botLog) {
             await message.delete().catch(() => {});
             const warning = await (message.channel as any).send({
                 content: `<@${message.author.id}> ${config.ui.emojis.error} Tin nhắn không đúng khu vực đã bị xoá.`
@@ -434,8 +432,8 @@ export default {
             if (!isValid) {
                 await message.delete().catch(() => {});
             } else {
-                // Transform to Embed
-                await message.delete().catch(() => {});
+                // Gửi bản thay thế TRƯỚC khi xoá bài gốc. Nếu Discord từ chối gửi embed
+                // hoặc thiếu quyền, nội dung người dùng vẫn còn để họ thử lại.
                 const name = getPart(content, 'Tên');
                 const exp = getPart(content, 'Kinh nghiệm');
                 const service = getPart(content, 'Dịch vụ');
@@ -443,10 +441,15 @@ export default {
                 const contact = getPart(content, 'Liên hệ');
 
                 const embed = buildPortfolioEmbed(message.author, name, exp, service, portfolio, contact);
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`bump_${message.author.id}`).setLabel('Bump Bài').setStyle(ButtonStyle.Primary).setEmoji(config.ui.emojis.bump)
-                );
-                await (message.channel as any).send({ content: `<@${message.author.id}>`, embeds: [embed], components: [row] });
+                // Cần message id để nút Sửa trỏ đúng bài. Gửi trước rồi gắn cả Bump + Sửa;
+                // trước đây nhánh này chỉ có Bump và còn bị điều kiện phía trên nuốt mất.
+                const posted = await (message.channel as any).send({
+                    content: `<@${message.author.id}>`,
+                    embeds: [embed],
+                    allowedMentions: { users: [message.author.id] }
+                });
+                await posted.edit({ components: [portfolioPostButtons(message.author.id, posted.id)] }).catch(() => {});
+                await message.delete().catch(() => {});
             }
         }
 

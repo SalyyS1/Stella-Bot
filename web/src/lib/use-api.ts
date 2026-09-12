@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
+import { ApiError, apiGet } from "@/lib/api-client";
 
 // Mot hook cho moi trang. Ba trang thai tach ROI NHAU co y: "khong co du lieu" khac
 // "khong tai duoc". Tron hai cai lai la admin ngoi cho mot bang trong ma khong biet la
@@ -14,12 +15,22 @@ export interface Fetched<T> {
     reload: () => void;
 }
 
+interface FetchSnapshot<T> {
+    key: string;
+    data: T | null;
+    error: string | null;
+}
+
 export function useApi<T>(path: string, options: { refetchMs?: number } = {}): Fetched<T> {
-    const [data, setData] = useState<T | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+    const router = useRouter();
     const [nonce, setNonce] = useState(0);
+    const [snapshot, setSnapshot] = useState<FetchSnapshot<T>>({
+        key: "",
+        data: null,
+        error: null
+    });
     const refetchMs = options.refetchMs ?? 0;
+    const requestKey = path ? `${path}\u0000${nonce}` : "";
 
     useEffect(() => {
         let alive = true;
@@ -28,7 +39,6 @@ export function useApi<T>(path: string, options: { refetchMs?: number } = {}): F
         // URL). Goi voi path rong la mot request chac chan sai, nen ngoi im: khong loading,
         // khong loi. Trang tu quyet dinh hien gi trong truong hop nay.
         if (!path) {
-            setLoading(false);
             return () => { alive = false; };
         }
 
@@ -38,23 +48,23 @@ export function useApi<T>(path: string, options: { refetchMs?: number } = {}): F
                 // Component da unmount (doi trang) thi khong setState — React se canh
                 // bao, va quan trong hon la ket qua cu co the ghi de ket qua trang moi.
                 if (!alive) return;
-                setData(result);
-                setError(null);
+                setSnapshot({ key: requestKey, data: result, error: null });
             } catch (err) {
                 if (!alive) return;
-                setError(err instanceof Error ? err.message : "Không tải được dữ liệu");
-            } finally {
-                if (alive) setLoading(false);
+                if (err instanceof ApiError && err.status === 401) {
+                    router.replace("/auth/login");
+                }
+                setSnapshot(previous => ({
+                    key: requestKey,
+                    data: previous.key === requestKey ? previous.data : null,
+                    error: err instanceof Error ? err.message : "Không tải được dữ liệu"
+                }));
             }
         };
 
-        setLoading(true);
-        // Doi path (sang trang, doi bo loc) hoac bam "Thu lai" thi xoa loi cu: giu lai loi
-        // cua truy van truoc va gan no vao truy van moi la bao sai cho.
-        //
-        // Chi xoa o day, KHONG xoa trong `run` — `run` con duoc goi lai moi 60s boi
-        // setInterval, xoa trong do se lam loi nhay mat roi hien lai moi lan tick.
-        setError(null);
+        // Loading/error khi đổi path được SUY RA từ requestKey ở dưới, không setState đồng
+        // bộ trong effect. Cách này tránh một render dây chuyền và không cho dữ liệu của
+        // path cũ lóe lên trong lúc request mới đang chạy.
         void run();
 
         // Chi dashboard dat refetchMs. Bang danh sach KHONG tu lam moi: dang doc ma bang
@@ -65,7 +75,13 @@ export function useApi<T>(path: string, options: { refetchMs?: number } = {}): F
             alive = false;
             clearInterval(timer);
         };
-    }, [path, refetchMs, nonce]);
+    }, [path, refetchMs, nonce, requestKey, router]);
 
-    return { data, error, loading, reload: () => setNonce(n => n + 1) };
+    const current = Boolean(path) && snapshot.key === requestKey;
+    return {
+        data: current ? snapshot.data : null,
+        error: current ? snapshot.error : null,
+        loading: Boolean(path) && !current,
+        reload: () => setNonce(n => n + 1)
+    };
 }
